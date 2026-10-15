@@ -1,0 +1,26 @@
+# systemd unit for opm-cloud without Docker (SPEC §21 #108, docs-v2/self-host.md "Plain Node").
+#   install: /opt/opm-cloud/{dist,www}, user opm, data dir /var/lib/opm-cloud, config /etc/opm-cloud/env
+[Unit]
+Description=OPM cloud (opm-cloud)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opm
+Group=opm
+EnvironmentFile=-/etc/opm-cloud/env
+Environment=OPM_ADAPTER=local OPM_DATA_DIR=/var/lib/opm-cloud OPM_STATIC_DIR=/opt/opm-cloud/www OPM_PORT=8790
+ExecStart=/usr/bin/node --no-warnings=ExperimentalWarning /opt/opm-cloud/dist/opm-cloud.cjs serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+StateDirectory=opm-cloud
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/opm-cloud
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

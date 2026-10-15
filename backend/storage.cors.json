@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "https://opm.example.com",
+      "https://opm.example.com",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Length", "ETag", "Content-Disposition", "Range", "Accept-Ranges", "Content-Range"],
+    "maxAgeSeconds": 3600
+  }
+]

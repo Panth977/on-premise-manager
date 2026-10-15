@@ -1,0 +1,804 @@
+{
+ "splitSql": [
+  {
+   "in": "select 1; select 2;",
+   "out": [
+    "select 1",
+    "select 2"
+   ]
+  },
+  {
+   "in": "select ';' ; select 2",
+   "out": [
+    "select ';'",
+    "select 2"
+   ]
+  },
+  {
+   "in": "-- a;b\nselect 1",
+   "out": [
+    "-- a;b\nselect 1"
+   ]
+  },
+  {
+   "in": "create function f() returns int as $$ select 1; $$ language sql; select 2",
+   "out": [
+    "create function f() returns int as $$ select 1; $$ language sql",
+    "select 2"
+   ]
+  },
+  {
+   "in": "/* x; */ select 1 ;; ",
+   "out": [
+    "/* x; */ select 1"
+   ]
+  },
+  {
+   "in": "select \"a;b\" from t",
+   "out": [
+    "select \"a;b\" from t"
+   ]
+  }
+ ],
+ "classify": [
+  {
+   "kind": "postgres",
+   "in": "SELECT * FROM users",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "select 1; select 2",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "DROP TABLE x",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DROP TABLE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "drop schema s cascade",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DROP SCHEMA"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "TRUNCATE t",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "TRUNCATE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "DELETE FROM t",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DELETE without WHERE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "DELETE FROM t WHERE id=1",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "UPDATE t SET a=1",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "UPDATE without WHERE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "UPDATE t SET a='where' ",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "UPDATE without WHERE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "UPDATE t SET a=1 WHERE id=2",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "ALTER TABLE t DROP COLUMN c",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "ALTER … DROP"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "ALTER TABLE t ADD COLUMN c int",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "INSERT INTO t VALUES (1)",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DELETE without WHERE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "WITH x AS (SELECT 1) SELECT * FROM x",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "SELECT * FROM t FOR UPDATE",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "EXPLAIN SELECT 1",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "-- DROP TABLE x\nSELECT 1",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "VACUUM FULL t",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "VACUUM FULL"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "VACUUM t",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "CREATE TABLE a(id int)",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "SHOW server_version",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "ALTER SYSTEM SET work_mem = 1",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "ALTER SYSTEM"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "REVOKE ALL ON t FROM u",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "REVOKE"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "COPY t FROM PROGRAM 'id'",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "COPY … PROGRAM (runs a command on the database server)"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "COPY t TO '/tmp/x'",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "COPY to / from a server file"
+    ]
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "COPY t TO STDOUT",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "select pg_read_file('/etc/passwd')",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "server file access function"
+    ]
+   }
+  },
+  {
+   "kind": "sqlite",
+   "in": "PRAGMA table_info(t)",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "sqlite",
+   "in": "PRAGMA journal_mode = WAL",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "sqlite",
+   "in": "DROP INDEX i",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DROP INDEX"
+    ]
+   }
+  },
+  {
+   "kind": "sqlite",
+   "in": "ATTACH DATABASE \"x\" AS y",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "SELECT * FROM ks.t",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "DROP KEYSPACE ks",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DROP KEYSPACE"
+    ]
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "TRUNCATE ks.t",
+   "out": {
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "TRUNCATE"
+    ]
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "INSERT INTO t (a) VALUES (1)",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "DESCRIBE KEYSPACES",
+   "out": {
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "DELETE FROM t WHERE a = 1",
+   "out": {
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  }
+ ],
+ "redis": [
+  {
+   "in": [
+    "GET",
+    "a"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "SET",
+    "a",
+    "b"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "FLUSHALL"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "FLUSHALL"
+    ]
+   }
+  },
+  {
+   "in": [
+    "flushdb"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "FLUSHDB"
+    ]
+   }
+  },
+  {
+   "in": [
+    "DEL",
+    "a"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "DEL",
+    "user:*"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "DEL with a pattern-like key"
+    ]
+   }
+  },
+  {
+   "in": [
+    "KEYS",
+    "*"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "CONFIG",
+    "GET",
+    "*"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "CONFIG",
+    "SET",
+    "maxmemory",
+    "1"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "CONFIG SET"
+    ]
+   }
+  },
+  {
+   "in": [
+    "MONITOR"
+   ],
+   "out": {
+    "blocked": true,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "SUBSCRIBE",
+    "x"
+   ],
+   "out": {
+    "blocked": true,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "EVAL",
+    "return 1",
+    "0"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": true,
+    "reasons": [
+     "EVAL (script)"
+    ]
+   }
+  },
+  {
+   "in": [
+    "HGETALL",
+    "h"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "CLIENT",
+    "KILL",
+    "x"
+   ],
+   "out": {
+    "blocked": true,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "CLIENT",
+    "LIST"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "SCAN",
+    "0"
+   ],
+   "out": {
+    "blocked": false,
+    "write": false,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "EXPIRE",
+    "a",
+    "10"
+   ],
+   "out": {
+    "blocked": false,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  },
+  {
+   "in": [
+    "SELECT",
+    "1"
+   ],
+   "out": {
+    "blocked": true,
+    "write": true,
+    "destructive": false,
+    "reasons": []
+   }
+  }
+ ],
+ "parseRedis": [
+  {
+   "in": "GET a",
+   "out": [
+    "GET",
+    "a"
+   ]
+  },
+  {
+   "in": "SET \"a b\" 'c d'",
+   "out": [
+    "SET",
+    "a b",
+    "c d"
+   ]
+  },
+  {
+   "in": "SET k \"x\\ny\"",
+   "out": [
+    "SET",
+    "k",
+    "x\ny"
+   ]
+  },
+  {
+   "in": "HSET h f \"\"",
+   "out": [
+    "HSET",
+    "h",
+    "f",
+    ""
+   ]
+  },
+  {
+   "in": "GET \"unterminated",
+   "out": null
+  }
+ ],
+ "redact": [
+  {
+   "kind": "postgres",
+   "in": "CREATE ROLE u LOGIN PASSWORD 'secret123'",
+   "out": {
+    "text": "CREATE ROLE u LOGIN PASSWORD '••••••'",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "ALTER USER u WITH PASSWORD 'x''y'",
+   "out": {
+    "text": "ALTER USER u WITH PASSWORD '••••••'",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "select dblink('host=a password=hunter2 dbname=b','select 1')",
+   "out": {
+    "text": "select dblink('host=a password=•••••• dbname=b','select 1')",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "cassandra",
+   "in": "CREATE ROLE r WITH PASSWORD = 'pw' AND LOGIN = true",
+   "out": {
+    "text": "CREATE ROLE r WITH PASSWORD = '••••••' AND LOGIN = true",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "redis",
+   "in": "AUTH mypass",
+   "out": {
+    "text": "AUTH ••••••",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "redis",
+   "in": "AUTH user mypass",
+   "out": {
+    "text": "AUTH •••••• ••••••",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "redis",
+   "in": "CONFIG SET requirepass newpw",
+   "out": {
+    "text": "CONFIG SET requirepass ••••••",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "redis",
+   "in": "ACL SETUSER bob on >pw1 ~* +@all",
+   "out": {
+    "text": "ACL SETUSER bob on >•••••• ~* +@all",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "redis",
+   "in": "SET a b",
+   "out": {
+    "text": "SET a b",
+    "truncated": false
+   }
+  },
+  {
+   "kind": "postgres",
+   "in": "select 1",
+   "out": {
+    "text": "select 1",
+    "truncated": false
+   }
+  }
+ ],
+ "redactHttp": [
+  {
+   "in": [
+    "post",
+    "https://u:p@api.x/v1?token=abc&q=1",
+    [
+     [
+      "Authorization",
+      "Bearer xyz"
+     ],
+     [
+      "X-Api-Key",
+      "k"
+     ],
+     [
+      "Accept",
+      "json"
+     ],
+     [
+      "Cookie",
+      "a=b"
+     ]
+    ],
+    12
+   ],
+   "out": {
+    "text": "POST https://u:••••••@api.x/v1?token=••••••&q=1\nAuthorization: Bearer ••••••\nX-Api-Key: ••••••\nAccept: json\nCookie: ••••••\n(body 12 bytes)",
+    "truncated": false
+   }
+  }
+ ]
+}

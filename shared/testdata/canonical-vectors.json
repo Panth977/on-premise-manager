@@ -1,0 +1,219 @@
+{
+  "description": "JCS (RFC 8785), activity hash and signed-request vectors shared by TS (shared/src/canonical.test.ts) and Go (agent/internal/canonical).",
+  "canonical": [
+    {
+      "json": "null",
+      "output": "null"
+    },
+    {
+      "json": "true",
+      "output": "true"
+    },
+    {
+      "json": "false",
+      "output": "false"
+    },
+    {
+      "json": "0",
+      "output": "0"
+    },
+    {
+      "json": "-0",
+      "output": "0"
+    },
+    {
+      "json": "1",
+      "output": "1"
+    },
+    {
+      "json": "-1",
+      "output": "-1"
+    },
+    {
+      "json": "0.5",
+      "output": "0.5"
+    },
+    {
+      "json": "1e21",
+      "output": "1e+21"
+    },
+    {
+      "json": "1e20",
+      "output": "100000000000000000000"
+    },
+    {
+      "json": "123456789012345680000",
+      "output": "123456789012345680000"
+    },
+    {
+      "json": "1e-7",
+      "output": "1e-7"
+    },
+    {
+      "json": "0.000001",
+      "output": "0.000001"
+    },
+    {
+      "json": "1.5e-10",
+      "output": "1.5e-10"
+    },
+    {
+      "json": "3.14159",
+      "output": "3.14159"
+    },
+    {
+      "json": "100",
+      "output": "100"
+    },
+    {
+      "json": "1E3",
+      "output": "1000"
+    },
+    {
+      "json": "-12.50",
+      "output": "-12.5"
+    },
+    {
+      "json": "\"\"",
+      "output": "\"\""
+    },
+    {
+      "json": "\"a\\\"b\\\\c\"",
+      "output": "\"a\\\"b\\\\c\""
+    },
+    {
+      "json": "\"\\u0000\\u001f\\b\\f\\n\\r\\t\"",
+      "output": "\"\\u0000\\u001f\\b\\f\\n\\r\\t\""
+    },
+    {
+      "json": "\"<>&'/\"",
+      "output": "\"<>&'/\""
+    },
+    {
+      "json": "\"é✓😀\"",
+      "output": "\"é✓😀\""
+    },
+    {
+      "json": "\"\\u2028\\u2029\"",
+      "output": "\"  \""
+    },
+    {
+      "json": "[]",
+      "output": "[]"
+    },
+    {
+      "json": "{}",
+      "output": "{}"
+    },
+    {
+      "json": "[1,\"a\",null,true,[2,{}]]",
+      "output": "[1,\"a\",null,true,[2,{}]]"
+    },
+    {
+      "json": "{\"b\":1,\"a\":2,\"aa\":3,\"A\":4,\"_\":5,\"1\":6}",
+      "output": "{\"1\":6,\"A\":4,\"_\":5,\"a\":2,\"aa\":3,\"b\":1}"
+    },
+    {
+      "json": "{\"\\uffff\":1,\"😀\":2,\"€\":3,\"z\":4}",
+      "output": "{\"z\":4,\"€\":3,\"😀\":2,\"￿\":1}"
+    },
+    {
+      "json": "{\"nested\":{\"y\":[{\"b\":1,\"a\":2}],\"x\":null},\"arr\":[{\"z\":0,\"y\":-0.25}]}",
+      "output": "{\"arr\":[{\"y\":-0.25,\"z\":0}],\"nested\":{\"x\":null,\"y\":[{\"a\":2,\"b\":1}]}}"
+    },
+    {
+      "json": "{\"config\":{\"variables\":[{\"variableSlug\":\"theme\",\"value\":\"green\",\"required\":true}],\"secrets\":[],\"files\":[],\"sites\":[]}}",
+      "output": "{\"config\":{\"files\":[],\"secrets\":[],\"sites\":[],\"variables\":[{\"required\":true,\"value\":\"green\",\"variableSlug\":\"theme\"}]}}"
+    }
+  ],
+  "activities": [
+    {
+      "activity": {
+        "activityId": "app:1",
+        "deploymentId": "Dep0000000000000001x",
+        "siteSlug": "app",
+        "seq": 1,
+        "ts": "2026-10-07T09:30:00.000Z",
+        "actor": null,
+        "origin": "system",
+        "type": "agent.started",
+        "summary": "Agent 0.1.0 started",
+        "data": {
+          "agentVersion": "0.1.0",
+          "headRevId": null
+        },
+        "prevHash": null,
+        "hash": "sha256:d3853eb5c08b37d7d388f4128d04dda4712d2eb77d7fee039166252207273c69"
+      },
+      "hashInput": "{\"activityId\":\"app:1\",\"actor\":null,\"data\":{\"agentVersion\":\"0.1.0\",\"headRevId\":null},\"deploymentId\":\"Dep0000000000000001x\",\"origin\":\"system\",\"seq\":1,\"siteSlug\":\"app\",\"summary\":\"Agent 0.1.0 started\",\"ts\":\"2026-10-07T09:30:00.000Z\",\"type\":\"agent.started\"}",
+      "hash": "sha256:d3853eb5c08b37d7d388f4128d04dda4712d2eb77d7fee039166252207273c69"
+    },
+    {
+      "activity": {
+        "activityId": "app:2",
+        "deploymentId": "Dep0000000000000001x",
+        "siteSlug": "app",
+        "seq": 2,
+        "ts": "2026-10-07T09:31:00.000Z",
+        "actor": "ravi@acme.example",
+        "origin": "agent",
+        "type": "actor.declared",
+        "summary": "Actor declared: ravi@acme.example",
+        "data": {
+          "email": "ravi@acme.example",
+          "ip": "10.0.9.21",
+          "userAgent": "Mozilla/5.0",
+          "sessionId": "01JBA0Q7M2ZZZZZZZZZZZZZZZZ",
+          "siteSlug": "app"
+        },
+        "prevHash": "sha256:d3853eb5c08b37d7d388f4128d04dda4712d2eb77d7fee039166252207273c69",
+        "hash": "sha256:7865100720754bfee5dff18d7c90f3d4a1ac1d7db78096838ac23981d6293a0a"
+      },
+      "hashInput": "sha256:d3853eb5c08b37d7d388f4128d04dda4712d2eb77d7fee039166252207273c69{\"activityId\":\"app:2\",\"actor\":\"ravi@acme.example\",\"data\":{\"email\":\"ravi@acme.example\",\"ip\":\"10.0.9.21\",\"sessionId\":\"01JBA0Q7M2ZZZZZZZZZZZZZZZZ\",\"siteSlug\":\"app\",\"userAgent\":\"Mozilla/5.0\"},\"deploymentId\":\"Dep0000000000000001x\",\"origin\":\"agent\",\"seq\":2,\"siteSlug\":\"app\",\"summary\":\"Actor declared: ravi@acme.example\",\"ts\":\"2026-10-07T09:31:00.000Z\",\"type\":\"actor.declared\"}",
+      "hash": "sha256:7865100720754bfee5dff18d7c90f3d4a1ac1d7db78096838ac23981d6293a0a"
+    }
+  ],
+  "signing": {
+    "seedHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "publicKeyB64": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/v1/agent/heartbeat?x=1",
+        "ts": 1791367800,
+        "nonce": "3q2-7wEAAZv4mXrQ0k1yTg",
+        "body": "{\"siteSlug\":\"app\",\"headRevId\":null}",
+        "bodySha256Hex": "d7999b56c15d0d9b8e394f296a8624843182c0c1a22be98adea0ebd2d488999f",
+        "stringToSign": "POST\n/v1/agent/heartbeat?x=1\n1791367800\n3q2-7wEAAZv4mXrQ0k1yTg\nd7999b56c15d0d9b8e394f296a8624843182c0c1a22be98adea0ebd2d488999f",
+        "signature": "mNniNok2rRoiqZo4M0FLfqoiqm1TmasNTXJBrlSgNdGzDunnXMhHdJ4GSw3Qpvtg6MOabOWTwxprpPXdtKU4DQ",
+        "headers": {
+          "X-OPM-Site": "Dep0000000000000001x/app",
+          "X-OPM-Ts": "1791367800",
+          "X-OPM-Nonce": "3q2-7wEAAZv4mXrQ0k1yTg",
+          "X-OPM-Sig": "mNniNok2rRoiqZo4M0FLfqoiqm1TmasNTXJBrlSgNdGzDunnXMhHdJ4GSw3Qpvtg6MOabOWTwxprpPXdtKU4DQ"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/_opm/peer/ping",
+        "ts": 1791367800,
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+        "body": "",
+        "bodySha256Hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stringToSign": "GET\n/_opm/peer/ping\n1791367800\nAAAAAAAAAAAAAAAAAAAAAA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "GUEd8_4jVKrpOjSrZCmkuAYpe16ufj6J0afW7ttuOAoADlNs82SCIqaazWsn-U-V2jD45ujU_cE-l49E06VPAg"
+      }
+    ],
+    "responses": [
+      {
+        "status": 200,
+        "requestNonce": "3q2-7wEAAZv4mXrQ0k1yTg",
+        "ts": 1791367801,
+        "body": "{\"siteSlug\":\"app\",\"headRevId\":null}",
+        "bodySha256Hex": "d7999b56c15d0d9b8e394f296a8624843182c0c1a22be98adea0ebd2d488999f",
+        "stringToSign": "RESPONSE\n200\n3q2-7wEAAZv4mXrQ0k1yTg\n1791367801\nd7999b56c15d0d9b8e394f296a8624843182c0c1a22be98adea0ebd2d488999f",
+        "signature": "z0fE6XW_JhSo2gVHVpHHEbJWzXLo_n25gufi7VBf3jP6zTiP8GVMY6J1dQ4V3jvLO_11d_piA1XjciqyVNaFAA"
+      }
+    ]
+  }
+}

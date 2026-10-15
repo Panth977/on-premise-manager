@@ -1,0 +1,131 @@
+{
+  "_doc": "Round E required-variable rules. Base: hello-config + variable server-ip (case.variable) used by sites[app].config.host and env SERVER_URL of every app container, + required secret jwt-key (case.secretValue) used by env JWT of the first app container (see shared/scripts/gen-required-vectors.mjs). validateConfig(mode) issues filtered to `codes` must equal expect (path, code, severity).",
+  "codes": [
+    "V_VAR_REQUIRED",
+    "V_VAR_OPTIONAL_NULL",
+    "V_SECRET_REQUIRED",
+    "V_HOST_AUTO",
+    "V_HOST",
+    "E_NULL",
+    "E_DEFERRED",
+    "E_TYPE",
+    "V_OPTION",
+    "V_PATH"
+  ],
+  "cases": [
+    {
+      "name": "template + required null → no issue",
+      "mode": "template",
+      "variable": {
+        "required": true,
+        "value": null
+      },
+      "secretValue": null,
+      "expect": []
+    },
+    {
+      "name": "template + optional null → one info on the variable (+ E_NULL where null is invalid)",
+      "mode": "template",
+      "variable": {
+        "required": false,
+        "value": null
+      },
+      "secretValue": null,
+      "expect": [
+        {
+          "path": "variables[server-ip].value",
+          "code": "V_VAR_OPTIONAL_NULL",
+          "severity": "info"
+        },
+        {
+          "path": "sites[app].config.containers[hello-api].env[SERVER_URL].value",
+          "code": "E_TYPE",
+          "severity": "warning"
+        },
+        {
+          "path": "sites[app].config.containers[hello-web].env[SERVER_URL].value",
+          "code": "E_TYPE",
+          "severity": "warning"
+        }
+      ]
+    },
+    {
+      "name": "draft + required null → one V_VAR_REQUIRED (publish blocker) + V_SECRET_REQUIRED",
+      "mode": "draft",
+      "variable": {
+        "required": true,
+        "value": null
+      },
+      "secretValue": null,
+      "expect": [
+        {
+          "path": "variables[server-ip].value",
+          "code": "V_VAR_REQUIRED",
+          "severity": "warning"
+        },
+        {
+          "path": "secrets[jwt-key].value",
+          "code": "V_SECRET_REQUIRED",
+          "severity": "warning"
+        }
+      ]
+    },
+    {
+      "name": "publish + required null → errors on the variable / secret only",
+      "mode": "publish",
+      "variable": {
+        "required": true,
+        "value": null
+      },
+      "secretValue": null,
+      "expect": [
+        {
+          "path": "variables[server-ip].value",
+          "code": "V_VAR_REQUIRED",
+          "severity": "error"
+        },
+        {
+          "path": "secrets[jwt-key].value",
+          "code": "V_SECRET_REQUIRED",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "name": "draft + required set → clean",
+      "mode": "draft",
+      "variable": {
+        "required": true,
+        "value": "10.0.0.5"
+      },
+      "secretValue": "s3cret",
+      "expect": []
+    },
+    {
+      "name": "draft + optional null → V_HOST_AUTO + null errors at usages",
+      "mode": "draft",
+      "variable": {
+        "required": false,
+        "value": null
+      },
+      "secretValue": "s3cret",
+      "expect": [
+        {
+          "path": "sites[app].config.host",
+          "code": "V_HOST_AUTO",
+          "severity": "warning"
+        },
+        {
+          "path": "sites[app].config.containers[hello-api].env[SERVER_URL].value",
+          "code": "E_TYPE",
+          "severity": "warning"
+        },
+        {
+          "path": "sites[app].config.containers[hello-web].env[SERVER_URL].value",
+          "code": "E_TYPE",
+          "severity": "warning"
+        }
+      ]
+    }
+  ]
+}

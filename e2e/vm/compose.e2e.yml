@@ -1,0 +1,11 @@
+# VM e2e override (SPEC §21 #108) — TEST ONLY, never part of the default stack.
+#   cd selfhost && docker-compose -f docker-compose.yml -f ../e2e/vm/compose.e2e.yml up -d
+# OPM_TEST_HOOKS=1 turns on the emulator-only hooks (githubMirror/config._apiBase → the fake GitHub on the host,
+# _scope); host.docker.internal reaches the fake GitHub that e2e/vm/vm-e2e.ts runs on the Mac.
+# `docker-compose up -d` (base file only) afterwards puts the stack back to production settings (data kept).
+services:
+  opm-cloud:
+    environment:
+      OPM_TEST_HOOKS: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

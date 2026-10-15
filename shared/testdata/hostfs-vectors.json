@@ -1,0 +1,129 @@
+{
+ "protected": [
+  "/var/lib/opm",
+  "/etc/opm/agent.json",
+  "/etc/opm/install-token"
+ ],
+ "cases": [
+  {
+   "path": "/var/log/syslog",
+   "blocked": null
+  },
+  {
+   "path": "/var/lib/opm",
+   "blocked": "agent"
+  },
+  {
+   "path": "/var/lib/opm/site.key",
+   "blocked": "agent"
+  },
+  {
+   "path": "/var/lib/opm/../opm/opm.db",
+   "blocked": "agent"
+  },
+  {
+   "path": "/var/lib/opmx/file",
+   "blocked": null
+  },
+  {
+   "path": "/etc/opm/agent.json",
+   "blocked": "agent"
+  },
+  {
+   "path": "/etc/opm/agent.json.bak",
+   "blocked": null
+  },
+  {
+   "path": "/etc/opm/install-token",
+   "blocked": "agent"
+  },
+  {
+   "path": "/proc/kcore",
+   "blocked": "pseudo"
+  },
+  {
+   "path": "/proc",
+   "blocked": "pseudo"
+  },
+  {
+   "path": "/processes/x",
+   "blocked": null
+  },
+  {
+   "path": "/sys/kernel/x",
+   "blocked": "pseudo"
+  },
+  {
+   "path": "/dev/sda",
+   "blocked": "pseudo"
+  },
+  {
+   "path": "/run/docker.sock",
+   "blocked": "pseudo"
+  },
+  {
+   "path": "/running.txt",
+   "blocked": null
+  },
+  {
+   "path": "/etc/shadow",
+   "blocked": "secret"
+  },
+  {
+   "path": "/etc/shadow-",
+   "blocked": "secret"
+  },
+  {
+   "path": "/etc/gshadow",
+   "blocked": "secret"
+  },
+  {
+   "path": "/etc/passwd",
+   "blocked": null
+  },
+  {
+   "path": "/etc/sudoers",
+   "blocked": "secret"
+  },
+  {
+   "path": "/etc/sudoers.d/x",
+   "blocked": null
+  },
+  {
+   "path": "/etc/ssh/ssh_host_ed25519_key",
+   "blocked": "secret"
+  },
+  {
+   "path": "/etc/ssh/ssh_host_ed25519_key.pub",
+   "blocked": null
+  },
+  {
+   "path": "/etc/ssh/sshd_config",
+   "blocked": null
+  },
+  {
+   "path": "/home/u/.ssh/id_rsa",
+   "blocked": null
+  },
+  {
+   "path": "relative/x",
+   "blocked": "invalid"
+  },
+  {
+   "path": "",
+   "blocked": "invalid"
+  },
+  {
+   "path": "/",
+   "blocked": null
+  },
+  {
+   "path": "//etc//./shadow",
+   "blocked": "secret"
+  },
+  {
+   "path": "/tmp/../etc/shadow",
+   "blocked": "secret"
+  }
+ ]
+}

@@ -1,0 +1,33 @@
+name: agent-release
+
+# Tag vX.Y.Z → opm-agent binaries (linux amd64/arm64, darwin arm64) + release.json + the GitHub-mirror helpers,
+# attached to the GitHub release. Upload them to your cloud with `opm-cloud upload-agent` (docs-v2/self-host.md).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: agent/go.mod }
+      - name: Agent GUI
+        run: |
+          (cd shared && npm ci && npm run build)
+          (cd ui && npm ci)
+          (cd agent/gui && npm ci && npm run build)
+      - name: Binaries
+        run: cd agent && make dist VERSION="${GITHUB_REF_NAME#v}"
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: agent/dist/*

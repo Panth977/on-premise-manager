@@ -1,0 +1,39 @@
+# never commit credentials or local env
+.secrets/
+**/.env
+**/.env.*
+!**/.env.example
+# local runtime data
+e2e/run/
+
+# local tooling / caches
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# Playwright / test run output (any parallel-run variant, e.g. test-results-j, build-mock-br)
+**/test-results*/
+**/playwright-report*/
+**/blob-report*/
+**/.playwright-artifacts*/
+**/build-mock*/
+# opm-cloud local VM stack data (docker compose volume / tests)
+selfhost/data/
+selfhost/caddy-data/
+
+# dependencies + build output
+node_modules/
+**/.svelte-kit/
+frontend/build/
+backend/dist/
+backend/functions/lib/
+agent/dist/
+agent/internal/webui/dist/
+*.log
+.DS_Store
+
+# generated screenshots / media (rendered by the Playwright suites, not committed)
+**/screenshots/
+docs-v2/assets/gui-consistency/
+*.mp4
+*.mp3

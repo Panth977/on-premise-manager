@@ -1,0 +1,12 @@
+# HTTPS in front of opm-cloud (automatic Let's Encrypt certificate for $OPM_DOMAIN). Long polls (≤ 50 s) and 2 GiB
+# transfers (8 MiB parts) pass through unchanged; flush_interval -1 streams downloads.
+{$OPM_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy opm-cloud:8790 {
+		flush_interval -1
+		transport http {
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+}

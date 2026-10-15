@@ -1,0 +1,23 @@
+{
+  "hosting": {
+    "public": "hosting-placeholder",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/v1/**",
+        "function": {
+          "functionId": "api",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

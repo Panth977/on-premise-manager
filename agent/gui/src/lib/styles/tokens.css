@@ -1,0 +1,88 @@
+/*
+ * OPM agent GUI — agent-only tokens. Every shared token (colours, type, spacing, radii, shadows, motion) comes from
+ * ui/src/styles/tokens.css (the ONE file of both GUIs, SPEC §21 #102), imported first by app.css. Here: bundled fonts
+ * (sites may be offline, no CDN: Inter + JetBrains Mono, Latin subset, SIL OFL 1.1, fonts/LICENSE-*.txt), the agent's
+ * in-flow z-index scale (modals / drawers / popovers use the browser top layer) and the dark log / ANSI palette.
+ */
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('./fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --z-sticky: 1;
+  --z-editbar: 15;
+  --z-header: 20;
+  --z-scrim: 30;
+  --z-sidebar: 40;
+  --z-banner: 50;
+  --z-drawer: 60;
+  --z-modal: 70;
+  --z-popover: 80;
+  --z-toast: 90;
+  --z-tooltip: 100;
+  --log-bg: #121216;
+  --log-text: #d4d4dc;
+  --ansi-0: #7c7c88;
+  --ansi-1: #f87171;
+  --ansi-2: #4ade80;
+  --ansi-3: #facc15;
+  --ansi-4: #60a5fa;
+  --ansi-5: #e879f9;
+  --ansi-6: #22d3ee;
+  --ansi-7: #d4d4dc;
+  --ansi-8: #9696a2;
+  --ansi-9: #fca5a5;
+  --ansi-10: #86efac;
+  --ansi-11: #fde047;
+  --ansi-12: #93c5fd;
+  --ansi-13: #f0abfc;
+  --ansi-14: #67e8f9;
+  --ansi-15: #fafafa;
+  --ansi-fg: var(--log-text);
+  --ansi-bg: var(--log-bg);
+}
+
+/*
+ * The agent's accent is green (emerald) — the cloud console is indigo — so the two GUIs are told apart at a glance.
+ * Only the accent family changes; status green (--green*) stays the shared one. Same selectors as ui tokens.css.
+ */
+:root {
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-soft: #ecfdf5;
+  --accent-soft-2: #d1fae5;
+  --accent-text: #047857;
+  --focus-ring: 0 0 0 3px rgba(5, 150, 105, 0.28);
+}
+:root[data-theme='dark'] {
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --accent-soft: #0b2a21;
+  --accent-soft-2: #10392d;
+  --accent-text: #6ee7b7;
+  --focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.38);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --accent: #10b981;
+    --accent-hover: #34d399;
+    --accent-soft: #0b2a21;
+    --accent-soft-2: #10392d;
+    --accent-text: #6ee7b7;
+    --focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.38);
+  }
+}

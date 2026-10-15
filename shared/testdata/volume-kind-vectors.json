@@ -1,0 +1,106 @@
+{
+  "description": "Image volume kind (SPEC §21 #83). `infer`: inferImageVolumeKind(mountPath). `imageVolumes`: validateImageVolumes issues for one image volume. `mounts`: hello fixture, site app, container hello-api; the image hello-api:v1 gets an extra image volume `t` (mountPath imagePath, kind imageKind; null = key absent = inferred), the site declares data volume `tv` (kind siteKind), and hello-api gets one row: imageVolume `t` (or an extra mount when imageVolume is null) with mountPath / readOnly / source (volume = tv, file = banner, secret = api-token). Expect = the issues with a code in `codes` (path, code, severity), in validator order, for every mode in `modes`.",
+  "codes": ["V_VOLUME_KIND", "V_VOLUME_KIND_IMAGE", "V_VOLUME_KIND_MISMATCH", "V_FILE_VOLUME_RENAME"],
+  "modes": ["template", "publish"],
+  "infer": [
+    { "mountPath": "/data/flows.json", "kind": "file" },
+    { "mountPath": "/data/settings.js", "kind": "file" },
+    { "mountPath": "/app/helper/config/env/{{ container.env.NODE_ENV }}.ts", "kind": "file" },
+    { "mountPath": "/etc/nginx/nginx.conf", "kind": "file" },
+    { "mountPath": "/data", "kind": "dir" },
+    { "mountPath": "/data/", "kind": "dir" },
+    { "mountPath": "/var/lib/postgresql/data", "kind": "dir" },
+    { "mountPath": "/etc/nginx/conf.d", "kind": "dir" },
+    { "mountPath": "/root/.config", "kind": "dir" },
+    { "mountPath": "/opt/app-1.2", "kind": "dir" },
+    { "mountPath": "/{{ container.env.DATA_DIR }}", "kind": "dir" },
+    { "mountPath": "/srv/{{ var.name }}.yaml", "kind": "file" },
+    { "mountPath": "/x/{{ a | default(\"b.c\") }}", "kind": "dir" }
+  ],
+  "imageVolumes": [
+    { "name": "file kind ok", "volume": { "name": "flow", "mountPath": "/data/flows.json", "kind": "file", "description": "" }, "expect": [] },
+    { "name": "absent kind ok", "volume": { "name": "flow", "mountPath": "/data/flows.json", "description": "" }, "expect": [] },
+    { "name": "bad kind", "volume": { "name": "flow", "mountPath": "/data", "kind": "folder", "description": "" }, "expect": [{ "path": "volumes[flow].kind", "code": "V_ENUM", "severity": "error" }] },
+    { "name": "file kind at a folder path", "volume": { "name": "flow", "mountPath": "/data/", "kind": "file", "description": "" }, "expect": [{ "path": "volumes[flow].mountPath", "code": "V_VOLUME_KIND", "severity": "error" }] }
+  ],
+  "mounts": [
+    {
+      "name": "user report: file volume on file image volume (node-red flow) → only the rename info",
+      "imagePath": "/data/flows.json", "imageKind": "file", "siteKind": "file",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": false, "source": "volume" },
+      "expect": [{ "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_FILE_VOLUME_RENAME", "severity": "info" }]
+    },
+    {
+      "name": "legacy image volume without kind at a file path = file (after-migration semantics)",
+      "imagePath": "/data/flows.json", "imageKind": null, "siteKind": "file",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": false, "source": "volume" },
+      "expect": [{ "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_FILE_VOLUME_RENAME", "severity": "info" }]
+    },
+    {
+      "name": "file volume read-only on file image volume → nothing",
+      "imagePath": "/data/settings.js", "imageKind": "file", "siteKind": "file",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": true, "source": "volume" },
+      "expect": []
+    },
+    {
+      "name": "file volume on folder image volume → warning naming both controls + info",
+      "imagePath": "/data/flows.json", "imageKind": "dir", "siteKind": "file",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": false, "source": "volume" },
+      "expect": [
+        { "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_VOLUME_KIND_IMAGE", "severity": "warning" },
+        { "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_FILE_VOLUME_RENAME", "severity": "info" }
+      ]
+    },
+    {
+      "name": "folder volume on file image volume → error",
+      "imagePath": "/data/flows.json", "imageKind": "file", "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": false, "source": "volume" },
+      "expect": [{ "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_VOLUME_KIND_MISMATCH", "severity": "error" }]
+    },
+    {
+      "name": "folder volume on legacy (no kind) image volume at a file path → error",
+      "imagePath": "/data/settings.js", "imageKind": null, "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": true, "source": "volume" },
+      "expect": [{ "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_VOLUME_KIND_MISMATCH", "severity": "error" }]
+    },
+    {
+      "name": "folder volume on folder image volume → nothing",
+      "imagePath": "/srv/data", "imageKind": "dir", "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": false, "source": "volume" },
+      "expect": []
+    },
+    {
+      "name": "image volume row with its own mount path: no image-kind check",
+      "imagePath": "/data/flows.json", "imageKind": "file", "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": "/srv/flows", "readOnly": false, "source": "volume" },
+      "expect": []
+    },
+    {
+      "name": "file volume at a folder path → V_VOLUME_KIND (+ info)",
+      "imagePath": "/srv/data", "imageKind": "dir", "siteKind": "file",
+      "row": { "imageVolume": "t", "mountPath": "/srv/data/", "readOnly": false, "source": "volume" },
+      "expect": [
+        { "path": "sites[app].config.containers[hello-api].volumes[t].mountPath", "code": "V_VOLUME_KIND", "severity": "error" },
+        { "path": "sites[app].config.containers[hello-api].volumes[t].source.volumeSlug", "code": "V_FILE_VOLUME_RENAME", "severity": "info" }
+      ]
+    },
+    {
+      "name": "extra mount of a file volume at a file path, read-write → info only",
+      "imagePath": "/srv/data", "imageKind": "dir", "siteKind": "file",
+      "row": { "imageVolume": null, "mountPath": "/etc/one.json", "readOnly": false, "source": "volume" },
+      "expect": [{ "path": "sites[app].config.containers[hello-api].volumes[1].source.volumeSlug", "code": "V_FILE_VOLUME_RENAME", "severity": "info" }]
+    },
+    {
+      "name": "config file on a folder image volume → current rule (nothing)",
+      "imagePath": "/srv/data", "imageKind": "dir", "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": true, "source": "file" },
+      "expect": []
+    },
+    {
+      "name": "secret on a file image volume → nothing",
+      "imagePath": "/run/token.txt", "imageKind": "file", "siteKind": "dir",
+      "row": { "imageVolume": "t", "mountPath": null, "readOnly": true, "source": "secret" },
+      "expect": []
+    }
+  ]
+}

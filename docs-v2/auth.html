@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auth & Access</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .chk-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .chk-grid { grid-template-columns: minmax(0, 1fr); } }
+  textarea.json { width: 100%; min-height: 230px; font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; font-size: 13px; }
+  .field input, .field select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+  .verdict { font-weight: 650; font-size: 15px; }
+  .sitebox { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sitebox .card { padding: 10px 12px; min-width: 150px; }
+  pre.wrap { white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Security</div>
+<h1>Auth &amp; access</h1>
+<p class="lede">OPM has four trust paths. People log in to the cloud with Firebase Auth. Agents sign every request with their own site key. People do NOT log in to an agent: the agent GUI only asks "Who is working right now?" and writes that email as the actor. The site never uses Firebase, so a later move away from Firebase is simple.</p>
+
+<h2 id="paths">The four trust paths</h2>
+<div class="explorer">
+  <div class="diagram">
+    <svg id="pathSvg" viewBox="0 0 900 400" role="img" aria-label="Trust paths">
+      <defs><marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+      <rect x="10" y="10" width="420" height="150" rx="14" class="zone zone-cloud" />
+      <text x="26" y="32" font-size="12" font-weight="600" class="muted">CLOUD · api.opm.example</text>
+      <g data-k="fe"><rect x="30" y="50" width="170" height="56" rx="9" class="box app" /><text x="115" y="75" text-anchor="middle" font-size="13" font-weight="650">cloud frontend</text><text x="115" y="92" text-anchor="middle" font-size="10.5" class="muted">app.opm.example</text></g>
+      <g data-k="api"><rect x="240" y="50" width="170" height="56" rx="9" class="box app" /><text x="325" y="75" text-anchor="middle" font-size="13" font-weight="650">cloud backend API</text><text x="325" y="92" text-anchor="middle" font-size="10.5" class="muted">/v1/…</text></g>
+      <g data-k="human"><rect x="30" y="220" width="170" height="56" rx="9" class="box ext" /><text x="115" y="245" text-anchor="middle" font-size="13" font-weight="650">Operator (person)</text><text x="115" y="262" text-anchor="middle" font-size="10.5" class="muted">browser</text></g>
+      <rect x="470" y="10" width="420" height="380" rx="14" class="zone" />
+      <text x="486" y="32" font-size="12" font-weight="600" class="muted">CLIENT PREMISES · deployment acme-plant</text>
+      <g data-k="sa"><rect x="500" y="60" width="170" height="70" rx="9" class="box agent" /><text x="585" y="88" text-anchor="middle" font-size="13" font-weight="650">site app</text><text x="585" y="106" text-anchor="middle" font-size="10.5" class="muted">agent · site key A</text></g>
+      <g data-k="sd"><rect x="700" y="60" width="170" height="70" rx="9" class="box agent" /><text x="785" y="88" text-anchor="middle" font-size="13" font-weight="650">site db</text><text x="785" y="106" text-anchor="middle" font-size="10.5" class="muted">agent · site key B</text></g>
+      <g data-k="login"><rect x="560" y="260" width="250" height="60" rx="9" class="box ext" /><text x="685" y="286" text-anchor="middle" font-size="13" font-weight="650">login (access key) + "who?"</text><text x="685" y="304" text-anchor="middle" font-size="10.5" class="muted">opm_session 6 h · declared email</text></g>
+      <path d="M115,220 V106" class="ln ln-cloud" marker-end="url(#pa)" /><text x="122" y="170" class="lbl">1 · Firebase Auth</text>
+      <path d="M200,78 H240" class="ln ln-cloud" marker-end="url(#pa)" /><text x="220" y="70" text-anchor="middle" class="lbl">ID token</text>
+      <path d="M500,95 C450,95 450,80 410,80" class="ln ln-agent" marker-end="url(#pa)" /><text x="455" y="128" text-anchor="middle" class="lbl">2 · signed request</text>
+      <path d="M670,95 H700" class="ln ln-agent" marker-start="url(#pa)" marker-end="url(#pa)" /><text x="685" y="150" text-anchor="middle" class="lbl">3 · signed (mesh)</text>
+      <path d="M200,248 C380,248 420,290 560,290" class="ln ln-admin" marker-end="url(#pa)" /><text x="380" y="282" text-anchor="middle" class="lbl">4 · access key login, then declared actor</text>
+      <path d="M640,260 L600,130" class="ln ln-admin" marker-end="url(#pa)" />
+    </svg>
+    <div class="cap">Click a box. Paths 2 and 3 use the same signed-request format (see <a href="#signed">signed requests</a>).</div>
+  </div>
+  <div class="panel" id="pathInfo"></div>
+</div>
+
+<h2 id="access">Access rules (cloud)</h2>
+<p>Each account has a list of access rules. The API denies a request by default. It allows the request when one rule matches. A manager of a deployment can do every <code>deployment.*</code> action on that deployment.</p>
+<pre><code>interface AccessRule { resource: Resource; actions: Action[]; scope: Scope; }
+type Action   = 'read' | 'write' | 'publish' | 'admin';
+type Resource = 'registries' | 'services' | 'images' | 'notFoundPages' | 'templates' | 'tags' | 'accounts'
+              | 'deployments' | 'deployment.setup' | 'deployment.config' | 'deployment.secrets'
+              | 'deployment.activities' | 'deployment.transfers';
+type Scope    = { kind: 'all' } | { kind: 'tags'; tagSlugs: Slug[] } | { kind: 'deployments'; deploymentIds: Id[] };</code></pre>
+<div class="tbl-wrap"><table>
+<tr><th>Rule</th><th>Meaning</th></tr>
+<tr><td>Deny by default</td><td>No rule matches → <code>403 forbidden</code>.</td></tr>
+<tr><td>Rule match</td><td>The rule has the resource, the action, and a scope that contains the target deployment.</td></tr>
+<tr><td>Scope <code>tags</code></td><td>The target deployment has at least one of the listed tags.</td></tr>
+<tr><td>Scope <code>deployments</code></td><td>The target deployment id is in the list.</td></tr>
+<tr><td>Developer resources</td><td><code>registries</code>, <code>services</code>, <code>images</code>, <code>notFoundPages</code>, <code>templates</code>, <code>tags</code>, <code>accounts</code> accept only scope <code>all</code>.</td></tr>
+<tr><td>Managers</td><td>A uid in <code>deployment.managerAccountUids</code> gets all actions (also <code>publish</code>) on all <code>deployment.*</code> resources of that deployment.</td></tr>
+<tr><td><code>publish</code></td><td>Create a proposal from the cloud draft on the Diff page.</td></tr>
+<tr><td><code>admin</code> on accounts</td><td>Change the access rules of other accounts.</td></tr>
+<tr><td>Secrets</td><td><code>deployment.secrets</code> read = reveal a value. Every reveal is an activity.</td></tr>
+<tr><td>No signup</td><td>Only an admin creates accounts (<code>POST /v1/accounts</code>). A disabled account is refused.</td></tr>
+</table></div>
+
+<h3>Access checker</h3>
+<p>Edit the rules and the deployment. Then pick a resource and an action.</p>
+<div class="chk-grid">
+  <div class="card">
+    <h4>Account <code>uid: u_ravi</code> · access</h4>
+    <textarea class="json" id="rulesIn" spellcheck="false"></textarea>
+    <div class="small muted" id="rulesErr"></div>
+  </div>
+  <div class="card">
+    <h4>Target</h4>
+    <div class="field"><label for="depId">Deployment id</label><input id="depId" value="acme-plant" /></div>
+    <div class="field"><label for="depTags">Deployment tags (comma separated)</label><input id="depTags" value="manufacturing, india" /></div>
+    <div class="field"><label for="depMgr">managerAccountUids (comma separated)</label><input id="depMgr" value="u_anita" /></div>
+    <div class="field"><label for="selRes">Resource</label><select id="selRes"></select></div>
+    <div class="field"><label for="selAct">Action</label><select id="selAct"><option>read</option><option>write</option><option>publish</option><option>admin</option></select></div>
+    <div class="callout" id="verdict" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<h2 id="install">Install token and enroll</h2>
+<p>An install command works for one site, one time, for 24 hours. The site config is empty after the install. Nothing runs until a person opens the agent GUI, logs in with the deployment access key, names themselves in the "Who is working right now?" popup, and approves the first proposal. The install token also gives the agent the first <code>accessKeyHash</code>.</p>
+<p>The command can be seen again. While the token is active the cloud stores it, so <b>View</b> on the Setup page shows the command again any time (60 s, logged as <code>install-token.revealed</code> + audit). <b>Regenerate</b> revokes the old token and makes a new one. After enroll, revoke or expiry the stored token is deleted.</p>
+<div id="seqInstall"></div>
+
+<h2 id="login">Agent GUI: login (access key), then "Who is working right now?"</h2>
+<p>The agent GUI has two separate layers. The <b>login</b> proves that the person has the deployment access key. The <b>actor popup</b> names the person who works now, because many people share one key and a site does not know when a new operations person takes over.</p>
+<div class="grid g2">
+  <div class="card"><h4>1 · Login — <code>/_opm/login</code></h4><ul>
+    <li>One field: the deployment <b>access key</b> (24 characters, base32). There is no email/password and no Firebase on the site.</li>
+    <li>The cloud makes the key when the deployment is created. The Setup page (<code>/app/deployments/{id}/setup</code>) shows it masked, with <b>View</b> (visible for 60 s, then masked again; logged) and <b>Regenerate</b>. The cloud stores the key and its <code>accessKeyHash</code> (argon2id). Sites get only the hash.</li>
+    <li><code>POST /_opm/api/login { accessKey }</code> → cookie <code>opm_session</code> (HttpOnly, SameSite=Strict, Secure on https). It expires <b>6 h after login</b>. There is no sliding renewal.</li>
+    <li>After 6 h every API call returns <b>401 <code>session-expired</code></b> and the GUI goes to <code>/_opm/login</code>.</li>
+    <li>Rate limit: 5 failures in 5 min per IP → 429 <code>rate-limited</code>.</li>
+    <li>Activities: <code>login.succeeded</code>, <code>login.failed</code> { ip, userAgent }, <code>logout</code>.</li>
+    <li>The same login works on all three GUI ways (edge <code>/_opm/</code>, <code>agentGuiAliasPort</code>, <code>agentPort</code>). The cookie is per host and port.</li>
+  </ul></div>
+  <div class="card"><h4>2 · Actor popup — every page load</h4><ul>
+    <li>After login, on EVERY page load, refresh, new tab or new session: a blocking popup asks only for the email ("who is working right now?").</li>
+    <li>Below the field: recently used emails — from browser localStorage first, then up to 10 from <code>GET /_opm/api/actors/recent</code>. Click one to fill the field.</li>
+    <li><code>POST /_opm/api/actor { email }</code> (needs a valid <code>opm_session</code>) → <code>actorToken</code> in page memory only. Its expiry = the session expiry.</li>
+    <li>Every write needs both: the cookie AND <code>Authorization: Actor &lt;actorToken&gt;</code>. Activities record <code>actor.email</code> + <code>sessionId</code>.</li>
+    <li>Activity <code>actor.declared</code> { email, sessionId, siteSlug, userAgent, ip }. The popup is NOT authentication.</li>
+    <li>Header chip: the email · "session ends in 4 h 12 m" · <b>Change person</b> (opens the popup, keeps the session) · <b>Log out</b> (ends the session).</li>
+  </ul></div>
+</div>
+<div id="seqLogin"></div>
+<h3 id="rotation">Access key rotation</h3>
+<div class="diagram"><svg id="rotSvg" viewBox="0 0 900 200" role="img" aria-label="Access key rotation"></svg>
+  <div class="cap">The new hash travels like every cloud fact: each agent with internet fetches it, and sites without internet get it from the peer cloud view (latest fetch wins).</div></div>
+<ol>
+  <li>A person with <code>deployment.setup.write</code> clicks <b>Regenerate</b> on the cloud Setup page and types ACCEPT. The cloud makes a new key, stores it and its new <code>accessKeyHash</code> (+ <code>accessKeyVersion</code> +1), and shows the new key for 60 s. People can <b>View</b> it again any time later. Activity <code>access-key.rotated</code> + audit <code>deployment.access-key-rotated</code>.</li>
+  <li>Each site accepts the old key until it receives the new hash. From then on, only the new key logs in on that site. So for a short time two sites can accept different keys.</li>
+  <li>Sessions that are already open stay valid until their 6 h expiry. Rotation does not log people out.</li>
+  <li>A site that is offline keeps the old hash until it has internet, a peer with the new cloud view, or a browser tunnel.</li>
+  <li>Lost the key? Open the Setup page and click <b>View</b> (needs <code>deployment.setup.write</code>). Every view writes the activity <code>access-key.revealed</code> + audit <code>deployment.access-key-revealed</code>. Regenerate only when the key may have leaked or a person leaves.</li>
+</ol>
+<pre><code>// cloud: deployments/{deploymentId}
+{ "accessKey": "K7QW-2MXA-…", "accessKeyHash": "$argon2id$v=19$m=65536,t=3,p=1$c2FsdHNhbHQ$9xS…", "accessKeyVersion": 3,
+  "accessKeyRotatedAt": "2026-10-07T08:00:00Z", "accessKeyRotatedBy": "u_ravi" }
+// agent: opm_session cookie value = opaque session id; server side (SQLite sessions table)
+{ "sessionId": "01JBA0…", "createdAt": 1791367800, "expiresAt": 1791389400, "ip": "10.0.1.50", "userAgent": "…", "keyVersion": 3 }
+// actor token payload (page memory), exp = session expiry
+{ "email": "ravi@acme.example", "sid": "01JBA0…", "dep": "acme-plant", "site": "app", "iat": 1791368100, "exp": 1791389400 }</code></pre>
+<h3>Risk and mitigations</h3>
+<div class="tbl-wrap"><table>
+<tr><th>Risk</th><th>Mitigation now</th><th>Later (optional)</th></tr>
+<tr><td>The access key is shared by many people.</td><td>The actor popup names the person on every page load; every action logs email + sessionId + IP + user agent. Regenerate the key (Setup page) when a person leaves.</td><td>Per-person keys; an allow-list of emails.</td></tr>
+<tr><td>A person types a wrong or false email.</td><td><code>actor.declared</code> marks each declaration with the sessionId, so the log shows which session declared it.</td><td>Confirm a new email in the cloud.</td></tr>
+<tr><td>Guessing the key.</td><td>24 base32 characters (120 bits), argon2id hash, 5 failures / 5 min per IP, <code>login.failed</code> activities.</td><td>Lock-out alerts.</td></tr>
+<tr><td>A browser is left open.</td><td>The session ends 6 h after login (no sliding renewal); a refresh asks the email again.</td><td>A shorter idle timeout.</td></tr>
+</table></div>
+
+<h2 id="removed">Removed: two-phase credential renewal</h2>
+<div class="callout note"><b>What changed from the first design</b><p>The first design renewed a shared deployment credential with a two-phase commit across all sites. That is gone. The access key is simpler: only its hash goes to the sites, with the cloud view, and each site switches when it receives the new hash. Machine trust does not change: a 24 h install token enrolls the site, the site gets an Ed25519 key, and every agent → cloud and agent → agent request is signed.</p></div>
+
+<h2 id="secrets">Secrets: masking and reveal audit</h2>
+<div class="callout warn"><b>Prototype decision</b><p>Secrets are stored like variables: plain values in the same documents (Firestore, agent SQLite). There is no Cloud KMS, no data key and no Secret Manager. Database security is out of scope for now. The protection is in the API and the GUIs.</p></div>
+<div class="diagram">
+  <svg viewBox="0 0 900 270" role="img" aria-label="Secret masking and reveal audit">
+    <defs><marker id="sa2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+    <rect x="20" y="30" width="190" height="64" rx="9" class="box" /><text x="115" y="56" text-anchor="middle" font-size="13" font-weight="650">Stored value</text><text x="115" y="74" text-anchor="middle" font-size="10.5" class="mono muted">Firestore · agent SQLite (plain)</text>
+    <rect x="300" y="30" width="230" height="64" rx="9" class="box" /><text x="415" y="56" text-anchor="middle" font-size="13" font-weight="650">Normal read (API)</text><text x="415" y="74" text-anchor="middle" font-size="10.5" class="mono muted">value: "•••" · isSet: true</text>
+    <rect x="620" y="30" width="260" height="64" rx="9" class="box agent" /><text x="750" y="56" text-anchor="middle" font-size="13" font-weight="650">GUI field</text><text x="750" y="74" text-anchor="middle" font-size="10.5" class="mono muted">••• [View]</text>
+    <path d="M210,62 H300" class="ln ln-cloud" marker-end="url(#sa2)" /><text x="255" y="54" text-anchor="middle" class="lbl">mask</text>
+    <path d="M530,62 H620" class="ln ln-cloud" marker-end="url(#sa2)" />
+    <rect x="300" y="150" width="230" height="64" rx="9" class="box" style="stroke:var(--warn)" /><text x="415" y="176" text-anchor="middle" font-size="13" font-weight="650">Reveal (View)</text><text x="415" y="194" text-anchor="middle" font-size="10.5" class="mono muted">POST …/secrets/{slug}/reveal</text>
+    <rect x="620" y="150" width="260" height="64" rx="9" class="box" style="stroke:var(--warn)" /><text x="750" y="176" text-anchor="middle" font-size="13" font-weight="650">Shown 60 s, then masked</text><text x="750" y="194" text-anchor="middle" font-size="10.5" class="muted">View again any time</text>
+    <rect x="20" y="150" width="190" height="64" rx="9" class="box" style="stroke:var(--accent)" /><text x="115" y="176" text-anchor="middle" font-size="13" font-weight="650">Activity</text><text x="115" y="194" text-anchor="middle" font-size="10.5" class="mono muted">secret.revealed</text>
+    <path d="M750,94 V150" class="ln ln-agent" marker-end="url(#sa2)" /><text x="760" y="125" class="lbl">click View</text>
+    <path d="M620,182 H530" class="ln ln-agent" marker-end="url(#sa2)" />
+    <path d="M300,182 H210" class="ln ln-cloud" marker-end="url(#sa2)" /><text x="255" y="174" text-anchor="middle" class="lbl">always logged</text>
+    <text x="450" y="250" text-anchor="middle" font-size="11.5" class="muted">Agent fetch of secret values (proposal download, peer copy) writes secret.fetched { siteSlug, secretSlugs, revId } — never the values.</text>
+  </svg>
+</div>
+<div class="tbl-wrap"><table>
+<tr><th>Where</th><th>Normal read</th><th>Reveal</th><th>Audit record</th></tr>
+<tr><td>Cloud · deployment secrets</td><td><code>"•••"</code> + <code>isSet</code></td><td><code>POST /v1/deployments/{id}/secrets/{slug}/reveal</code> (needs <code>deployment.secrets</code> read)</td><td>activity <code>secret.revealed</code> { secretSlug, actor, where: "cloud" } + audit <code>deployment.secret-revealed</code></td></tr>
+<tr><td>Cloud · secret Regenerate</td><td>—</td><td><code>POST /v1/deployments/{id}/secrets/{slug}/regenerate</code> (needs <code>deployment.secrets</code> write; only with a generate rule)</td><td>activities <code>draft.updated</code> + <code>secret.regenerated</code> + audit <code>deployment.secret-regenerated</code></td></tr>
+<tr><td>Cloud · access key</td><td>never in normal reads</td><td><code>POST /v1/deployments/{id}/access-key/reveal</code> (needs <code>deployment.setup</code> write); Regenerate = <code>…/access-key/rotate</code></td><td>activity <code>access-key.revealed</code> / <code>access-key.rotated</code> + audit</td></tr>
+<tr><td>Cloud · install command</td><td>never in normal reads</td><td><code>POST /v1/deployments/{id}/install-tokens/{tokenHash}/reveal</code> (active token only)</td><td>activity <code>install-token.revealed</code> + audit <code>deployment.install-command-revealed</code></td></tr>
+<tr><td>Agent GUI · secrets</td><td><code>"•••"</code> + <code>isSet</code></td><td><code>POST /_opm/api/secrets/{slug}/reveal</code> (actor token)</td><td>activity <code>secret.revealed</code> { secretSlug, actor, where: "agent", siteSlug }</td></tr>
+<tr><td>Cloud · registry password</td><td><code>"•••"</code> + <code>isSet</code></td><td><code>POST /v1/registries/{id}/reveal-password</code> (needs registries write)</td><td><code>auditLog</code> entry <code>registry.password-revealed</code></td></tr>
+<tr><td>Cloud · account password</td><td>never in normal reads</td><td><code>POST /v1/accounts/{uid}/password/reveal</code> (accounts admin); Set new password = <code>POST …/password</code>; Reset link = <code>POST …/password-reset</code>, View again = <code>…/password-reset/reveal</code></td><td><code>auditLog</code> <code>account.password-revealed</code> / <code>account.password-set</code> / <code>account.reset-link-created</code> / <code>account.reset-link-revealed</code></td></tr>
+<tr><td>Agent fetches values</td><td>—</td><td>proposal download / peer copy during staging</td><td>activity <code>secret.fetched</code> { siteSlug, secretSlugs[], revId }</td></tr>
+</table></div>
+<ul>
+  <li><b>Every credential stays viewable.</b> Every credential can be viewed again and regenerated any time by a person with the permission. Both GUIs use one component, <b>RevealValue</b>: masked by default, <b>View</b> shows the value with a 60 s countdown ring, then masks it again (also on page change and when the tab is hidden). Every value response has <code>Cache-Control: no-store</code>, and value requests are limited to 30 per person per minute (429).</li>
+  <li>Values never appear in logs, diffs (diff shows "changed / not changed"), debug logs or downloaded activity bundles.</li>
+  <li>Snapshots contain the config with secret values. The download dialog warns about this.</li>
+  <li>Templates never hold secret values. A secret with <code>generate</code> gets a value when a person creates the deployment.</li>
+</ul>
+
+<h2 id="signed">Signed requests</h2>
+<p>Agent → cloud and agent → agent requests carry four headers. The receiver rejects a request when the time is more than 60 s off, or when it saw the nonce in the last 5 min.</p>
+<pre class="wrap"><code>POST /v1/agent/heartbeat
+X-OPM-Site:  acme-plant/app
+X-OPM-Ts:    1791367800
+X-OPM-Nonce: 3q2-7wEAAZv4mXrQ0k1yTg
+X-OPM-Sig:   &lt;Ed25519 signature, base64url&gt;
+
+string to sign (lines joined with \n):
+POST
+/v1/agent/heartbeat
+1791367800
+3q2-7wEAAZv4mXrQ0k1yTg
+sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08</code></pre>
+<ol class="steps">
+  <li><b>Hash the body</b>Compute the sha256 of the raw body bytes. An empty body uses the hash of the empty string.</li>
+  <li><b>Build the string</b>Join method, path (with query), ts, nonce and body hash with a newline.</li>
+  <li><b>Sign</b>Sign the string with the private site key (Ed25519). Encode the signature as base64url.</li>
+  <li><b>Verify</b>The receiver finds the public key of <code>acme-plant/app</code>, checks the time window, the nonce cache and the signature.</li>
+</ol>
+
+<h2 id="threats">Threats and mitigations</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Threat</th><th>Mitigation</th></tr>
+<tr><td>Leaked install command</td><td>Single use, 24 h expiry, scoped to one site, revocable on the Setup page; Regenerate replaces it.</td></tr>
+<tr><td>Stored credentials in the cloud database (access key, install token while active, last admin-set password, reset link)</td><td>Prototype: stored plain like secrets (accepted risk). Only the reveal endpoints return them, with permission checks, no-store, a rate limit and an activity / audit entry for every view.</td></tr>
+<tr><td>Stolen agent binary or a fake binary</td><td>The script checks sha256 and the Ed25519 signature before install. The binary download is a 5-min signed URL.</td></tr>
+<tr><td>Replay of an agent request</td><td>Time window 60 s + nonce cache 5 min.</td></tr>
+<tr><td>Registry password leak from a site</td><td>Registry passwords never go to a site. Agents download layers only from the cloud catalog.</td></tr>
+<tr><td>Over-broad cloud access</td><td>Deny by default, per-resource actions, scopes by tags or deployments, managers per deployment.</td></tr>
+<tr><td>Secret values in the cloud database</td><td>Prototype: stored plain (accepted risk; database security is out of scope). The API masks values; every reveal and every agent fetch is an activity. Encryption at rest can come later.</td></tr>
+<tr><td>Anyone on the network opens the agent GUI and acts</td><td>The GUI needs the deployment access key (login, 6 h session). Keep the GUI ports on the client admin network. 60 s + typed ACCEPT for updates and rollbacks; every action logged with the declared email + sessionId + IP + user agent.</td></tr>
+</table></div>
+</main>
+</div>
+<script>
+const INFO = {
+  fe: { t: 'Cloud frontend', b: '<p>SvelteKit SPA. It sends <code>Authorization: Bearer &lt;Firebase ID token&gt;</code> to the API. It never reads Firestore or Storage directly.</p>' },
+  api: { t: 'Cloud backend API', b: '<p>Checks the Firebase ID token for people, or the signed headers for agents. Loads <code>accounts/{uid}</code>, refuses disabled accounts, then evaluates the access rules.</p>' },
+  human: { t: 'Operator', b: '<p>Logs in at <code>/login</code> with Firebase Auth (email + password, or Google SSO for the organisation domain). There is no signup.</p>' },
+  sa: { t: 'Site app (agent)', b: '<p>Holds an Ed25519 site key in <code>/var/lib/opm/site.key</code> (0600). Signs every request to the cloud and to other sites.</p>' },
+  sd: { t: 'Site db (agent)', b: '<p>Same as site app. Each site knows the public keys of all other sites of the deployment.</p>' },
+  login: { t: 'Agent GUI: login + declared actor', b: '<p>Two layers. (1) Login at <code>/_opm/login</code> with the deployment access key → cookie <code>opm_session</code>, 6 h, no sliding renewal. This IS authentication: it proves the person has the key. (2) After login, on every page load the blocking popup asks for the email of the person who works now. That only names the actor; it does not prove who they are.</p>' },
+};
+inspector(document.getElementById('pathSvg'), document.getElementById('pathInfo'), INFO, 'api');
+
+// ---------- access checker
+const RES = ['registries', 'services', 'images', 'notFoundPages', 'templates', 'tags', 'accounts', 'deployments', 'deployment.setup', 'deployment.config', 'deployment.secrets', 'deployment.activities', 'deployment.transfers'];
+const DEV = RES.slice(0, 7);
+const selRes = document.getElementById('selRes');
+RES.forEach((r) => selRes.appendChild(h('option', {}, r)));
+selRes.value = 'deployment.config';
+document.getElementById('selAct').value = 'publish';
+document.getElementById('rulesIn').value = JSON.stringify([
+  { resource: 'deployment.config', actions: ['read', 'write'], scope: { kind: 'tags', tagSlugs: ['manufacturing'] } },
+  { resource: 'deployment.activities', actions: ['read'], scope: { kind: 'all' } },
+  { resource: 'services', actions: ['read'], scope: { kind: 'all' } },
+], null, 2);
+function check() {
+  const out = document.getElementById('verdict'), err = document.getElementById('rulesErr');
+  let rules;
+  try { rules = JSON.parse(document.getElementById('rulesIn').value); err.textContent = ''; }
+  catch (e) { err.textContent = 'JSON error: ' + e.message; out.className = 'callout bad'; out.innerHTML = '<b>Cannot evaluate</b>'; return; }
+  const res = selRes.value, act = document.getElementById('selAct').value;
+  const dep = document.getElementById('depId').value.trim();
+  const tags = document.getElementById('depTags').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const mgr = document.getElementById('depMgr').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const isDep = res.startsWith('deployment.');
+  if (isDep && mgr.includes('u_ravi')) { out.className = 'callout ok'; out.innerHTML = '<b class="verdict">Allowed</b><p>u_ravi is in managerAccountUids of ' + dep + '. Managers get all actions on deployment.* resources.</p>'; return; }
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    if (!r || r.resource !== res || !Array.isArray(r.actions) || !r.actions.includes(act)) continue;
+    const s = r.scope || {};
+    let inScope = false, why = '';
+    if (DEV.includes(res)) { inScope = s.kind === 'all'; why = inScope ? 'scope all' : 'developer resources need scope all'; }
+    else if (s.kind === 'all') { inScope = true; why = 'scope all'; }
+    else if (s.kind === 'tags') { const hit = (s.tagSlugs || []).filter((t) => tags.includes(t)); inScope = hit.length > 0; why = inScope ? 'tag ' + hit.join(', ') + ' matches' : 'no tag of the deployment is in the rule'; }
+    else if (s.kind === 'deployments') { inScope = (s.deploymentIds || []).includes(dep); why = inScope ? 'deployment id is listed' : 'deployment id is not listed'; }
+    if (inScope) { out.className = 'callout ok'; out.innerHTML = `<b class="verdict">Allowed</b><p>Rule #${i + 1} matches: ${res} · ${act} · ${why}.</p>`; return; }
+  }
+  out.className = 'callout bad';
+  out.innerHTML = `<b class="verdict">Denied (403 forbidden)</b><p>No rule has ${res} with action ${act} in a scope that contains ${dep}. Deny by default.</p>`;
+}
+['rulesIn', 'depId', 'depTags', 'depMgr', 'selRes', 'selAct'].forEach((id) => document.getElementById(id).addEventListener('input', check));
+check();
+
+// ---------- install sequence
+sequence(document.getElementById('seqInstall'), {
+  lanes: [
+    { id: 'op', label: 'Operator', sub: 'cloud Setup page' },
+    { id: 'api', label: 'Cloud API', sub: 'api.opm.example', cls: 'app' },
+    { id: 'srv', label: 'Server', sub: 'site db', cls: '' },
+    { id: 'ag', label: 'Agent', sub: 'site db', cls: 'agent' },
+  ],
+  steps: [
+    { from: 'op', to: 'api', label: 'POST install-tokens { siteSlug: "db" }', detail: 'The API makes a random 32-byte token. It stores <code>installTokens/{sha256}</code> with the token (kept while active, so the command can be viewed again), <code>expiresAt = now + 24 h</code> and <code>usedAt = null</code>.' },
+    { from: 'api', to: 'op', label: '{ command, expiresAt }', reply: true, detail: 'The command: <code>curl -fsSL -H "Authorization: Bearer &lt;token&gt;" https://api.opm.example/v1/install/script | sudo sh</code>. The token is in a header, so proxies do not log it. The Setup page shows the command for 60 s; <b>View</b> shows it again while the token is active.' },
+    { from: 'srv', to: 'api', label: 'GET /v1/install/script', detail: 'The person pastes the command on the server. The API checks the token (exists, not used, not expired).' },
+    { from: 'srv', to: 'api', label: 'GET /v1/install/binary?os&arch', detail: 'The API answers 302 to a 5-min signed URL. The script checks sha256 and the Ed25519 signature (public key inside the script).' },
+    { from: 'srv', to: 'srv', label: 'write /etc/opm/agent.json · systemd', detail: '<code>{ apiBase, deploymentId: "acme-plant", siteSlug: "db" }</code>. The script installs <code>opm-agent.service</code> and starts it.' },
+    { from: 'ag', to: 'ag', label: 'make Ed25519 site key', detail: 'Private key in <code>/var/lib/opm/site.key</code> (0600). It never leaves the server.' },
+    { from: 'ag', to: 'api', label: 'POST /v1/agent/enroll { token, publicKey }', detail: 'The API marks the token used (and deletes the stored token), writes <code>agents/db.publicKey</code>, If the site is already enrolled, the API answers <code>conflict</code>: revoke the old enrollment first.' },
+    { from: 'api', to: 'ag', label: '{ peers[] }', reply: true, detail: 'Peers: <code>[{ siteSlug: "app", host, agentPort, publicKey }]</code>. The agent can now sign requests to the cloud and to site app.' },
+    { from: 'ag', to: 'ag', label: 'config = empty', detail: 'No container runs. A person must open the agent GUI, log in at <code>/_opm/login</code> with the access key (the agent got the first <code>accessKeyHash</code> from enroll), answer the "Who is working right now?" popup, and approve the first proposal on <code>/_opm/app/updates</code>.' },
+  ],
+});
+
+
+// ---------- login + actor sequence
+sequence(document.getElementById('seqLogin'), {
+  lanes: [
+    { id: 'p', label: 'Person', sub: 'browser' },
+    { id: 'ag', label: 'Agent GUI / API', sub: 'site app', cls: 'agent' },
+    { id: 'cl', label: 'Cloud', sub: 'Setup page · cloud view', cls: 'app' },
+  ],
+  steps: [
+    { from: 'cl', to: 'ag', label: 'cloud view { accessKeyHash, v3 }', detail: 'The hash comes with the poll (or from a peer: latest fetch wins). The install token seeds the first hash at enroll.' },
+    { from: 'p', to: 'ag', label: 'GET /_opm/app → 302 /_opm/login', detail: 'No valid <code>opm_session</code> cookie → the login page.' },
+    { from: 'p', to: 'ag', label: 'POST /_opm/api/login { accessKey }', detail: 'argon2id check against <code>accessKeyHash</code>. Wrong key → 401 <code>invalid-key</code> + <code>login.failed</code>; 5 failures / 5 min per IP → 429.' },
+    { from: 'ag', to: 'p', label: 'Set-Cookie opm_session (6 h)', reply: true, detail: 'HttpOnly, SameSite=Strict, Secure on https, Max-Age 21600. No sliding renewal. Activity <code>login.succeeded</code> { sessionId, ip, userAgent }.' },
+    { from: 'p', to: 'ag', label: 'POST /_opm/api/actor { email }', detail: 'The blocking popup on every page load. Needs the cookie. Activity <code>actor.declared</code>.' },
+    { from: 'ag', to: 'p', label: '{ actorToken, expiresAt = session end }', reply: true, detail: 'Page memory only. A refresh or a new tab asks the email again (the session stays).' },
+    { from: 'p', to: 'ag', label: 'write: cookie + Authorization: Actor', detail: 'Every write needs both. The activity gets <code>actor.email</code> + <code>sessionId</code>.' },
+    { from: 'ag', to: 'p', label: '6 h later: 401 session-expired', reply: true, detail: 'Every API call fails with <code>session-expired</code>; the GUI goes to <code>/_opm/login</code>.' },
+    { from: 'cl', to: 'ag', label: 'Regenerate → new accessKeyHash v4', detail: 'From now on this site accepts only the new key. Open sessions stay valid until their 6 h end.' },
+  ],
+});
+// ---------- rotation picture
+(function () {
+  const s = document.getElementById('rotSvg');
+  const d = svgEl('defs'); const m = svgEl('marker', { id: 'ra2', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }); m.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' })); d.appendChild(m); s.appendChild(d);
+  const bx = (x, y, w, t, sub, cls) => { s.appendChild(svgEl('rect', { x, y, width: w, height: 56, rx: 9, class: 'box ' + (cls || '') })); s.appendChild(svgEl('text', { x: x + w / 2, y: y + 24, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, t)); s.appendChild(svgEl('text', { x: x + w / 2, y: y + 41, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, sub)); };
+  const ar = (dd, c) => s.appendChild(svgEl('path', { d: dd, class: 'ln ' + (c || 'ln-cloud'), 'marker-end': 'url(#ra2)' }));
+  bx(10, 70, 160, 'Setup · Regenerate', 'new key · View any time', 'ext');
+  bx(220, 70, 170, 'cloud: key + hash v4', 'sites get only the hash', 'app');
+  bx(450, 20, 200, 'site app (internet)', 'poll → v4 · old key refused', 'agent');
+  bx(450, 120, 200, 'site db (no internet)', 'peer cloud view → v4', 'cs');
+  bx(710, 70, 180, 'open sessions', 'valid until their 6 h end', '');
+  ar('M170,98 H218'); ar('M390,90 C420,70 420,50 448,48'); ar('M550,76 V118', 'ln-agent'); ar('M650,48 C690,60 690,80 708,90'); ar('M650,148 C690,140 690,120 708,108');
+  s.appendChild(svgEl('text', { x: 558, y: 102, 'font-size': 10.5, class: 'muted' }, 'latest fetch wins'));
+})();
+</script>
+</body>
+</html>

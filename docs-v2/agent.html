@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Agent</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .mono { font-family: var(--mono); }
+  .rm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .rm-out { padding: 10px 14px; border-radius: 8px; background: var(--surface-2); font-size: 14px; }
+  .rm input[type='text'] { font: inherit; font-family: var(--mono); font-size: 14px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); width: 100%; max-width: 420px; }
+  .mx { border-collapse: collapse; }
+  .mx td, .mx th { text-align: center; padding: 6px 10px; }
+  .mx button { font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  .mx button.ok { background: var(--ok-soft); color: var(--ok); }
+  .mx button.no { background: var(--bad-soft); color: var(--bad); }
+  pre.unit { max-width: 860px; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">On-prem agent</div>
+<h1>The agent (internals)</h1>
+<p class="lede">The agent is one Go binary for each site. It runs as the systemd service <code>opm-agent</code> as root, because it uses the Docker socket. It keeps its data in SQLite, and has an edge: Caddy v2 embedded as a Go library (in process, not a child process or a container) that owns host ports 80/443 and routes user traffic to the containers. The agent GUI is on the edge at <code>/_opm/</code>, on <code>agentGuiAliasPort</code> (default 8080) and on <code>agentPort</code> (default 7080, also the mesh). It talks only to the cloud API and to the other sites of the same deployment.</p>
+
+<div class="grid g4">
+  <div class="card"><div class="kpi">1</div><div class="muted small">binary per site · <code>opm-agent</code></div></div>
+  <div class="card"><div class="kpi">15</div><div class="muted small">modules (below)</div></div>
+  <div class="card"><div class="kpi">4</div><div class="muted small">inbound ports: edge 80 / 443, <code>agentGuiAliasPort</code> 8080, <code>agentPort</code> 7080</div></div>
+  <div class="card"><div class="kpi">1</div><div class="muted small">outbound host: <code>api.opm.example:443</code></div></div>
+</div>
+
+<h2 id="modules">Modules</h2>
+<p>Click a module to see its job. Arrows show the main calls. The edge owns 80/443. The GUI server uses <code>agentPort</code> and <code>agentGuiAliasPort</code>; the mesh uses <code>agentPort</code>. The cloud link is the only module that connects to the internet.</p>
+<div class="explorer">
+  <div class="diagram"><svg id="modSvg" viewBox="0 0 900 520" role="img" aria-label="Agent modules"></svg>
+    <div class="legend"><span><i style="border-color:var(--accent)"></i>to the cloud</span><span><i style="border-color:var(--teal);border-top-style:dashed"></i>to other sites</span><span><i style="border-color:var(--muted)"></i>inside the agent</span></div>
+  </div>
+  <div class="panel" id="modInfo"></div>
+</div>
+
+<h2 id="disk">Disk layout</h2>
+<div class="grid g2">
+<pre><code>/usr/local/bin/opm-agent          # the binary (signed)
+/usr/local/bin/opm-agent.prev     # the previous binary, kept by the last upgrade = the rollback target
+/usr/local/bin/opm-agent.new      # the download during an upgrade (renamed over opm-agent at the swap)
+/usr/local/lib/opm/upgrade-guard.sh                         # the boot guard (POSIX sh)
+/etc/systemd/system/opm-agent.service.d/upgrade-guard.conf  # its systemd drop-in (ExecStartPre=-)
+/etc/opm/agent.json               # { apiBase, deploymentId, siteSlug, containerNames? "plain" (default) | "prefixed" }
+/etc/systemd/system/opm-agent.service
+/var/lib/opm/       # = agentHome: the agent data dir (--data-dir / OPM_DATA_DIR, else agent.json dataDir); "./x" locations are relative to it
+  site.key          # Ed25519 private key, mode 0600
+  opm.db            # SQLite (WAL mode)
+  volumes/&lt;volumeSlug&gt;/           # declared site volumes with location auto (a custom ./… or absolute location lives there instead);
+                                   #   shared by every mount that names it; a folder no longer declared = orphan: kept, never
+                                   #   backed up, never deleted automatically. Older vol/&lt;volumeSlug&gt;/ folders move here on the first apply
+  files/&lt;fileSlug&gt;                # the ONE copy per site of each file (location auto): content as is (0444) or rendered once
+                                   #   for the site (0400 if it uses a secret, else 0444); every container mounts this single file read-only
+  secrets/&lt;secretSlug&gt;            # the ONE copy per site of each secret mounted as a file, 0400 (tmpfs)
+  blobs/files/&lt;sha256&gt;            # file blobs (deployment files, the source; content-addressed)
+  blobs/sha256/…                   # image layers before docker load
+  snapshots/&lt;snapshotId&gt;/           # manifest.json + *.tar.zst
+  certs/                          # Caddy CertMagic storage (ACME account, certs, keys, local CA), 0700
+  edge/caddy.json                 # the last loaded Caddy config (for support)
+  transfers/&lt;transferId&gt;            # send / receive files
+  logs/agent-YYYY-MM-DD.jsonl       # debug log, 7 days / 200 MB
+  upgrade/                        # self-upgrade state (survives the restart)
+    state.json  history.json      #   the running / last attempt + the last 10
+    pending.json  healthy         #   written before the restart / by the new agent once it is up
+    rolled-back.json              #   written by the watcher or the boot guard after restoring opm-agent.prev
+    run.json                      #   the mesh "Upgrade all" this site coordinates
+    handled-requests.json         #   cloud upgrade requests already taken (once per requestId)</code></pre>
+<div class="card"><h4>Rules</h4><ul>
+  <li>Only the agent writes in <code>/var/lib/opm</code>.</li>
+  <li>The site key never leaves the server.</li>
+  <li>Secret values are stored in SQLite like variables (plain, prototype). The GUI shows ••• and View reveals a value for 60 s (any number of times) with an audit activity. The agent writes ONE copy per site of each mounted secret to a tmpfs directory with mode 0400; every container that mounts it shares that file.</li>
+  <li>The agent never prunes an image layer that a kept snapshot uses.</li>
+  <li>Before every snapshot the agent checks that the free space is at least 1.2 × the estimate.</li>
+</ul></div>
+</div>
+
+<h2 id="sqlite">SQLite tables</h2>
+<p>One file, <code>/var/lib/opm/opm.db</code>, in WAL mode. Times are Unix seconds (INTEGER) unless the column says <code>TEXT ts</code> (ISO 8601). JSON columns hold canonical JSON (RFC 8785).</p>
+<div class="tbl-wrap"><table id="tblDefs"><thead><tr><th>Table</th><th>Columns</th><th>Keys and rules</th></tr></thead><tbody></tbody></table></div>
+
+<h2 id="driver">Container driver</h2>
+<div class="grid g2">
+  <div class="card"><h4>What the driver does</h4><ul>
+    <li>It talks to the Docker Engine API on <code>/var/run/docker.sock</code>. The config names the runtime; Docker is the first driver.</li>
+    <li>It makes one bridge network per site: <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;</code>. Each container joins it with the DNS name = its <code>containerSlug</code> (the container name; one image can run as several containers).</li>
+    <li>It names a container by its <code>containerSlug</code>, exactly as the site config declares it: <code>docker ps</code> shows <code>mqtt</code>, <code>backend</code>. With <code>"containerNames": "prefixed"</code> in <code>agent.json</code> the name is <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;_&lt;containerSlug&gt;</code> instead (use it when several sites share one Docker host). The labels are <code>opm.container</code> (containerSlug) and <code>opm.service</code> (serviceSlug).</li>
+    <li>Each container has two DNS names on the site network: the <code>containerSlug</code> and, for older references, <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;_&lt;containerSlug&gt;</code>. In expressions use <code>{{ containers.mqtt.host }}</code> and <code>{{ containers.mqtt.port.mqtt }}</code> (see <a href="expressions.html#containers">Expressions</a>).</li>
+    <li>It finds its containers by their labels, never by name. When the naming mode changes (or after an upgrade from the prefixed names), the agent renames its containers in place at start and before each update. A rename does not recreate a container: the name is not part of the spec hash.</li>
+    <li>If the name is already used by a container that this site does not manage (for example one made with <code>docker run --name mqtt</code>, or a container of another site), staging fails: "Docker container name <code>mqtt</code> is already used by a container not managed by this site (id …, image …) — remove or rename it, or set containerNames: prefixed". The agent never touches that container.</li>
+    <li>It runs each container from the readable image reference <code>&lt;serviceSlug&gt;:&lt;version&gt;</code> (for example <code>northwind-backend:v1</code>). See <a href="#images">Image names on a site</a>.</li>
+    <li>It sets these labels on every container: <code>opm.deployment</code>, <code>opm.site</code>, <code>opm.service</code>, <code>opm.rev</code>, <code>opm.spec_hash</code>.</li>
+    <li>It does not touch containers without the <code>opm.deployment</code> label. It shows them on the status page as "not managed".</li>
+  </ul></div>
+  <div class="card"><h4>The recreate rule</h4>
+    <p>The driver builds a <b>container spec</b> for each container from the config: image digest, env (resolved), mounts (mount paths resolved after env), port bindings, command, restart policy, resources.</p>
+    <p><code>spec_hash</code> = sha256 of the canonical JSON of that spec.</p>
+    <ul>
+      <li>Same hash as the running container → do nothing.</li>
+      <li>Different hash → stop, remove, create, start.</li>
+      <li>Container is in the config but not running → create, start.</li>
+      <li>Container runs but is not in the config → stop, remove. Its volume folders stay on disk.</li>
+    </ul>
+  </div>
+</div>
+<div class="diagram"><svg id="drvSvg" viewBox="0 0 900 170" role="img" aria-label="Container spec to container"></svg></div>
+
+<h2 id="images">Image names on a site</h2>
+<p>The agent gives each loaded image two names. Both point to the same image.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Name</th><th>Example</th><th>Use</th></tr>
+<tr><td><code>&lt;serviceSlug&gt;:&lt;version&gt;</code></td><td><code>northwind-backend:v1</code></td><td>The readable reference. The driver runs the container from this name. <code>docker ps</code> and <code>docker images</code> show it. It is the <code>image</code> field of <code>ContainerStatus</code>.</td></tr>
+<tr><td><code>opm/cfg:&lt;hex&gt;</code></td><td><code>opm/cfg:0e5b…</code></td><td>The internal reference: the hex of the image config digest. It is the integrity anchor. After each <code>docker load</code>, the agent checks the loaded layers against the config. Then it points the readable name to this image.</td></tr>
+</table></div>
+<ul>
+<li>The version is the OPM image version (<code>Image.version</code>, for example <code>v1</code>). It is not the docker tag in the source registry. The source reference (for example <code>docker.io/northwind/backend:3.0.9</code>) stays in the cloud.</li>
+<li>When the readable name points to a different image (a new import of the same version), the agent tags it again before it recreates the container.</li>
+<li>The revision catalog keys images as <code>&lt;serviceSlug&gt;:&lt;version&gt;</code>, and services by <code>serviceSlug</code>.</li>
+<li>The agent refuses a revision in the old shape (containers with <code>serviceId</code> + <code>tag</code>, catalog keyed by <code>serviceId</code>). Staging fails with a clear error that names the old fields. Publish the deployment again from the cloud: the new revision has the new shape.</li>
+</ul>
+
+<h2 id="edge">Edge (embedded Caddy)</h2>
+<p>The edge routes user traffic. It is Caddy v2, linked into the agent binary as a Go library (<code>github.com/caddyserver/caddy/v2</code>). It is not a child process and not a container, so the agent controls its full life cycle.</p>
+<div class="diagram"><svg id="edgeModSvg" viewBox="0 0 900 230" role="img" aria-label="Edge module"></svg>
+  <div class="cap">SiteConfig.edge → Caddy JSON → <code>caddy.Load</code> (graceful) → listeners on 80/443 → containers on the site network.</div></div>
+<div class="grid g2">
+  <div class="card"><h4>How it works</h4><ol>
+    <li>The agent builds Caddy JSON from <code>SiteConfig.edge</code> (after expressions resolve): one HTTP server per edge port, one host matcher per <code>edge.hosts[]</code> entry. Per host, the OPM handler <code>opm_route</code> chooses the route like nginx (exact, longest prefix, stop regex, regex, internal rewrites) with the same Go code as Test a URL. Then the chosen route runs: response headers, WebSocket guard, body limit (413), readiness (503), the upstream path (strip / rewrite / add prefix) and a <code>reverse_proxy</code> to the container's loopback port over HTTP/1.1, or the <code>opm_redirect</code> handler. The transport <code>opm_http</code> gives nginx-like idle timeouts: a stream that keeps sending (SSE, a download, a WebSocket) is never cut. Details: <a href="networking.html#edge">Edge routing</a>.</li>
+    <li>It always adds, first on every host: <code>/_opm/*</code> → the agent GUI handler (in process). Last on every host: the not-found page (404). The edge's own pages: 404 (not-found page), 413 (body too large), 500 (rewrite loop), 503 (not ready / upstream error); response headers marked <i>always</i> are added to them. A proxy upstream that fails its health check → the not-found page with 503.</li>
+    <li><code>caddy.Load(json)</code>: Caddy swaps the config gracefully on sockets the agent owns (it binds each edge port once and passes Caddy a copy, <code>fd/&lt;n&gt;</code>). Open connections finish (30 s grace); the listening socket is never closed during an update.</li>
+    <li>The edge always runs: before the first update it is the built-in default edge on port 80 (GUI on <code>/_opm/</code>, <code>/</code> → <code>/_opm/app</code>, other paths → "No configuration applied yet").</li>
+    <li>TLS: Caddy CertMagic, storage <code>/var/lib/opm/certs/</code>. Modes: none, internal (Caddy local CA), acme (Let's Encrypt; http-01, tls-alpn-01, dns-01), files (cert from a deployment file, key from a secret).</li>
+    <li>Docker containers reach nothing on 80/443: the agent rejects a container <code>hostPort</code> of 80, 443 or an edge port.</li>
+  </ol></div>
+  <div class="card"><h4>Failure rules</h4><ul>
+    <li><b>Reload fails</b> (invalid JSON, port in use, bad certificate file): Caddy keeps the previous config running. The agent writes <code>edge.reload-failed</code> and fails the APPLY step → automatic rollback of the update on all sites.</li>
+    <li><b>Reload succeeds</b>: activity <code>edge.reloaded</code> { revSeq, hosts, routes }.</li>
+    <li><b>Port 80/443 cannot be bound</b> (another program, no permission): alert <code>edge-port-bind-failed</code>, activity <code>agent.port-bind-failed</code> (once, with the <code>owner</code> process when Linux tells). The agent retries every 30 s. The GUI stays reachable on <code>agentGuiAliasPort</code> and <code>agentPort</code>.</li>
+    <li><b>Certificates</b>: <code>cert.issued</code>, <code>cert.renewed</code>, <code>cert.failed</code> (an alert). ACME renews 30 days before expiry; internal certificates live 12 h and renew themselves.</li>
+    <li>Peer traffic never goes through the edge, so a broken edge never breaks the mesh.</li>
+  </ul></div>
+</div>
+<h3>Three listeners</h3>
+<div class="tbl-wrap"><table>
+<tr><th>Listener</th><th>Port</th><th>Server</th><th>Serves</th></tr>
+<tr><td>edge</td><td><code>edge.httpPort</code> 80 · <code>edge.httpsPort</code> 443</td><td>Caddy (in process)</td><td><code>/_opm/</code> GUI + API on every host, then the routes, then the not-found page</td></tr>
+<tr><td>GUI alias</td><td><code>agentGuiAliasPort</code> 8080 (null = off)</td><td>agent net/http</td><td>only <code>/_opm/</code> (GUI + API); <code>/</code> → 302 <code>/_opm/app</code>; other paths → agent 404</td></tr>
+<tr><td>agent port</td><td><code>agentPort</code> 7080</td><td>agent net/http</td><td><code>/_opm/</code> GUI + API (fallback) and <code>/_opm/peer/</code> (mesh)</td></tr>
+</table></div>
+<h3 id="routing-demo">Request routing</h3>
+<p>The edge chooses routes like nginx <code>location</code> blocks (exact, longest prefix, <code>^~</code>, regex, rewrites). The rules, examples, the nginx import and the compatibility matrix are on <a href="networking.html#edge">Networking → Edge routing</a>. "Test a URL" in the cloud site editor and the agent GUI runs the same decision code as the agent (shared vectors, TypeScript and Go).</p>
+
+<h2 id="tunnel">Browser internet tunnel</h2>
+<p>A site can have no internet and no peer with internet. Then a person can open <code>/_opm/app/internet</code> in a browser that HAS internet and click <b>Start</b>. The tab becomes the internet source of that agent. Only ONE tab can do this for each site. To use a new tab, first revoke the old tab (or stop it there).</p>
+<div class="grid g2">
+  <div class="card"><h4>Route order for each cloud call</h4><ol>
+    <li>Own internet (<code>api.opm.example:443</code>).</li>
+    <li>A peer with internet (<code>/_opm/peer/relay</code>).</li>
+    <li>The browser tunnel (only while a lease is <code>active</code>).</li>
+  </ol><p class="small muted">See <a href="networking.html#tunnel">Networking → tunnel</a> for the security note.</p></div>
+  <div class="card"><h4>Tab loop</h4><ol>
+    <li><code>GET /_opm/api/tunnel/next</code> (waits ≤ 25 s, returns ≤ 4 requests).</li>
+    <li>For each request: <code>fetch(url)</code> to the cloud with the signed headers.</li>
+    <li><code>POST /_opm/api/tunnel/result</code> { reqId, status, headers, body }.</li>
+    <li>No poll for 30 s → the lease expires.</li>
+  </ol></div>
+</div>
+<div id="seqTunnel"></div>
+
+<h2 id="ready">Readiness ("completed")</h2>
+<p>The same rule is used for container <code>depends</code>, for site <code>depends</code>, for the VERIFY step of an update, and for the edge: a proxy target that is not "completed" gets the not-found page with 503.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Image kind</th><th>Health check</th><th>"Completed" when</th></tr>
+<tr><td><code>service</code></td><td>set (http / tcp / exec / log)</td><td>The check passes. Failures inside <code>startPeriodSec</code> do not count; after it, <code>retries</code> failures in a row (one every <code>intervalSec</code>) → unhealthy. The port map is read fresh before every check. A container Docker is restarting (it crashed) is reported as "container is restarting: last exit code N, M restarts" — not as a port problem.</td></tr>
+<tr><td><code>service</code></td><td>null</td><td>The container runs for 10 s with no restart</td></tr>
+<tr><td><code>job</code></td><td>not used</td><td>The container exits with code 0</td></tr>
+<tr><td>any</td><td>—</td><td>Not completed within 300 s → failure (an update rolls back)</td></tr>
+<tr><td>site</td><td>—</td><td>Every enabled container of the site is completed</td></tr>
+</table></div>
+<div class="tbl-wrap"><table>
+<tr><th>Health check type</th><th>Test</th></tr>
+<tr><td><code>http</code></td><td>GET <code>http://&lt;containerSlug&gt;:&lt;port of portName&gt;&lt;path&gt;</code> returns <code>expectStatus</code> within <code>timeoutSec</code></td></tr>
+<tr><td><code>tcp</code></td><td>A TCP connect to the port of <code>portName</code> works</td></tr>
+<tr><td><code>exec</code></td><td><code>command</code> inside the container exits with <code>expectExitCode</code></td></tr>
+<tr><td><code>log</code></td><td>A line of stdout / stderr since the container started matches <code>pattern</code> (RE2)</td></tr>
+</table></div>
+
+<h2 id="loop">Main loop</h2>
+<p>The agent runs these loops at the same time. Step through one cycle.</p>
+<div id="seqLoop"></div>
+
+<h2 id="mesh">Peer mesh</h2>
+<div class="grid g2">
+  <div class="card"><h4>How sites talk</h4><ul>
+    <li>Each agent calls the others at <code>http://&lt;site.host&gt;:&lt;agentPort&gt;/_opm/peer/*</code>.</li>
+    <li>Every request is signed with the site key (Ed25519). Headers: <code>X-OPM-Site</code>, <code>X-OPM-Ts</code>, <code>X-OPM-Nonce</code>, <code>X-OPM-Sig</code> over <code>METHOD\nPATH\nTS\nNONCE\nsha256(body)</code>.</li>
+    <li>The receiver rejects a request if |now − ts| &gt; 60 s or it saw the nonce in the last 5 min.</li>
+    <li>Each agent pings every peer every 10 s. A peer is <b>reachable</b> if it answered in the last 30 s.</li>
+    <li>The GUI of any site shows all sites: the agent fetches peer data over the mesh. A site that does not answer shows "stale · last seen hh:mm".</li>
+  </ul></div>
+  <div class="card"><h4>Reachability matrix (demo)</h4><p class="small muted">Click a cell to cut or restore a link. The result shows who can reach the cloud and which update rules hold.</p>
+    <div class="tbl-wrap" style="margin:6px 0"><table class="mx" id="mx"></table></div>
+    <div class="rm-out" id="mxOut"></div></div>
+</div>
+
+<h2 id="distribution">Smart distribution</h2>
+<p>Every agent with internet talks to the cloud on its own: its own poll, its own downloads, its own reports. When some sites have no internet, the sites share what they have over the mesh.</p>
+<div class="diagram"><svg id="distSvg" viewBox="0 0 900 260" role="img" aria-label="Smart distribution"></svg>
+  <div class="cap">Cloud view: latest fetch wins. Blobs: peer first, then one fetcher per blob, then copy over the local network.</div></div>
+<div class="grid g2">
+  <div class="card"><h4>Cloud view (every 10 s)</h4><ul>
+    <li>Each agent keeps <code>cloudView = { fetchedAt, cursor, proposals[], transfersToSite[], draftHead }</code>. <code>fetchedAt</code> is the cloud server time of the poll answer.</li>
+    <li>The agents exchange it with <code>GET /_opm/peer/cloud-view</code>.</li>
+    <li>An agent takes a peer's view only if its <code>fetchedAt</code> is newer. Equal time: keep the own view.</li>
+  </ul></div>
+  <div class="card"><h4>Blobs (image layers, files)</h4><ol>
+    <li>Ask the peers (<code>GET /_opm/peer/have</code>). A peer has it: copy over the local network.</li>
+    <li>No peer has it, and this site has internet and is the fetcher: download from the cloud.</li>
+    <li>Else ask the fetcher (<code>POST /_opm/peer/fetch-request</code>), wait, then copy from it.</li>
+    <li>Check the sha256 of every copy. A bad copy is deleted and fetched again.</li>
+  </ol></div>
+</div>
+<div class="callout note"><b>One fetcher per blob</b><p>The fetcher is the internet site with the highest <code>sha256(blob sha256 + siteSlug)</code> (rendezvous hashing). All sites compute the same answer, so nothing is downloaded twice. If the fetcher goes away, the next site in that order takes over.</p></div>
+<h3>Try it</h3>
+<div class="controls" id="dCtl"></div>
+<div class="tbl-wrap"><table id="dTbl"></table></div>
+<div class="controls"><button class="btn primary" type="button" id="dFetch">Fetch missing blobs</button><button class="btn" type="button" id="dReset">Reset</button></div>
+<div class="card small" id="dOut"></div>
+<h3>Cloud view exchange</h3>
+<div class="controls" id="cvCtl"></div>
+<div class="card small" id="cvOut"></div>
+
+<h2 id="relay">Relay for a site without internet</h2>
+<div class="diagram"><svg id="relaySvg" viewBox="0 0 900 200" role="img" aria-label="Relay"></svg>
+  <div class="cap">The site <code>db</code> has no internet. Its reports (heartbeat, activities, staging status) go through an internet peer, unchanged. It signs its cloud request and sends it to <code>app</code> at <code>/_opm/peer/relay</code>. <code>app</code> calls <code>POST /v1/agent/relay</code>. The cloud checks the signature of <code>db</code>, not of <code>app</code>.</div></div>
+
+<h2 id="tools">Operator toolbox (agent/internal/tools)</h2>
+<p>The GUI's Tools pages call <code>/_opm/api/sites/{site}/tools/*</code> (contract <code>shared/src/agent-tools.ts</code>, SPEC §7.4, §21 #89).</p>
+<ul>
+<li><b>Logs</b>: Server-Sent Events from the Docker logs API (follow ≤ 6 h); the agent log tails the debug log files; the edge access log is a Caddy middleware (<code>opm_access_log</code>) that writes <code>logs/edge-access.log</code> (20 MiB × 5 files).</li>
+<li><b>Terminal</b>: a WebSocket per terminal, opened with a single-use ticket (60 s) from an actor-authorised request and refused for another origin. Container = <code>docker exec</code> with a TTY; host = a PTY running the login shell as <code>hostShell.user</code>. Output transcripts (asciicast) in <code>transcripts/</code>, 7 days, secrets masked, never uploaded.</li>
+<li><b>Monitoring</b>: every 15 s one-shot <code>docker stats</code> + inspect per container and /proc for the host, stored in <code>metrics.db</code> (raw 1 h, 1-minute 24 h, 15-minute 7 days, ≤ 64 MiB).</li>
+<li><b>Containers</b>: restart / stop / start (409 while an update runs); a manual stop is remembered in <code>tools/manual-stops.json</code> until a start or a new head.</li>
+<li><b>Volumes</b> (read only), <b>network checks</b> (host: native; container: the image's own tools) and <b>Docker</b> images / prune (never the head revision's images).</li>
+<li>Other sites: JSON forwarded as usual, SSE copied with flushes, the WebSocket bridged with a signed upgrade; both sites log the terminal.</li>
+<li>Limits: 4 terminals per site, 30 min idle, per-minute rate limits (terminal 10, actions 20, netcheck 30, downloads 20, prune 2).</li>
+</ul>
+
+<h2 id="devtools">Dev tools (agent/internal/devtools)</h2>
+<p>Agent 0.11.0 (SPEC §7.6, §21 #97). The GUI's <a href="agent-gui.html#devtools">Dev tools</a> pages call <code>/_opm/api/sites/{site}/devtools/*</code> (contract <code>shared/src/devtools.ts</code>, <a href="api.html#devtools">API</a>); the agent runs every query, command and request on the site server. <code>internal/agent/devtools_hook.go</code> mounts the package exactly like the toolbox: this site is served locally, another site is forwarded over the mesh with the actor (the MQTT event stream copied with flushes), <code>*</code> → 422. The host adapter gives the package the head view of the site (containers, ports, volumes, secrets resolved; cached 10 s per revision).</p>
+<div class="tbl-wrap"><table><thead><tr><th>Part</th><th>What it does</th></tr></thead><tbody>
+<tr><td>Drivers</td><td>PostgreSQL <code>pgx v5</code> (pool max 4, <code>application_name=opm-devtools</code>, server-side cancel), Cassandra <code>gocql</code> (protocol 4, one endpoint, no host discovery), Redis <code>go-redis v9</code> (RESP3), MQTT <code>paho.mqtt.golang</code>, SQLite <code>modernc.org/sqlite</code> (pure Go), HTTP <code>net/http</code> (own transport per connection, no environment proxy, no cookie jar). All pure Go; the binary grew ≈ 9.5 MB.</td></tr>
+<tr><td>Connections</td><td>Presets = <code>SiteConfig.devTools</code> of the head (<code>p:&lt;presetSlug&gt;</code>, read-only); manual = table <code>devtools_connections</code> (<code>c_&lt;ULID&gt;</code>). Credentials: none, an expression resolved on the site from the head config (roots var, secret, site, self, deployment, containers), or a stored literal (manual only, in <code>secret_json</code>, MASK in every read).</td></tr>
+<tr><td>Targets</td><td>A container: its IP on the site network (docker inspect, probed 600 ms, cached 1 min), else the published port on 127.0.0.1 (Docker Desktop / Colima); not created / not running → 503. Host : port, an http(s) URL. SQLite: an existing file in a declared folder volume (relative, no <code>..</code>, never through a symlink) or a container path mapped through the container's mounts (a path on no mount, or a secret mount → 422).</td></tr>
+<tr><td>Remembered clients</td><td>One pooled client per connection, created on first use; closed after <code>idleTimeoutSec</code> idle (sweeper every 30 s), on disconnect / update / delete, when the fingerprint (definition + resolved address + credentials) changes — a new head with a changed preset or a rotated secret — and when a preset leaves the head. One automatic reconnect + retry when the failure is transport-level before the first statement ran.</td></tr>
+<tr><td>Execution</td><td>Statements split and classified by Go ports of the shared helpers (<code>classify.go</code>, <code>redact.go</code>; byte-for-byte vectors <code>shared/testdata/devtools-vectors.json</code>). Destructive → 422 confirm-required unless <code>confirm</code> = the connection name. Read-only: pg one <code>BEGIN READ ONLY</code> around all statements (transaction / role control refused), SQLite <code>mode=ro</code> + <code>query_only</code>, Cassandra / Redis writes 403 by the classifier, MQTT no publish, HTTP GET / HEAD / OPTIONS. Results buffered in memory 15 min, bound to the GUI session (forwarded: <code>&lt;sid&gt;@&lt;site&gt;</code>), at most 200 per agent.</td></tr>
+<tr><td>MQTT</td><td>The pooled client publishes; each live session has its own client (<code>…-live</code>, auto-reconnect, re-subscribes); a session never streamed within 2 min is closed; a closed stream ends the session (<code>devtools.mqtt-unsubscribed</code>).</td></tr>
+<tr><td>Tables</td><td><code>devtools_connections</code>, <code>devtools_saved</code>, <code>devtools_environments</code> in <code>opm.db</code>, created with <code>CREATE TABLE IF NOT EXISTS</code> (no schema bump). Not in snapshots, <code>.opmsnap</code> or <code>.opmlog</code>.</td></tr>
+</tbody></table></div>
+<div class="grid g2">
+  <div class="card"><h4>Security model</h4><ul>
+    <li><b>No shell escape.</b> The agent never runs a process for a dev tool. SQLite <code>ATTACH</code> / <code>VACUUM INTO</code> need a quoted path inside the same volume (URI names refused; rewritten to the absolute path). pg <code>COPY … PROGRAM</code>, <code>COPY … TO|FROM '&lt;file&gt;'</code>, <code>lo_import</code> / <code>lo_export</code> / <code>pg_read_file</code> run on the database server as the DB user (the operator's database, not the agent host) and are flagged destructive.</li>
+    <li><b>HTTP client</b>: refuses <code>/_opm/api/*</code> and <code>/_opm/peer/*</code> on any host (also after a redirect), drops any Cookie named <code>opm_session*</code>, never forwards the browser's cookies or headers, drops the Cookie header on redirects, never uses an environment proxy.</li>
+    <li><b>Auth</b>: reads = session; executions, writes, reveals, MQTT sessions = session + actor (the Actor header is also the CSRF guard; the cookie is SameSite=Strict). The MQTT stream needs a single-use 60 s ticket bound to the GUI session.</li>
+    <li><b>Reveal</b>: stored literals and secret environment values only (RevealValue 60 s, <code>Cache-Control: no-store</code>, 30 / min per session, <code>devtools.credential-revealed</code>).</li></ul></div>
+  <div class="card"><h4>Logging and redaction</h4><ul>
+    <li>Every execution writes <code>devtools.query</code>: actor, connection, kind, resolved target, op, the statement / command / request after <code>redactStatement</code> / <code>redactHttpRequest</code>, then every secret value of the site (≥ 4 chars) and the connection's resolved credentials → <code>••••••</code>, cut to 4 KiB; duration, rows, status, readOnly / destructive / confirmed. Never result data. The client <code>queryId</code> is masked too.</li>
+    <li>Forwarded requests are logged on <b>both</b> sites: the executing site writes the action, the forwarding site writes <code>devtools.action-forwarded { siteSlug, forwardedTo, method, action, connectionId, status }</code>.</li>
+    <li>Not logged: schema introspection, the Redis key browser, refusals before execution (403 read-only, 422 confirm / blocked / invalid). Connection failures are logged (<code>ok: false</code>).</li>
+    <li>History = the <code>devtools.query</code> + MQTT publish activities of the site (last 30 days, cursor = activity seq).</li></ul></div>
+</div>
+<div class="callout note"><b>agent.json switches</b><p><code>"tools": {"devTools": true}</code> (default). <code>false</code> → every dev tools route except <code>info</code> answers 403 <code>forbidden</code> with <code>details { reason, setting: "tools.devTools" }</code>; <code>info</code> answers <code>enabled: false</code>. It is one of the safe settings on the GUI <a href="agent-gui.html#agent-page">Agent page</a> (Edit settings; restart). Limits: <code>"devTools": {"statementTimeoutSec": 30, "maxRows": 1000, "bufferRows": 10000, "maxCellBytes": 65536, "maxResultBytes": 67108864, "maxResponseBytes": 10485760, "idleTimeoutSec": 600, "maxConcurrent": 8}</code> (clamped; the file is re-read when its mtime changes). Per-session rate limits: executions 120 / min, reveals 30 / min, tests 30 / min, writes 60 / min, MQTT sessions 20 / min.</p></div>
+
+<h2 id="install">Install and enroll</h2>
+<ol class="steps">
+  <li><b>Create the command</b>In the cloud Setup page, an operator creates an install command for one siteSlug. The token is 32 random bytes, single use, and expires in 24 h. The cloud stores it (and its sha256) while it is active, so the command can be viewed again on Setup; after use, revoke or expiry it is cleared.</li>
+  <li><b>Run it on the server</b><code>curl -fsSL -H "Authorization: Bearer &lt;token&gt;" https://api.opm.example/v1/install/script | sudo sh</code> One copy-paste. To never let the script install Docker, put the switch after <code>sudo</code>: <code>… | sudo OPM_SKIP_DOCKER_INSTALL=1 sh</code>.</li>
+  <li><b>Check the server</b>The script prints numbered steps and logs everything to <code>/var/log/opm-install.log</code>. Preflight reports OK / MISSING for root, Linux, systemd, amd64 / arm64, curl, tar, kernel ≥ 3.10, cgroups, 2 GiB free in /var/lib and iptables / nftables (for a missing tool it prints the exact package command; it never installs distro packages).</li>
+  <li><b>Docker</b>A running Docker the agent can talk to (it negotiates Engine API 1.41–1.47: Docker 20.10 or newer, any install method) is used as is. A stopped one is started. A too old or too new one is not touched: the script stops and says what to do. No Docker: the script <b>asks</b> "Docker Engine is not installed. Install the pinned Docker 28.5.2 now? [y/N]". No → manual instructions (any Docker ≥ 20.10, then rerun), exit 1. Yes (or <code>OPM_INSTALL_DOCKER=1</code> / <code>OPM_YES=1</code> without a terminal) → it installs the <b>pinned</b> official static bundle (Docker 28.5.2, sha256 checked, from <code>/v1/install/deps/docker</code>) with systemd units and <code>/etc/docker/daemon.json</code>, and records it in <code>/etc/opm/installed-deps.json</code>.</li>
+  <li><b>Check the binary</b>The script downloads the agent of the <b>pinned</b> version (embedded when the cloud made the script, never "latest"; or <code>?version=x</code> on the script URL / <code>OPM_AGENT_VERSION=x</code> for another uploaded version). It checks the sha256 and the Ed25519 release signature (openssl, else the installed agent's <code>verify-release</code>) before the new binary runs. When an agent is already installed it first asks: "Installed A → available B: UPGRADE | DOWNGRADE | SAME (reinstall) [y/N]" (see <a href="#fallback">the hard fallback</a>).</li>
+  <li><b>Write the files</b>The script writes <code>/etc/opm/agent.json</code> (with the release public key; an existing one is kept and only gains missing keys), the token file (never for an enrolled site) and the systemd units (written by the agent binary itself: <code>opm-agent systemd-units --install</code> = service + <code>opm-agent.socket</code> + boot guard), starts the agent, and waits until <code>/_opm/api/health</code> is ok (a fresh install: until the site is enrolled). When a step fails it shows the step, the last 20 log lines and a manual instruction; rerun the same command after fixing it. A rerun skips what is done.</li>
+  <li><b>GUI addresses and firewall</b>Step 7 lists the ports that really listen and prints the GUI URLs, port 80 first: <code>http://&lt;ip&gt;/_opm/</code>, then <code>:8080</code> and <code>:7080</code>. It reports the host firewall (ufw / firewalld) with the exact commands to open 80 / 443 / 7080 / 8080 (it never changes rules), and curls each URL from the server (3 s timeout): "reachable / NOT reachable from this host". A cloud firewall (for example a DigitalOcean Cloud Firewall) cannot be seen from inside the server; open the ports there too.</li>
+  <li><b>Boot guard</b>Part of the units (an agent without <code>systemd-units</code>: <code>opm-agent upgrade-guard --install</code>): it writes <code>/usr/local/lib/opm/upgrade-guard.sh</code> and the drop-in <code>opm-agent.service.d/upgrade-guard.conf</code> (see <a href="#unit">systemd unit</a> and <a href="#self-upgrade">Self-upgrade and rollback</a>). An older binary without that subcommand is skipped with a note.</li>
+  <li><b>Upgrade later</b>From agent <b>0.10.0</b> an upgrade is a button: cloud console → Setup → <b>Upgrade agent</b> (or <b>Upgrade all</b>), or the agent GUI → <b>Agent</b> page → <b>Upgrade to X</b>. Nobody needs to log in to the server. An agent <b>below 0.10.0</b> (for example 0.7.2, where <code>sudo opm-agent upgrade</code> says "unknown command") upgrades <b>once</b> by rerunning its original install command on the server: after the site enrolled, that token only upgrades that site (no expiry; Revoke ends it), installs the pinned agent, writes the boot guard and restarts it, and never re-enrolls. After that, upgrades are a button.</li>
+  <li><b>Enroll</b>The agent makes the site key and calls <code>POST /v1/agent/enroll</code> with the token and the public key. The cloud marks the token used and returns the peers. A site that is already enrolled gets <code>conflict</code> (revoke it first in the cloud).</li>
+  <li><b>Wait for a person</b>The site config is empty. Nothing runs until a person opens the agent GUI, answers "Who is working right now?", and approves the first proposal.</li>
+</ol>
+
+<h2 id="fallback">Rerun the install command: the hard fallback</h2>
+<p>If the upgrade from the GUI or the cloud cannot run, or you need a downgrade or a clean reinstall, rerun the site's install command on the server (SPEC §19.1, §21 #91). It is safe: it asks before it changes anything, keeps the whole setup, and puts the old agent back by itself when the new one is not healthy. App containers keep running the whole time.</p>
+<div class="diagram"><svg id="fbSvg" viewBox="0 0 900 230" role="img" aria-label="Install command as the hard fallback"></svg>
+  <div class="cap">The flow of a rerun on a server where the agent is installed. Every question reads the terminal (<code>/dev/tty</code>), also under <code>curl | sudo sh</code>.</div></div>
+<div class="tbl-wrap"><table><thead><tr><th>Situation</th><th>The script asks / does</th><th>Without a terminal</th></tr></thead><tbody>
+<tr><td>No Docker</td><td>"Install the pinned Docker 28.5.2 now? [y/N]"; no → manual instructions, exit 1. An existing Docker ≥ 20.10 is used without asking.</td><td><code>OPM_INSTALL_DOCKER=1</code> (or <code>OPM_YES=1</code>); <code>OPM_SKIP_DOCKER_INSTALL=1</code> = never</td></tr>
+<tr><td>Agent older than the target</td><td>"Installed 0.7.2 → available 0.10.1: UPGRADE [y/N]"; no → "Nothing changed", exit 0</td><td><code>OPM_YES=1</code></td></tr>
+<tr><td>Same version</td><td>SAME (reinstall) [y/N]</td><td><code>OPM_YES=1</code></td></tr>
+<tr><td>Agent newer than the target</td><td>DOWNGRADE [y/N] + a second confirmation. Refused when the target cannot read the database schema, unless a matching DB backup is restored (own question; data written after it is lost).</td><td><code>OPM_ALLOW_DOWNGRADE=1</code>, <code>OPM_RESTORE_DB_BACKUP=1</code> (<code>OPM_YES</code> does not answer these)</td></tr>
+<tr><td>Another version than the pin</td><td>—</td><td><code>OPM_AGENT_VERSION=x</code> or <code>?version=x</code> on the URL (uploaded versions only)</td></tr>
+<tr><td>Expired / revoked token</td><td>Prints what to do (Setup → Install command → Regenerate or View) and "Nothing was changed on this server.", exit 1</td><td>same</td></tr>
+</tbody></table></div>
+<ul>
+  <li><b>Kept</b>: agent.json (only missing keys are added and printed), the site key, the enrollment (never re-enrolled), the data dir, volumes, files, certificates, transcripts. App containers are never touched.</li>
+  <li><b>Backup</b>: before every up-, down- or reinstall the agent is stopped and <code>/var/lib/opm/*.db*</code> is copied to <code>/var/lib/opm/backup/&lt;oldVersion&gt;-&lt;time&gt;/</code> with <code>meta.env</code>; the 5 newest are kept.</li>
+  <li><b>Swap + check</b>: <code>opm-agent.prev</code> is kept, the new binary writes the units, the service restarts, and the script waits ≤ 60 s for <code>/_opm/api/health</code> with the new version (and the cloud connection, if the old agent had it). Not healthy → <code>.prev</code> back, the DB backup restored when the schema changed, restart, the log path, exit 1.</li>
+  <li>Without a terminal the script never waits: an unanswered question means "no", and it prints the exact rerun command with the flag after <code>sudo</code>, e.g. <code>curl -fsSL -H "Authorization: Bearer opi_…" …/v1/install/script | sudo OPM_YES=1 sh</code>.</li>
+</ul>
+
+<h2 id="unit">systemd unit</h2>
+<pre class="unit"><code>[Unit]
+Description=On-Prem Manager agent
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/opm-agent run --config /etc/opm/agent.json
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+# Containers keep running when the agent restarts: the agent is not their parent.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Next to the unchanged main unit, the boot-guard drop-in <code>/etc/systemd/system/opm-agent.service.d/upgrade-guard.conf</code> (written by <code>opm-agent upgrade-guard --install</code>: by the install script, and by the agent before every upgrade, then <code>systemctl daemon-reload</code>):</p>
+<pre class="unit"><code>[Service]
+# "-": a failing guard never blocks the start. Arguments: the data dir and the binary.
+ExecStartPre=-/bin/sh /usr/local/lib/opm/upgrade-guard.sh /var/lib/opm /usr/local/bin/opm-agent</code></pre>
+
+<p><b>Socket activation.</b> <code>/etc/systemd/system/opm-agent.socket</code> holds the default edge port (80), <code>agentPort</code> (7080) and <code>guiAliasPort</code> (8080) in ONE unit with <code>FileDescriptorName=opm</code> and <code>Service=opm-agent.service</code>; the agent matches the inherited sockets by port and binds every other port itself. While the agent restarts (upgrade, restart, rerun of the install command) the kernel queues new connections instead of refusing them: measured 0 of 2184 requests failed with the socket, 4 of 2144 refused without it. Needs systemd ≥ 235; <code>OPM_SOCKET_ACTIVATION=0</code> turns it off. All units come from the agent binary: <code>opm-agent systemd-units --install</code>.</p>
+<pre class="unit"><code>[Socket]
+ListenStream=80
+ListenStream=7080
+ListenStream=8080
+FileDescriptorName=opm
+Service=opm-agent.service
+[Install]
+WantedBy=sockets.target</code></pre>
+
+<h2 id="self-upgrade">Self-upgrade and rollback</h2>
+<p>Everything <code>opm-agent</code> can do on the command line is also in the GUIs (SPEC §7.5, §21 #90), including the upgrade. One code path serves the agent GUI (<b>Agent</b> page), a cloud request (Setup → <b>Upgrade agent</b>, picked up from the cloud view), the mesh <b>Upgrade all</b> and <code>sudo opm-agent upgrade</code>. It is never automatic. Requirements: agent ≥ 0.10.0, enrolled, no update / rollback / snapshot / restore running (else <code>locked</code>), no other upgrade (<code>conflict</code>), the version you saw is still the pinned one (<code>stale</code>), and the typed site slug.</p>
+<div class="diagram"><svg id="upgSvg" viewBox="0 0 900 300" role="img" aria-label="Upgrade phases and the two rollback layers"></svg>
+  <div class="cap">Five phases, each written to <code>upgrade/state.json</code> and sent to the cloud at once in a heartbeat. A failure before the swap leaves the old agent running. After the restart, two independent layers put <code>opm-agent.prev</code> back when the new agent is not healthy within 60 s.</div></div>
+<ol class="steps">
+  <li><b>Download</b>Signed <code>GET /v1/agent/release</code> + <code>GET /v1/agent/binary</code> (direct or through the relay, resumable) into <code>opm-agent.new</code>; the GUI shows bytes / total.</li>
+  <li><b>Verify</b>The Ed25519 release signature (key from agent.json <code>releasePublicKey</code>, else the cloud's), the sha256, and a self-test: <code>opm-agent.new version</code> must print the pinned version.</li>
+  <li><b>Swap</b>The running binary is hard-linked to <code>opm-agent.prev</code>; <code>opm-agent.new</code> is renamed over <code>opm-agent</code> (atomic). The boot guard is (re)installed and <code>upgrade/pending.json</code> written with a deadline.</li>
+  <li><b>Restart</b>The old agent starts the watcher, then <code>systemctl restart --no-block opm-agent</code> (without systemd: graceful stop + re-exec). The containers keep running.</li>
+  <li><b>Health</b>The new agent finishes its startup (store, listeners, <code>/_opm/healthz</code>), writes <code>upgrade/healthy</code>, sets the phase done and writes <code>agent.upgraded</code>. Health = the public <code>GET /_opm/api/health</code> (200 ok / 503 not yet: store, listeners, startup, version, schema, cloud, Docker, socket activation). GUI sessions survive: the page polls <code>/_opm/api/health</code> every 2 s and continues on the same login.</li>
+</ol>
+<div class="grid g2">
+  <div class="card"><h4>Layer 1 · the watcher</h4><p class="small">The known-good binary runs as <code>opm-agent.prev upgrade-watch</code> outside the service (<code>systemd-run --unit opm-agent-upgrade-watch-&lt;id&gt; --collect</code>, else a detached process). It waits for <code>upgrade/healthy</code> and the new version on <code>/_opm/api/health</code>. At the deadline without them: stop the agent, rename <code>opm-agent.prev</code> back, start it, write <code>upgrade/rolled-back.json</code>.</p></div>
+  <div class="card"><h4>Layer 2 · the boot guard</h4><p class="small"><code>upgrade-guard.sh</code> runs before every (re)start of the service (<code>ExecStartPre=-</code>). When <code>pending.json</code> is past its deadline without <code>healthy</code> and the binary still has the new sha256, it restores <code>.prev</code>. This covers a new binary that crash-loops and a reboot during the watch. A broken binary cannot guard itself; a systemd watchdog would need support in every old version.</p></div>
+</div>
+<p>The restored old agent reads <code>rolled-back.json</code> and writes <code>agent.upgrade-failed</code> + <code>agent.rolled-back</code> (actor = the person who asked). Activities: <code>agent.upgrade-started</code> (old agent), <code>agent.upgraded</code> (new agent), <code>agent.upgrade-failed</code>, <code>agent.rolled-back</code>.</p>
+<ul>
+  <li><b>From the cloud</b>: Setup queues a request (<code>agents/{site}.upgradeRequest</code>, 24 h). Each agent takes only its own, once per request id (remembered in <code>upgrade/handled-requests.json</code>), with the requester's email as the actor. The heartbeat reports every phase; the cloud clears the request when it is done, failed or rolled back. If the pin moved meanwhile the agent fails it with "the pinned release moved to X; request again".</li>
+  <li><b>Upgrade all</b>: one site at a time, in site order, stop on the first failure. In the agent GUI the site you opened coordinates and upgrades itself LAST (it restarts); state in <code>upgrade/run.json</code>. In the cloud the run lives on the deployment; the next site is queued when the previous one reports done.</li>
+  <li><b>The third layer</b> is you: when nothing else works, <a href="#fallback">rerun the install command</a>.</li>
+  <li><b>Agents below 0.10.0</b> have none of this: rerun the original install command on that server once. It installs the new agent and the boot guard; after that, upgrades are a button.</li>
+</ul>
+
+<h2 id="budget">Resource budget</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Resource</th><th>Target</th><th>Note</th></tr>
+<tr><td>RAM</td><td>≤ 150 MB idle, ≤ 400 MB during staging</td><td>Image layers stream to disk, not to memory</td></tr>
+<tr><td>CPU</td><td>&lt; 2 % of one core idle</td><td>Sampling every 30 s, peer ping every 10 s</td></tr>
+<tr><td>Disk (agent data)</td><td>&lt; 300 MB without snapshots</td><td>Debug log 200 MB max; uptime ≈ 5 MB</td></tr>
+<tr><td>Disk (snapshots)</td><td>1.2 × the estimate free before each snapshot</td><td>Retention: last 10 pre-update + 7 daily + all manual</td></tr>
+<tr><td>Network idle</td><td>≈ 1 request every 30 s to the cloud</td><td>Long-poll ≤ 55 s + heartbeat</td></tr>
+</table></div>
+</main>
+</div>
+<script>
+// ---------- install command as the hard fallback (§21 #91)
+(function () {
+  const svg = document.getElementById('fbSvg');
+  if (!svg) return;
+  const st = [['ask', 'Docker? up / down / same?'], ['keep', 'config · key · data'], ['backup', 'stop agent · *.db → backup/'], ['swap', 'keep .prev · units · restart'], ['health', '/_opm/api/health ≤ 60 s']];
+  st.forEach(([t, s], i) => {
+    const x = 20 + i * 176;
+    svg.appendChild(svgEl('rect', { x, y: 30, width: 150, height: 64, rx: 9, class: 'box ' + (i < 2 ? 'cs' : 'agent') }));
+    svg.appendChild(svgEl('text', { x: x + 75, y: 58, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 650 }, t));
+    svg.appendChild(svgEl('text', { x: x + 75, y: 78, 'text-anchor': 'middle', 'font-size': 9.5, class: 'muted' }, s));
+    if (i < 4) svg.appendChild(svgEl('line', { x1: x + 150, y1: 62, x2: x + 176, y2: 62, stroke: 'var(--teal)', 'stroke-width': 2 }));
+  });
+  svg.appendChild(svgEl('text', { x: 95, y: 118, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'no → "Nothing changed"'));
+  svg.appendChild(svgEl('text', { x: 785, y: 118, 'text-anchor': 'end', 'font-size': 12, 'font-weight': 650, fill: 'var(--ok)' }, 'healthy → done'));
+  svg.appendChild(svgEl('rect', { x: 330, y: 150, width: 420, height: 56, rx: 8, fill: 'var(--bad-soft)', stroke: 'var(--bad)', 'stroke-width': 1.5 }));
+  svg.appendChild(svgEl('text', { x: 540, y: 173, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, 'not healthy → rollback'));
+  svg.appendChild(svgEl('text', { x: 540, y: 193, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, '.prev back · DB backup restored if the schema changed · restart · exit 1'));
+  svg.appendChild(svgEl('path', { d: 'M 795 94 L 795 178 L 750 178', fill: 'none', stroke: 'var(--bad)', 'stroke-width': 2, 'stroke-dasharray': '5 3' }));
+  svg.appendChild(svgEl('text', { x: 30, y: 180, 'font-size': 11, class: 'muted' }, 'app containers keep running throughout'));
+})();
+
+// ---------- self-upgrade phases + rollback layers (§21 #90)
+(function () {
+  const svg = document.getElementById('upgSvg');
+  if (!svg) return;
+  const ph = [['download', 'signed, resumable'], ['verify', 'signature · sha256 · self-test'], ['swap', 'keep opm-agent.prev'], ['restart', 'systemd / re-exec'], ['health', '≤ 60 s · upgrade/healthy']];
+  ph.forEach(([t, s], i) => {
+    const x = 20 + i * 176;
+    svg.appendChild(svgEl('rect', { x, y: 40, width: 150, height: 64, rx: 9, class: 'box ' + (i < 3 ? 'agent' : 'app') }));
+    svg.appendChild(svgEl('text', { x: x + 75, y: 68, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 650 }, t));
+    svg.appendChild(svgEl('text', { x: x + 75, y: 88, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, s));
+    if (i < 4) svg.appendChild(svgEl('line', { x1: x + 150, y1: 72, x2: x + 176, y2: 72, stroke: 'var(--teal)', 'stroke-width': 2 }));
+  });
+  svg.appendChild(svgEl('text', { x: 280, y: 26, 'text-anchor': 'middle', 'font-size': 11.5, class: 'muted' }, 'old agent running · a failure here = no restart'));
+  svg.appendChild(svgEl('text', { x: 720, y: 26, 'text-anchor': 'middle', 'font-size': 11.5, class: 'muted' }, 'new agent · must report healthy'));
+  svg.appendChild(svgEl('line', { x1: 544, y1: 14, x2: 544, y2: 112, stroke: 'var(--border)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }));
+  // done path
+  svg.appendChild(svgEl('text', { x: 840, y: 128, 'text-anchor': 'end', 'font-size': 12, 'font-weight': 650, fill: 'var(--ok)' }, 'healthy → done · agent.upgraded'));
+  // rollback layers
+  const layer = (y, t, s) => {
+    svg.appendChild(svgEl('rect', { x: 300, y, width: 420, height: 50, rx: 8, fill: 'var(--bad-soft)', stroke: 'var(--bad)', 'stroke-width': 1.5 }));
+    svg.appendChild(svgEl('text', { x: 510, y: y + 21, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, t));
+    svg.appendChild(svgEl('text', { x: 510, y: y + 39, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, s));
+  };
+  layer(160, '1 · watcher (opm-agent.prev upgrade-watch)', 'transient unit outside the service · polls healthy + /_opm/api/info');
+  layer(225, '2 · boot guard (ExecStartPre=- upgrade-guard.sh)', 'every (re)start · pending past deadline, no healthy, new sha256');
+  svg.appendChild(svgEl('path', { d: 'M 860 104 L 860 250 L 720 250 M 860 185 L 720 185', fill: 'none', stroke: 'var(--bad)', 'stroke-width': 2, 'stroke-dasharray': '5 3' }));
+  svg.appendChild(svgEl('text', { x: 852, y: 150, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--bad)' }, 'not healthy'));
+  svg.appendChild(svgEl('text', { x: 852, y: 164, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--bad)' }, 'in 60 s'));
+  svg.appendChild(svgEl('rect', { x: 20, y: 185, width: 200, height: 64, rx: 9, class: 'box cs' }));
+  svg.appendChild(svgEl('text', { x: 120, y: 211, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, 'old version runs again'));
+  svg.appendChild(svgEl('text', { x: 120, y: 230, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, '→ agent.rolled-back'));
+  svg.appendChild(svgEl('path', { d: 'M 300 185 L 260 185 L 260 217 L 228 217 M 300 250 L 260 250 L 260 217', fill: 'none', stroke: 'var(--bad)', 'stroke-width': 2 }));
+  svg.appendChild(svgEl('polygon', { points: '230,211 220,217 230,223', fill: 'var(--bad)' }));
+  svg.appendChild(svgEl('text', { x: 120, y: 172, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--bad)' }, 'restore opm-agent.prev'));
+})();
+</script>
+<script id="edge-lib">
+// ---------- edge (embedded Caddy) · shared model, resolver, editor (same code on every docs page that shows the edge) ----------
+const EDGE_PORTS = { web: { http: 80 }, api: { http: 3000 }, redis: { redis: 6379 }, postgres: { sql: 5432 }, worker: {} };
+function edgeSample(site) {
+  if (site === 'db') return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: '10.0.1.11', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }], routes: [] };
+  return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: 'plant.acme.com', tls: { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: true },
+    { hostname: '10.0.1.10', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }],
+  routes: [
+    { routeId: 'api', hosts: [], match: { pathPrefix: '/api', methods: null }, action: { type: 'proxy', containerSlug: 'api', portName: 'http', stripPrefix: true, addPrefix: null, setHeaders: { 'X-Forwarded-Prefix': '/api' }, removeHeaders: [], websocket: false, timeoutSec: 60 }, order: 1 },
+    { routeId: 'old', hosts: [], match: { pathPrefix: '/old', methods: null }, action: { type: 'redirect', to: '/new', status: 308, keepPath: true }, order: 2 },
+    { routeId: 'docs', hosts: ['plant.acme.com'], match: { pathPrefix: '/docs', methods: null }, action: { type: 'redirect', to: 'https://docs.acme.com{path}', status: 301, keepPath: false }, order: 3 },
+    { routeId: 'web', hosts: [], match: { pathPrefix: '/', methods: null }, action: { type: 'proxy', containerSlug: 'web', portName: 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: true, timeoutSec: 60 }, order: 4 }] };
+}
+const edgeEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const edgePrefixHit = (p, path) => p === '/' || path === p || path.startsWith(p.endsWith('/') ? p : p + '/');
+function edgeHostOf(edge, hn) {
+  hn = hn.toLowerCase();
+  let h = edge.hosts.find((x) => x.hostname.toLowerCase() === hn);
+  if (h) return [h, 'exact'];
+  h = edge.hosts.find((x) => x.hostname.startsWith('*.') && hn.endsWith(x.hostname.slice(1).toLowerCase()) && hn.split('.').length === x.hostname.split('.').length);
+  if (h) return [h, 'wildcard'];
+  h = edge.hosts.find((x) => x.hostname === '*');
+  return h ? [h, 'any host (*)'] : [null, ''];
+}
+// Resolve one request exactly like the agent edge does. opts: { method, notReady: { containerSlug: true } }
+function edgeResolve(edge, raw, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase(), steps = [];
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'http://' + raw); } catch (e) { return { status: 0, kind: 'bad', title: 'Not a URL', steps: ['Enter for example https://plant.acme.com/api/v1/x'] }; }
+  const scheme = u.protocol.slice(0, -1), hn = u.hostname.replace(/^\[|\]$/g, ''), q = u.search, path = u.pathname || '/';
+  if (scheme !== 'http' && scheme !== 'https') return { status: 0, kind: 'bad', title: 'Only http and https', steps: [] };
+  const port = u.port ? +u.port : scheme === 'https' ? 443 : 80;
+  const want = scheme === 'https' ? edge.httpsPort : edge.httpPort;
+  if (port !== want) return { status: 0, kind: 'bad', title: `Port ${port} is not an edge port`, steps: [`The edge listens on http ${edge.httpPort} and https ${edge.httpsPort == null ? 'off' : edge.httpsPort}.`, 'agentPort and agentGuiAliasPort serve only /_opm/ and do not use these rules.'] };
+  const [host, how] = edgeHostOf(edge, hn);
+  if (!host) return { status: scheme === 'https' ? 0 : 404, kind: 'bad', title: scheme === 'https' ? 'TLS handshake fails' : '404 · site not-found page', steps: [`No entry in edge.hosts matches <code>${edgeEsc(hn)}</code> and there is no "*" host.`, scheme === 'https' ? 'There is no certificate for this name.' : 'The edge answers with the site not-found page.'] };
+  steps.push(`Host <code>${edgeEsc(hn)}</code> → <code>${edgeEsc(host.hostname)}</code> (${how}) · TLS ${host.tls.mode}`);
+  if (scheme === 'https' && host.tls.mode === 'none') return { status: 0, kind: 'bad', title: 'TLS handshake fails', host, steps: steps.concat(['TLS mode is none for this host, so the edge has no certificate for HTTPS.']) };
+  if (scheme === 'http' && host.redirectHttpToHttps && host.tls.mode !== 'none' && edge.httpsPort != null) {
+    const loc = `https://${hn}${edge.httpsPort === 443 ? '' : ':' + edge.httpsPort}${path}${q}`;
+    return { status: 308, kind: 'redirect', title: '308 → HTTPS', host, location: loc, steps: steps.concat(['redirectHttpToHttps is on for this host. Routes are not checked on HTTP.']) };
+  }
+  if (path === '/_opm' || path.startsWith('/_opm/')) {
+    const known = path === '/_opm' || path === '/_opm/' || /^\/_opm\/(app|install)(\/|$)/.test(path) || path.startsWith('/_opm/api/') || path.startsWith('/_opm/assets/');
+    return { status: known ? 200 : 404, kind: 'agent', title: known ? '200 · agent GUI / API' : '404 · agent 404 page', host, steps: steps.concat(['<code>/_opm/</code> is reserved on every host. Routes are not checked.', known ? 'The agent answers (in process, not a container).' : 'Unknown /_opm/ path → the AGENT 404 page (never the site page). /_opm/peer/ is only on agentPort.']) };
+  }
+  const cand = edge.routes.filter((r) => !r.hosts.length || r.hosts.includes(host.hostname)).sort((a, b) => a.order - b.order || b.match.pathPrefix.length - a.match.pathPrefix.length);
+  steps.push(`Routes for this host, in order: ${cand.map((r) => `<code>${edgeEsc(r.routeId)}</code>`).join(' → ') || 'none'}`);
+  const r = cand.find((x) => edgePrefixHit(x.match.pathPrefix, path) && (!x.match.methods || !x.match.methods.length || x.match.methods.includes(method)));
+  if (!r) return { status: 404, kind: 'bad', title: '404 · site not-found page', host, steps: steps.concat(['No route matches. The edge serves the site not-found page (notFoundPageId; built-in page if null).']) };
+  const pre = r.match.pathPrefix, rest = pre === '/' ? path : path.slice(pre.replace(/\/$/, '').length);
+  steps.push(`First match: route <code>${edgeEsc(r.routeId)}</code> (prefix <code>${edgeEsc(pre)}</code>)`);
+  const a = r.action;
+  if (a.type === 'redirect') {
+    let loc = String(a.to).replace(/\{path\}/g, path).replace(/\{query\}/g, q).replace(/\{host\}/g, hn);
+    if (a.keepPath) loc = loc.replace(/\/$/, '') + (rest === '/' ? '' : rest) + q;
+    return { status: a.status, kind: 'redirect', title: `${a.status} redirect`, host, route: r, location: loc, steps: steps.concat([a.keepPath ? `keepPath: the rest of the path (<code>${edgeEsc(rest || '/')}</code>) and the query are added.` : 'keepPath is off: only the placeholders in "to" are used.']) };
+  }
+  if ((opts.notReady || {})[a.containerSlug]) return { status: 503, kind: 'bad', title: '503 · not-found page', host, route: r, steps: steps.concat([`Container <code>${edgeEsc(a.containerSlug)}</code> is not ready (health check). The edge serves the not-found page with status 503.`]) };
+  let up = a.stripPrefix ? (rest && rest.startsWith('/') ? rest : '/' + (rest || '')) : path;
+  if (a.addPrefix) up = a.addPrefix.replace(/\/$/, '') + up;
+  const cport = (EDGE_PORTS[a.containerSlug] || {})[a.portName];
+  const upstream = `http://${a.containerSlug}:${cport == null ? '?' : cport}${up}${q}`;
+  const hdr = Object.entries(a.setHeaders || {}).map(([k, v]) => `${k}: ${v}`);
+  return { status: 200, kind: 'proxy', title: 'proxy → container', host, route: r, upstream, steps: steps.concat([
+    a.stripPrefix ? `stripPrefix: <code>${edgeEsc(path)}</code> → <code>${edgeEsc(up)}</code>` : 'stripPrefix is off: the path goes unchanged.',
+    `Upstream (site network, DNS = container name): <code>${edgeEsc(upstream)}</code>`,
+    hdr.length ? `setHeaders: <code>${edgeEsc(hdr.join(' · '))}</code>` : 'Headers: X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host are always set.',
+    a.websocket ? 'WebSocket upgrade allowed.' : `Timeout ${a.timeoutSec} s.`]) };
+}
+function edgeExplainHTML(res) {
+  const cls = res.kind === 'proxy' ? 'ok' : res.kind === 'redirect' ? 'warn' : res.kind === 'agent' ? 'agent' : 'bad';
+  return `<div class="ee-res"><span class="tag ${cls}">${res.status || '—'}</span> <b>${res.title}</b>${res.location ? ` → <code>${edgeEsc(res.location)}</code>` : ''}<ol>${res.steps.map((s) => `<li>${s}</li>`).join('')}</ol></div>`;
+}
+// opts: { containers: [{ slug, hostPorts: number[] }], agentPort, agentGuiAliasPort, files: [], secrets: [] }
+function edgeValidate(edge, opts) {
+  opts = opts || {};
+  const E = [], W = [], slugRe = /^[a-z0-9][a-z0-9-]{0,62}$/;
+  const names = edge.hosts.map((h) => h.hostname.toLowerCase());
+  const isIp = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || s.includes(':');
+  if (edge.httpPort === edge.httpsPort) E.push('httpPort and httpsPort must differ.');
+  [['httpPort', edge.httpPort], ['httpsPort', edge.httpsPort]].forEach(([k, p]) => {
+    if (p == null) return;
+    if (!Number.isInteger(p) || p < 1 || p > 65535) E.push(`${k} ${p} must be 1–65535.`);
+    if (p === opts.agentPort) E.push(`${k} ${p} is the agentPort.`);
+    if (p === opts.agentGuiAliasPort) E.push(`${k} ${p} is the agentGuiAliasPort.`);
+  });
+  (opts.containers || []).forEach((c) => (c.hostPorts || []).forEach((p) => {
+    if (p === 80 || p === 443 || p === edge.httpPort || p === edge.httpsPort) E.push(`Container ${c.slug} publishes host port ${p}; ${p} belongs to the edge. Add a route instead.`);
+  }));
+  edge.hosts.forEach((h, i) => {
+    const n = h.hostname;
+    if (!n) E.push(`hosts[${i}]: hostname is empty.`);
+    if (names.indexOf(n.toLowerCase()) !== i) E.push(`Host ${n} is listed two times.`);
+    if (n !== '*' && !n.includes('{{') && !isIp(n) && !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(n)) E.push(`Host "${n}" is not a DNS name, a wildcard, an IP or "*".`);
+    if (h.tls.mode === 'acme') {
+      if (n === '*' || isIp(n)) E.push(`Host ${n}: ACME cannot issue a certificate for an IP or "*". Use internal.`);
+      if (!h.tls.email) E.push(`Host ${n}: ACME needs an email.`);
+      if (n.startsWith('*.') && h.tls.challenge !== 'dns-01') E.push(`Host ${n}: a wildcard certificate needs the dns-01 challenge.`);
+      if (h.tls.challenge === 'dns-01' && (!h.tls.dnsProvider || !h.tls.dnsTokenSecretSlug)) E.push(`Host ${n}: dns-01 needs dnsProvider and dnsTokenSecretSlug.`);
+      if (h.tls.challenge !== 'dns-01') { const need = h.tls.challenge === 'http-01' ? 80 : 443; W.push(`Host ${n}: ${h.tls.challenge} needs internet on this site AND ${n} reachable from the internet on port ${need}.`); if ((need === 80 ? edge.httpPort : edge.httpsPort) !== need) E.push(`Host ${n}: ${h.tls.challenge} needs the edge on port ${need}.`); }
+    }
+    if (h.tls.mode === 'files' && (!h.tls.certFileSlug || !h.tls.keySecretSlug)) E.push(`Host ${n}: files mode needs certFileSlug and keySecretSlug.`);
+    if (h.tls.mode === 'files' && opts.files && h.tls.certFileSlug && !opts.files.includes(h.tls.certFileSlug)) E.push(`Host ${n}: file ${h.tls.certFileSlug} does not exist.`);
+    if (h.tls.mode === 'files' && opts.secrets && h.tls.keySecretSlug && !opts.secrets.includes(h.tls.keySecretSlug)) E.push(`Host ${n}: secret ${h.tls.keySecretSlug} does not exist.`);
+    if (h.redirectHttpToHttps && (h.tls.mode === 'none' || edge.httpsPort == null)) E.push(`Host ${n}: redirectHttpToHttps needs TLS and an httpsPort.`);
+  });
+  const ids = edge.routes.map((r) => r.routeId);
+  const sorted = edge.routes.slice().sort((a, b) => a.order - b.order);
+  sorted.forEach((r, i) => {
+    if (!slugRe.test(r.routeId)) E.push(`Route id "${r.routeId}" is not a slug.`);
+    if (ids.indexOf(r.routeId) !== ids.lastIndexOf(r.routeId)) E.push(`Route id ${r.routeId} is used two times.`);
+    const p = r.match.pathPrefix;
+    if (!p || p[0] !== '/') E.push(`Route ${r.routeId}: pathPrefix must start with "/".`);
+    if (p === '/_opm' || (p && p.startsWith('/_opm/'))) E.push(`Route ${r.routeId}: /_opm/ is reserved for the agent.`);
+    r.hosts.forEach((x) => { if (!edge.hosts.some((h) => h.hostname === x)) E.push(`Route ${r.routeId}: host ${x} is not in edge.hosts.`); });
+    const a = r.action;
+    if (a.type === 'proxy') {
+      const ports = EDGE_PORTS[a.containerSlug];
+      if (opts.containers && !opts.containers.some((c) => c.slug === a.containerSlug)) E.push(`Route ${r.routeId}: container ${a.containerSlug} does not exist on this site.`);
+      else if (!ports || !(a.portName in ports)) E.push(`Route ${r.routeId}: port ${a.portName} does not exist on the image of ${a.containerSlug}.`);
+      if (!(a.timeoutSec >= 1 && a.timeoutSec <= 3600)) E.push(`Route ${r.routeId}: timeoutSec must be 1–3600.`);
+      if (a.addPrefix && a.addPrefix[0] !== '/') E.push(`Route ${r.routeId}: addPrefix must start with "/".`);
+    } else {
+      if (!a.to) E.push(`Route ${r.routeId}: redirect needs "to".`);
+      if (![301, 302, 303, 307, 308].includes(+a.status)) E.push(`Route ${r.routeId}: status must be 301, 302, 303, 307 or 308.`);
+    }
+    const shadow = sorted.slice(0, i).find((o) => edgePrefixHit(o.match.pathPrefix, p) && (!o.hosts.length || (r.hosts.length && r.hosts.every((x) => o.hosts.includes(x)))) && !o.match.methods);
+    if (shadow) W.push(`Route ${r.routeId} never matches: route ${shadow.routeId} (prefix ${shadow.match.pathPrefix}) is before it. Move it up.`);
+  });
+  return { E: [...new Set(E)], W: [...new Set(W)] };
+}
+function edgeCert(h) {
+  const m = h.tls.mode;
+  if (m === 'none') return '<span class="muted">— (HTTP only)</span>';
+  if (m === 'internal') return '<span class="tag ok">valid</span> <span class="small">OPM local CA · 12 h · renews itself</span>';
+  if (m === 'files') return `<span class="tag ok">valid</span> <span class="small">from file ${edgeEsc(h.tls.certFileSlug || '?')}</span>`;
+  return h.hostname === 'plant.acme.com' ? '<span class="tag ok">valid</span> <span class="small">Let\'s Encrypt R11 · until 2027-01-04</span>' : '<span class="tag warn">pending</span> <span class="small">first issue after apply</span>';
+}
+(function () {
+  if (document.getElementById('ee-style')) return;
+  const s = document.createElement('style'); s.id = 'ee-style';
+  s.textContent = `.ee{font-size:13px}.ee h5{margin:14px 0 6px;font-size:13px}.ee .ee-w{overflow-x:auto;-webkit-overflow-scrolling:touch}.ee table{width:100%;border-collapse:collapse;min-width:640px}.ee th,.ee td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top;font-size:12px}.ee th{color:var(--muted);font-weight:600}.ee input[type=text],.ee input[type=number],.ee select{font:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);max-width:100%}.ee input.w{width:150px}.ee input.n{width:64px}.ee .ee-b{font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer}.ee .ee-b.pri{background:var(--accent);color:#fff;border-color:transparent}.ee .ee-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.ee .ee-sub{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.ee .ee-res{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px;background:var(--surface-2);overflow-wrap:anywhere}.ee .ee-res ol{margin:6px 0 0 18px;padding:0}.ee .ee-msg li{margin:2px 0}.ee .ee-try{cursor:pointer;text-decoration:underline;margin-right:8px;font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}.ee code{overflow-wrap:anywhere}`;
+  document.head.appendChild(s);
+})();
+// Mount an interactive editor into el. edge is edited in place. opts: { local, onChange, containers, agentPort, agentGuiAliasPort, files, secrets, testUrl }
+function mountEdge(el, edge, opts) {
+  opts = opts || {};
+  const S = el.__ee || (el.__ee = { url: opts.testUrl || 'https://plant.acme.com/api/v1/x', method: 'GET', notReady: {}, newHost: '' });
+  const svcs = Object.keys(EDGE_PORTS).filter((k) => !opts.containers || opts.containers.some((c) => c.slug === k));
+  const opt = (vals, cur) => vals.map((v) => `<option ${String(v) === String(cur) ? 'selected' : ''}>${v}</option>`).join('');
+  const sorted = () => edge.routes.sort((a, b) => a.order - b.order);
+  const draw = () => {
+    sorted();
+    const v = edgeValidate(edge, opts);
+    const hostRows = edge.hosts.map((x, i) => {
+      const t = x.tls, m = t.mode;
+      const extra = m === 'acme' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.email" data-i="${i}" value="${edgeEsc(t.email)}" placeholder="email" aria-label="ACME email"/><select data-f="h.tls.challenge" data-i="${i}" aria-label="challenge">${opt(['http-01', 'tls-alpn-01', 'dns-01'], t.challenge)}</select>${t.challenge === 'dns-01' ? `<input type="text" class="w" data-f="h.tls.dnsProvider" data-i="${i}" value="${edgeEsc(t.dnsProvider)}" placeholder="dns provider (cloudflare)"/><input type="text" class="w" data-f="h.tls.dnsTokenSecretSlug" data-i="${i}" value="${edgeEsc(t.dnsTokenSecretSlug)}" placeholder="token secret slug"/>` : ''}</div>`
+        : m === 'files' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.certFileSlug" data-i="${i}" value="${edgeEsc(t.certFileSlug)}" placeholder="cert file slug"/><input type="text" class="w" data-f="h.tls.keySecretSlug" data-i="${i}" value="${edgeEsc(t.keySecretSlug)}" placeholder="key secret slug"/></div>`
+        : m === 'internal' ? '<span class="small muted">clients trust the OPM local CA (download in the agent GUI)</span>' : '<span class="small muted">HTTP only</span>';
+      return `<tr><td><input type="text" class="w" data-f="h.hostname" data-i="${i}" value="${edgeEsc(x.hostname)}" aria-label="hostname"/></td><td><select data-f="h.tls.mode" data-i="${i}" aria-label="TLS mode">${opt(['none', 'internal', 'acme', 'files'], m)}</select></td><td>${extra}</td><td><input type="checkbox" data-f="h.redirect" data-i="${i}" ${x.redirectHttpToHttps ? 'checked' : ''} aria-label="HTTP to HTTPS"/></td><td>${edgeCert(x)}</td><td><button type="button" class="ee-b" data-e="delHost" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const routeRows = edge.routes.map((r, i) => {
+      const a = r.action;
+      const act = a.type === 'proxy'
+        ? `<div class="ee-sub"><select data-f="r.svc" data-i="${i}" aria-label="container">${opt(svcs, a.containerSlug)}</select>:<select data-f="r.port" data-i="${i}" aria-label="port">${opt(Object.keys(EDGE_PORTS[a.containerSlug] || {}), a.portName)}</select><label><input type="checkbox" data-f="r.strip" data-i="${i}" ${a.stripPrefix ? 'checked' : ''}/> strip prefix</label><input type="text" class="n" style="width:90px" data-f="r.addPrefix" data-i="${i}" value="${edgeEsc(a.addPrefix)}" placeholder="add prefix"/><label><input type="checkbox" data-f="r.ws" data-i="${i}" ${a.websocket ? 'checked' : ''}/> websocket</label><input type="number" class="n" data-f="r.timeout" data-i="${i}" value="${a.timeoutSec}" aria-label="timeout s"/>s<input type="text" class="w" data-f="r.headers" data-i="${i}" value="${edgeEsc(Object.entries(a.setHeaders || {}).map(([k, x]) => k + '=' + x).join('; '))}" placeholder="set headers: K=V; K2=V2"/></div>`
+        : `<div class="ee-sub"><input type="text" class="w" style="width:200px" data-f="r.to" data-i="${i}" value="${edgeEsc(a.to)}" aria-label="redirect to"/><select data-f="r.status" data-i="${i}" aria-label="status">${opt([301, 302, 307, 308], a.status)}</select><label><input type="checkbox" data-f="r.keep" data-i="${i}" ${a.keepPath ? 'checked' : ''}/> keep path</label></div>`;
+      return `<tr><td>${r.order}</td><td style="white-space:nowrap"><button type="button" class="ee-b" data-e="up" data-i="${i}" ${i ? '' : 'disabled'} aria-label="move up">↑</button> <button type="button" class="ee-b" data-e="down" data-i="${i}" ${i < edge.routes.length - 1 ? '' : 'disabled'} aria-label="move down">↓</button></td><td><input type="text" class="n" style="width:70px" data-f="r.id" data-i="${i}" value="${edgeEsc(r.routeId)}" aria-label="route id"/></td><td><select data-f="r.hosts" data-i="${i}" aria-label="hosts">${['all hosts'].concat(edge.hosts.map((x) => x.hostname)).map((x) => `<option ${(r.hosts.length ? r.hosts[0] : 'all hosts') === x ? 'selected' : ''}>${edgeEsc(x)}</option>`).join('')}</select></td><td><input type="text" class="n" style="width:80px" data-f="r.prefix" data-i="${i}" value="${edgeEsc(r.match.pathPrefix)}" aria-label="path prefix"/></td><td><select data-f="r.type" data-i="${i}" aria-label="action">${opt(['proxy', 'redirect'], a.type)}</select></td><td>${act}</td><td><button type="button" class="ee-b" data-e="delRoute" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const res = edgeResolve(edge, S.url, { method: S.method, notReady: S.notReady });
+    el.innerHTML = `<div class="ee">
+      ${opts.local ? '<div class="small muted">Local edit on this site. Save → a <b>local proposal</b> (needs approval, then sent to the cloud).</div>' : ''}
+      <div class="ee-row"><b>Ports</b> http <input type="number" class="n" data-f="httpPort" value="${edge.httpPort}" aria-label="httpPort"/> https <input type="number" class="n" data-f="httpsPort" value="${edge.httpsPort == null ? '' : edge.httpsPort}" placeholder="off" aria-label="httpsPort"/><span class="small muted">served by the agent (embedded Caddy). Containers may not publish these ports.</span></div>
+      <h5>Hosts (${edge.hosts.length})</h5><div class="ee-w"><table><tr><th>Hostname</th><th>TLS mode</th><th>TLS details</th><th>HTTP→HTTPS</th><th>Certificate</th><th></th></tr>${hostRows}</table></div>
+      <div class="ee-row"><input type="text" class="w" id="edgeNewHost" value="${edgeEsc(S.newHost)}" placeholder="new hostname, e.g. ops.acme.com" aria-label="new hostname"/><button type="button" class="ee-b" data-e="addHost" id="edgeAddHost">+ Add host</button></div>
+      <h5>Routes (${edge.routes.length}) · first match wins, top to bottom</h5><div class="ee-w"><table><tr><th>#</th><th>Order</th><th>Route id</th><th>Hosts</th><th>Path prefix</th><th>Action</th><th>Action fields</th><th></th></tr>${routeRows}</table></div>
+      <div class="ee-row"><button type="button" class="ee-b" data-e="addRoute" data-v="proxy" id="edgeAddProxy">+ Proxy route</button><button type="button" class="ee-b" data-e="addRoute" data-v="redirect" id="edgeAddRedirect">+ Redirect route</button><span class="small muted">/_opm/ is reserved on every host. No match → not-found page (404). Target not ready → 503.</span></div>
+      <div class="ee-msg">${v.E.length ? `<div class="ee-res" style="border-color:var(--bad)"><b style="color:var(--bad)">${v.E.length} error(s) · cannot save</b><ul>${v.E.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : '<div class="ee-res"><span class="tag ok">valid</span> The agent turns this into Caddy JSON and reloads without dropped connections.</div>'}${v.W.length ? `<div class="ee-res" style="border-color:var(--warn)"><b style="color:var(--warn)">Warnings</b><ul>${v.W.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+      <h5>Test a URL</h5>
+      <div class="ee-row"><select id="edgeMethod" aria-label="method">${opt(['GET', 'POST', 'PUT', 'DELETE'], S.method)}</select><input type="text" id="edgeUrl" style="flex:1;min-width:200px" value="${edgeEsc(S.url)}" aria-label="URL to test"/><button type="button" class="ee-b pri" data-e="test" id="edgeTest">Test</button></div>
+      <div class="ee-row small">${svcs.map((s) => `<label><input type="checkbox" data-nr="${s}" ${S.notReady[s] ? 'checked' : ''}/> ${s} not ready</label>`).join(' ')}</div>
+      <div class="small">Try: ${['https://plant.acme.com/api/v1/x?id=7', 'http://plant.acme.com/api/v1/x', 'https://plant.acme.com/old/a?b=1', 'https://plant.acme.com/docs/setup', 'https://10.0.1.10/', 'https://10.0.1.10/_opm/app', 'http://10.0.1.10/_opm/nope', 'http://10.0.1.10/apix', 'https://other.example/'].map((x) => `<span class="ee-try" data-e="try" data-v="${x}">${x}</span>`).join('')}</div>
+      <div id="edgeOut">${edgeExplainHTML(res)}</div></div>`;
+  };
+  const changed = () => { if (opts.onChange) opts.onChange(edge); draw(); };
+  el.onclick = (ev) => {
+    const b = ev.target.closest('[data-e]'); if (!b || !el.contains(b)) return;
+    ev.stopPropagation();
+    const e = b.dataset.e, i = +b.dataset.i, R = edge.routes;
+    if (e === 'test') { S.url = el.querySelector('#edgeUrl').value; S.method = el.querySelector('#edgeMethod').value; return draw(); }
+    if (e === 'try') { S.url = b.dataset.v; return draw(); }
+    if (e === 'up' && i > 0) [R[i - 1].order, R[i].order] = [R[i].order, R[i - 1].order];
+    if (e === 'down' && i < R.length - 1) [R[i + 1].order, R[i].order] = [R[i].order, R[i + 1].order];
+    if (e === 'delRoute') R.splice(i, 1);
+    if (e === 'delHost') { const n = edge.hosts[i].hostname; edge.hosts.splice(i, 1); R.forEach((r) => (r.hosts = r.hosts.filter((x) => x !== n))); }
+    if (e === 'addHost') { const n = el.querySelector('#edgeNewHost').value.trim(); if (!n) return; const star = edge.hosts.findIndex((x) => x.hostname === '*'); edge.hosts.splice(star === -1 ? edge.hosts.length : star, 0, { hostname: n, tls: /^\d|\*$/.test(n) ? { mode: 'internal' } : { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: !/^\d|\*$/.test(n) }); S.newHost = ''; }
+    if (e === 'addRoute') { const n = R.length + 1; R.forEach((r) => (r.order += 1)); R.unshift({ routeId: 'route-' + n, hosts: [], match: { pathPrefix: '/new-' + n, methods: null }, action: b.dataset.v === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: true, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false }, order: 1 }); }
+    R.sort((a, b) => a.order - b.order).forEach((r, k) => (r.order = k + 1));
+    changed();
+  };
+  el.onkeydown = (ev) => { if (ev.target.id === 'edgeUrl' && ev.key === 'Enter') { S.url = ev.target.value; draw(); } if (ev.target.id === 'edgeNewHost' && ev.key === 'Enter') el.querySelector('#edgeAddHost').click(); };
+  el.oninput = (ev) => { if (ev.target.id === 'edgeNewHost') S.newHost = ev.target.value; if (ev.target.id === 'edgeUrl') S.url = ev.target.value; };
+  el.onchange = (ev) => {
+    const t = ev.target; ev.stopPropagation();
+    if (t.dataset.nr) { S.notReady[t.dataset.nr] = t.checked; return draw(); }
+    if (t.id === 'edgeMethod') { S.method = t.value; return draw(); }
+    const f = t.dataset.f; if (!f) return;
+    const i = +t.dataset.i, val = t.type === 'checkbox' ? t.checked : t.value;
+    if (f === 'httpPort') edge.httpPort = +val;
+    if (f === 'httpsPort') edge.httpsPort = val === '' ? null : +val;
+    if (f.startsWith('h.')) {
+      const x = edge.hosts[i];
+      if (f === 'h.hostname') { const old = x.hostname; x.hostname = String(val).trim(); edge.routes.forEach((r) => (r.hosts = r.hosts.map((y) => (y === old ? x.hostname : y)))); }
+      if (f === 'h.redirect') x.redirectHttpToHttps = val;
+      if (f === 'h.tls.mode') x.tls = val === 'acme' ? { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null } : val === 'files' ? { mode: 'files', certFileSlug: 'tls-cert', keySecretSlug: 'tls-key' } : { mode: val };
+      if (f.startsWith('h.tls.') && f !== 'h.tls.mode') x.tls[f.slice(6)] = val || null;
+    }
+    if (f.startsWith('r.')) {
+      const r = edge.routes[i], a = r.action;
+      if (f === 'r.id') r.routeId = val.trim();
+      if (f === 'r.prefix') r.match.pathPrefix = val.trim();
+      if (f === 'r.hosts') r.hosts = val === 'all hosts' ? [] : [val];
+      if (f === 'r.type') r.action = val === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false };
+      if (f === 'r.svc') { a.containerSlug = val; a.portName = Object.keys(EDGE_PORTS[val] || {})[0] || ''; }
+      if (f === 'r.port') a.portName = val;
+      if (f === 'r.strip') a.stripPrefix = val;
+      if (f === 'r.addPrefix') a.addPrefix = val.trim() || null;
+      if (f === 'r.ws') a.websocket = val;
+      if (f === 'r.timeout') a.timeoutSec = +val;
+      if (f === 'r.headers') a.setHeaders = Object.fromEntries(String(val).split(';').map((p) => p.split('=').map((y) => y.trim())).filter((p) => p[0]).map(([k, ...rest]) => [k, rest.join('=')]));
+      if (f === 'r.to') a.to = val.trim();
+      if (f === 'r.status') a.status = +val;
+      if (f === 'r.keep') a.keepPath = val;
+    }
+    changed();
+  };
+  draw();
+  return { redraw: draw };
+}
+// ---------- end edge ----------
+</script>
+<script>
+// ---------- modules
+const MODS = [
+  ['gui', 'GUI server', 'Serves /_opm/ (GUI + API)', 40, 30, 'app'],
+  ['auth', 'Actor', '"Who is working right now?" · actor token', 250, 30, ''],
+  ['coord', 'Update coordinator', 'lock · snapshot · apply · verify · commit · rollback', 460, 30, ''],
+  ['cloud', 'Cloud link', 'poll · heartbeat · relay', 680, 30, 'app'],
+  ['store', 'Config store', 'SQLite opm.db', 40, 150, ''],
+  ['stager', 'Stager', 'validate · download · load · dry run', 250, 150, ''],
+  ['expr', 'Expression engine', '{{ … }} resolver', 460, 150, ''],
+  ['mesh', 'Mesh', '/_opm/peer/* · signed', 680, 150, 'agent'],
+  ['driver', 'Container driver', 'Docker Engine API', 40, 270, ''],
+  ['edge', 'Edge (embedded Caddy)', ':80 :443 · routes · TLS', 250, 270, 'agent'],
+  ['health', 'Readiness checker', 'health checks · "completed"', 460, 270, ''],
+  ['snap', 'Snapshot manager', 'pre-update · manual · import', 680, 270, ''],
+  ['pipe', 'Upload pipe', 'activities → cloud', 145, 390, ''],
+  ['xfer', 'Transfers', 'send · receive', 460, 390, ''],
+  ['tunnel', 'Browser tunnel', 'lease · next · result', 680, 390, 'app'],
+];
+const INFO = {
+  gui: { t: 'GUI server', b: '<p>Serves the agent GUI (embedded Svelte SPA) and its JSON API under <code>/_opm/</code> on <code>agentPort</code> and <code>agentGuiAliasPort</code> (agent net/http), and inside the edge at <code>/_opm/</code> on every host. Every page shows all sites: the server fetches peer data through the mesh and merges it. Writes go to the coordinator or to the site that must act.</p>' },
+  auth: { t: 'Login + actor', b: '<ul><li><b>Login</b> at <code>/_opm/login</code>: the deployment access key, checked (argon2id) against <code>accessKeyHash</code> from the cloud view. Cookie <code>opm_session</code>, 6 h after login, no sliding renewal; then 401 <code>session-expired</code>. 5 failures / 5 min per IP. Activities <code>login.succeeded</code>, <code>login.failed</code>, <code>logout</code>.</li><li><b>Actor popup</b> after login, on every page load: "Who is working right now?" (email + recent emails).</li><li><code>POST /_opm/api/actor</code> issues an actor token: JWT (EdDSA, site key), claims { email, sid, dep, site, iat, exp = session end }, page memory only.</li><li>Every write sends <code>Authorization: Actor &lt;token&gt;</code>; the email becomes the activity actor.</li><li>Writes <code>actor.declared</code> { email, sessionId, siteSlug, userAgent, ip }.</li><li>The popup is not authentication; the login is.</li></ul>' },
+  coord: { t: 'Update coordinator', b: '<p>The agent where a person approves becomes the coordinator for that update:</p><ol><li>LOCK all sites</li><li>SNAPSHOT on every site</li><li>APPLY in the start order: referenced containers first (explicit depends, implicit <code>containers.&lt;slug&gt;.*</code> references, suggested hostname mentions; ties in the declared order); a container waits only for its explicit + implicit depends, every other readiness wait runs in parallel; a DNS failure naming a container of the site gives the hint “X could not resolve `mqtt` (EAI_AGAIN) — is mqtt running/healthy? add it to Depends on”; after every apply each container is checked to answer on its slug alias (repaired if not)</li><li>VERIFY "completed" within 300 s</li><li>COMMIT the new head</li></ol><p>Any failure in steps 2–4 → ROLLBACK on every site from the pre-update snapshot.</p>' },
+  cloud: { t: 'Cloud link', b: '<p>The only module that connects to the internet (<code>api.opm.example:443</code>).</p><ul><li><code>GET /v1/agent/poll</code> long-poll ≤ 55 s</li><li><code>POST /v1/agent/heartbeat</code> every 30 s</li><li>Proposals, images, blobs, transfers</li><li>Relays signed requests for peers without internet</li></ul>' },
+  store: { t: 'Config store', b: '<p>SQLite <code>opm.db</code>: revisions, proposals, snapshots index, activities, debug index, uptime, transfers, actors, peers, cloud_view, blobs, kv. See the table list below. One writer goroutine; readers use WAL.</p>' },
+  stager: { t: 'Stager', b: '<p>Runs on every site when a proposal arrives. No approval is needed for staging.</p><ol><li>Validate the config (schema + every expression resolves)</li><li>Download missing image layers from the cloud catalog (the cloud gives a manifest only for a <code>serviceSlug</code> + <code>version</code> that is in this site\'s current or proposed config)</li><li><code>docker load</code> (do not run)</li><li>Download missing file blobs</li><li>Build container specs and dry-run them (ports free, mounts possible)</li></ol><p>Reports <code>pending → downloading → ready | failed</code> with progress.</p>' },
+  expr: { t: 'Expression engine', b: '<p>Resolves <code>{{ path | filter }}</code> blocks: <code>var.*</code>, <code>secret.*</code>, <code>file.*.path</code>, <code>site.*.host</code>, <code>site.&lt;siteSlug&gt;.port.&lt;containerSlug&gt;.&lt;portName&gt;</code>, <code>self.*</code>, <code>deployment.id</code>, <code>container.slug</code>, <code>container.env.&lt;NAME&gt;</code>. Filters: default, join, upper, lower, trim, base64, url, int, json. An unknown path is a staging error.</p><p>Per container, the engine resolves env first and mount paths after env, in dependency order: <code>container.env.NODE_ENV</code> in a mount path is the final value of NODE_ENV in this container. A loop gives <code>E_CYCLE</code>.</p><p><code>secret.*</code> is allowed only in <code>Container.env[].value</code>; such a value is masked and never logged. Whole-value secrets use <code>secretRef</code>; secret files use a volume of kind <code>secret</code>.</p>' },
+  mesh: { t: 'Mesh', b: '<p>Agent ↔ agent over <code>agentPort</code> at <code>/_opm/peer/*</code>. Signed requests (Ed25519), 60 s clock window, nonce cache 5 min. Ping every 10 s; reachable = answer in the last 30 s. Carries: state snapshots, GUI data, update steps, cloud views, blob copies, relay.</p>' },
+  driver: { t: 'Container driver', b: '<p>Docker Engine API. One network <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;</code>; container name = containerSlug (or prefixed, agent.json containerNames). Labels <code>opm.deployment</code>, <code>opm.site</code>, <code>opm.service</code>, <code>opm.rev</code>, <code>opm.spec_hash</code>. Recreates a container only when its spec hash changes.</p>' },
+  edge: { t: 'Edge (embedded Caddy)', b: '<p>Caddy v2 linked as a Go library. Builds Caddy JSON from <code>SiteConfig.edge</code> and loads it with <code>caddy.Load</code> (graceful reload). Owns 80/443. Matching: host (exact &gt; wildcard &gt; *), <code>/_opm/</code> reserved, routes in order (first match), else the not-found page (404); target not ready → 503. TLS by CertMagic in <code>/var/lib/opm/certs/</code>. A failed reload keeps the old config and fails the update step → rollback.</p>' },
+  tunnel: { t: 'Browser tunnel', b: '<p>Third route for cloud calls, after own internet and peer relay. Keeps one <code>TunnelLease</code>. Queues signed <code>TunnelRequest</code>s; the tab takes them with <code>GET /_opm/api/tunnel/next</code> and returns <code>TunnelResult</code>s matched by <code>reqId</code>. Lease expires after 30 s without a poll.</p>' },
+  health: { t: 'Readiness checker', b: '<p>Runs the health checks of every container (http, tcp, exec, log) and computes "completed". Used by depends and VERIFY. Also samples CPU / RAM / restarts every 30 s for uptime.</p>' },
+  snap: { t: 'Snapshot manager', b: '<p>Makes snapshots (config + image refs + the declared site volumes with Back up on, one <code>.tar.zst</code> per volumeSlug; host paths are never archived), restores by volumeSlug, checks free space first, keeps retention, exports and imports <code>.opmsnap</code> files, restores for rollback.</p>' },
+  pipe: { t: 'Upload pipe', b: '<p>One job: when the cloud is reachable (directly or through a relay peer), send every activity after the last acknowledged seq, in batches of 500. The cloud upserts by <code>siteSlug:seq</code> and never changes an existing record.</p>' },
+  xfer: { t: 'Transfers', b: '<p>Cloud → site files (receive) and site → cloud files (send), store-and-forward (SPEC §21 #100): a sent file is stored on the site and queued; the loop uploads it when the cloud is reachable (backoff 15 s → 5 min, resumable parts). Received files are fetched whenever the agent is online and reported <code>fetched</code>. Max 2 GiB per file. Send › Path browses the server filesystem (<code>hostfs.go</code>; safety policy: never the agent home, agent.json, install token, /proc /sys /dev /run, shadow / sudoers, SSH host keys). "Save on server" writes to a path that the person types. Every send / save / download is an activity.</p>' },
+};
+(function drawMods() {
+  const svg = document.getElementById('modSvg');
+  const W = 190, H = 80;
+  const pos = {};
+  const defs = svgEl('defs');
+  const mk = svgEl('marker', { id: 'mA', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' });
+  mk.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'var(--muted)' }));
+  defs.appendChild(mk);
+  svg.appendChild(defs);
+  MODS.forEach(([k, , , x, y]) => (pos[k] = { x: x + W / 2, y: y + H / 2 }));
+  const links = [['edge', 'gui'], ['gui', 'auth'], ['gui', 'coord'], ['coord', 'snap'], ['coord', 'driver'], ['coord', 'mesh'], ['cloud', 'stager'], ['stager', 'expr'], ['stager', 'driver'], ['driver', 'health'], ['coord', 'edge'], ['tunnel', 'cloud'], ['pipe', 'cloud'], ['xfer', 'cloud'], ['store', 'stager'], ['gui', 'store']];
+  links.forEach(([a, b]) => {
+    const A = pos[a], B = pos[b];
+    svg.appendChild(svgEl('line', { x1: A.x, y1: A.y, x2: B.x, y2: B.y, stroke: b === 'cloud' || a === 'cloud' ? 'var(--accent)' : b === 'mesh' ? 'var(--teal)' : 'var(--muted)', 'stroke-width': 1.4, 'stroke-dasharray': b === 'mesh' ? '5 3' : null, opacity: 0.6 }));
+  });
+  MODS.forEach(([k, t, s, x, y, cls]) => {
+    const g = svgEl('g', { 'data-k': k });
+    g.appendChild(svgEl('rect', { x, y, width: W, height: H, rx: 9, class: 'box ' + cls }));
+    g.appendChild(svgEl('text', { x: x + W / 2, y: y + 33, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 650 }, t));
+    g.appendChild(svgEl('text', { x: x + W / 2, y: y + 53, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, s));
+    svg.appendChild(g);
+  });
+  svg.appendChild(svgEl('text', { x: 450, y: 505, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'The coordinator is the agent where a person approved the update. Any site can be the coordinator.'));
+  inspector(svg, document.getElementById('modInfo'), INFO, 'coord');
+})();
+
+// ---------- tables
+const TBL = [
+  ['revisions', 'revId TEXT PK · seq INTEGER · parentRevId TEXT NULL · origin TEXT (cloud|agent) · actor TEXT · createdAt TEXT ts · config JSON · hash TEXT · summary TEXT', 'Linear chain. Head = <code>kv.head</code>. seq = parent.seq + 1. Never deleted while a snapshot refers to it.'],
+  ['proposals', 'revId TEXT PK → revisions · parentRevId TEXT · origin TEXT · createdAt TEXT ts · createdBy TEXT · status TEXT · sites JSON ({siteSlug: {staging, progress, error}}) · approvedBy TEXT NULL · approvedAt TEXT NULL · result JSON NULL', 'status ∈ published, staging, ready, approved, applying, applied, failed-rolled-back, stale, superseded. One row with status applying at most (the lock).'],
+  ['snapshots', 'snapshotId TEXT PK (ULID) · createdAt TEXT ts · reason TEXT (pre-update|manual|scheduled|imported) · revId TEXT · seq INTEGER · manifest JSON · sizeBytes INTEGER · path TEXT · createdBy TEXT · note TEXT', 'manifest = the full Snapshot object (§10) for this site. Files under snapshots/&lt;id&gt;/.'],
+  ['activities', 'seq INTEGER PK · ts TEXT ts · actor TEXT NULL · origin TEXT · type TEXT · summary TEXT · data JSON · prevHash TEXT NULL · hash TEXT · ackedAt INTEGER NULL', 'Append only. hash = sha256(prevHash + canonical JSON without hash fields). Upload pipe sends rows with seq &gt; kv.ackSeq.'],
+  ['debug_index', 'day TEXT PK (YYYY-MM-DD) · file TEXT · sizeBytes INTEGER · firstTs INTEGER · lastTs INTEGER · lines INTEGER', 'Index of logs/agent-*.jsonl. Rotation deletes files older than 7 days or above 200 MB in total.'],
+  ['uptime_raw', 'ts INTEGER · subject TEXT ("site" or containerSlug) · state TEXT (up|degraded|down) · cpu REAL · memMb INTEGER · restarts INTEGER · PRIMARY KEY (ts, subject)', 'One row every 30 s per subject. Rows older than 24 h are rolled up and deleted every hour.'],
+  ['uptime_hourly', 'hour INTEGER (unix hour) · subject TEXT · upFraction REAL · downSeconds INTEGER · worst TEXT · PRIMARY KEY (hour, subject)', 'Kept 30 days.'],
+  ['transfers', 'transferId TEXT PK · direction TEXT (to-site|to-cloud) · fileName TEXT · sizeBytes INTEGER · sha256 TEXT · localPath TEXT NULL · status TEXT · savedPath TEXT NULL · createdAt TEXT ts · createdBy TEXT · note TEXT · expiresAt TEXT ts (ignored: transfers never expire)', 'Mirrors the cloud Transfer document for this site.'],
+  ['sessions', 'sessionId TEXT PK · createdAt INTEGER · expiresAt INTEGER (createdAt + 21600) · keyVersion INTEGER · ip TEXT · userAgent TEXT · loggedOutAt INTEGER NULL', 'opm_session cookie = sessionId. No sliding renewal. Expired rows are deleted after 7 days.'],
+  ['actors', 'email TEXT PK · lastUsedAt INTEGER · count INTEGER', 'Second source of the popup suggestions: the popup shows the emails from browser localStorage first, then fills up to 10 from this table (newest lastUsedAt). Built from actor.declared activities, so every site has the same list. The actor token itself is not stored (page memory only).'],
+  ['peers', 'siteSlug TEXT PK · host TEXT · agentPort INTEGER · publicKey TEXT · lastAnswerAt INTEGER NULL · rttMs INTEGER NULL · reachable INTEGER (0|1) · hasInternet INTEGER (0|1)', 'From enroll and from the config. Updated by the 10 s ping.'],
+  ['cloud_view', 'id INTEGER PK (always 1) · fetchedAt TEXT ts · source TEXT (cloud|peer:&lt;slug&gt;) · cursor TEXT · view JSON', 'One row. view = { proposals[], transfersToSite[], draftHead }. Replaced only by a view with a newer <code>fetchedAt</code> (cloud server time). Latest fetch wins; equal time keeps the own row.'],
+  ['blobs', 'sha256 TEXT PK · sizeBytes INTEGER · kind TEXT (layer|file) · source TEXT (cloud|peer:&lt;slug&gt;) · haveSince INTEGER · path TEXT', 'Content-addressed store. A row exists only after the sha256 check passed. The <code>have</code> list sent to peers is the set of sha256 values.'],
+  ['devtools_connections', 'id TEXT PK (c_&lt;ULID&gt;) · name TEXT · kind TEXT · def JSON (connection, literal credentials = MASK) · secret_json JSON NULL (literal password / token) · created_by TEXT · created_at TEXT ts · updated_at TEXT ts', 'Agent 0.11.0, <a href="#devtools">Dev tools</a>. Manual connections only (presets come from the head config). Created by the devtools package (CREATE TABLE IF NOT EXISTS). Not in snapshots / .opmlog.'],
+  ['devtools_saved', 'id TEXT PK (s_&lt;ULID&gt;) · kind TEXT · connection_id TEXT NULL · collection TEXT · name TEXT · description TEXT · content TEXT · created_by TEXT · created_at TEXT ts · updated_at TEXT ts', 'Saved queries / requests per site, shared by operators, unredacted (the operator\'s explicit store).'],
+  ['devtools_environments', 'id TEXT PK (e_&lt;ULID&gt;) · name TEXT · variables JSON (secret values blanked) · secret_json JSON · created_by TEXT · updated_at TEXT ts', 'HTTP environments; secret variables stored like literal passwords (masked, revealable).'],
+  ['kv', 'key TEXT PK · value JSON', 'Keys: head ({revId, seq, hash}), ackSeq, pollCursor, siteSlug, deploymentId, lastHeartbeatAt, lock (coordinator + revId while an update runs).'],
+];
+document.querySelector('#tblDefs tbody').innerHTML = TBL.map(([t, c, r]) => `<tr><td><code>${t}</code></td><td class="small mono">${c}</td><td class="small">${r}</td></tr>`).join('');
+
+// ---------- driver diagram
+(function () {
+  const svg = document.getElementById('drvSvg');
+  const B = (x, t, s, cls) => {
+    svg.appendChild(svgEl('rect', { x, y: 40, width: 190, height: 80, rx: 9, class: 'box ' + (cls || '') }));
+    svg.appendChild(svgEl('text', { x: x + 95, y: 74, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 650 }, t));
+    svg.appendChild(svgEl('text', { x: x + 95, y: 94, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, s));
+  };
+  B(10, 'Config', 'Container + image', 'agent');
+  B(240, 'Container spec', 'env resolved · mounts · ports', '');
+  B(470, 'spec_hash', 'sha256(canonical JSON)', '');
+  B(700, 'Docker', 'same → keep · new → recreate', 'app');
+  [[200, 240], [430, 470], [660, 700]].forEach(([a, b]) => svg.appendChild(svgEl('line', { x1: a, y1: 80, x2: b, y2: 80, stroke: 'var(--muted)', 'stroke-width': 1.6 })));
+  svg.appendChild(svgEl('text', { x: 450, y: 150, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'Labels: opm.deployment · opm.site · opm.service · opm.rev · opm.spec_hash'));
+})();
+
+// ---------- edge module + routing demo
+(function () {
+  const sv = document.getElementById('edgeModSvg');
+  const d = svgEl('defs'); const m = svgEl('marker', { id: 'emA', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }); m.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' })); d.appendChild(m); sv.appendChild(d);
+  const bx = (x, y, w, t, sub, cls) => { sv.appendChild(svgEl('rect', { x, y, width: w, height: 52, rx: 9, class: 'box ' + (cls || '') })); sv.appendChild(svgEl('text', { x: x + w / 2, y: y + 22, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, t)); sv.appendChild(svgEl('text', { x: x + w / 2, y: y + 39, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, sub)); };
+  const ar = (dd) => sv.appendChild(svgEl('path', { d: dd, class: 'ln ln-cloud', 'marker-end': 'url(#emA)' }));
+  sv.appendChild(svgEl('rect', { x: 150, y: 10, width: 560, height: 150, rx: 12, class: 'zone zone-site' }));
+  sv.appendChild(svgEl('text', { x: 164, y: 30, 'font-size': 11.5, 'font-weight': 600, class: 'muted' }, 'opm-agent process'));
+  bx(10, 80, 120, 'SiteConfig.edge', 'from the head', '');
+  bx(170, 80, 140, 'Caddy JSON', 'hosts · routes · TLS', 'agent');
+  bx(340, 80, 150, 'caddy.Load', 'graceful reload', 'agent');
+  bx(520, 40, 170, 'listeners :80 :443', '/_opm/ → GUI handler', 'agent');
+  bx(520, 100, 170, 'CertMagic', '/var/lib/opm/certs', 'agent');
+  bx(740, 20, 150, 'web:80', 'site network', 'cs');
+  bx(740, 85, 150, 'api:3000', 'site network', 'cs');
+  bx(740, 150, 150, 'not-found page', '404 / 503', 'ext');
+  bx(340, 172, 150, 'edge.reload-failed', 'old config stays · rollback', 'ext');
+  ar('M130,106 H168'); ar('M310,106 H338'); ar('M490,96 C505,80 505,70 518,66'); ar('M490,116 C505,120 505,126 518,126'); ar('M690,60 C715,50 720,46 738,46'); ar('M690,70 C715,90 720,105 738,111'); ar('M690,80 C720,130 720,170 738,176'); ar('M415,132 V170');
+})();
+
+// ---------- tunnel sequence
+sequence(document.getElementById('seqTunnel'), {
+  lanes: [
+    { id: 'agent', label: 'Agent', sub: 'site db · no internet', cls: 'agent' },
+    { id: 'tab', label: 'Browser tab', sub: '/_opm/app/internet' },
+    { id: 'cloud', label: 'Cloud API', sub: 'api.opm.example', cls: 'app' },
+  ],
+  steps: [
+    { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/start', detail: 'Creates a TunnelLease (status active). If another lease is active → 409 conflict with that lease (actor, since). Activity <code>internet.tunnel.started</code>.' },
+    { from: 'tab', to: 'agent', label: 'GET /_opm/api/tunnel/next', detail: 'Long-poll ≤ 25 s. Returns up to 4 TunnelRequest items. Each poll updates lastPollAt.' },
+    { from: 'agent', to: 'tab', label: '[{ reqId, method, url, headers }]', reply: true, detail: 'The agent signs each cloud request (X-OPM-Site, X-OPM-Ts, X-OPM-Sig) before it queues it.' },
+    { from: 'tab', to: 'cloud', label: 'fetch(url) with signed headers', detail: 'The cloud allows CORS on /v1/agent/* and on the Storage bucket. It checks the agent signature, not the browser.' },
+    { from: 'cloud', to: 'tab', label: 'response', reply: true, detail: 'Large bodies (> 4 MB) go back in chunks.' },
+    { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/result', detail: 'TunnelResult matched by reqId. Large bodies: POST …/result/{reqId}/chunk, then …/complete with sha256.' },
+    { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/stop', detail: 'Or the tab closes: no poll for 30 s → expired. Activity <code>internet.tunnel.stopped</code> / <code>expired</code>.' },
+  ],
+});
+
+// ---------- main loop sequence
+sequence(document.getElementById('seqLoop'), {
+  lanes: [
+    { id: 'cloud', label: 'Cloud API', sub: 'api.opm.example', cls: 'app' },
+    { id: 'link', label: 'Cloud link', sub: 'agent app', cls: 'agent' },
+    { id: 'stager', label: 'Stager', sub: 'agent app' },
+    { id: 'pipe', label: 'Upload pipe', sub: 'agent app' },
+    { id: 'peer', label: 'Peer agent', sub: 'site db', cls: 'agent' },
+  ],
+  steps: [
+    { from: 'link', to: 'cloud', label: 'GET /v1/agent/poll (≤ 55 s)', detail: 'Every agent with internet polls on its own. The long-poll returns at once when there is a proposal or a transfer for this deployment. Else it returns empty after 55 s and the agent polls again.' },
+    { from: 'cloud', to: 'link', label: 'proposal 01JB… published', reply: true, detail: 'The agent stores the revision and the proposal in SQLite (status published) and starts staging.' },
+    { from: 'link', to: 'stager', label: 'stage revId', detail: 'Staging needs no approval. It runs on every site.' },
+    { from: 'stager', to: 'peer', label: 'GET /_opm/peer/have', detail: 'Missing image layers and file blobs come from a peer first (local network). The stager reads the <code>have</code> lists of all peers.' },
+    { from: 'stager', to: 'cloud', label: 'GET images / blobs', detail: 'A blob that no peer has: the agent fetches it from the cloud only if it is the chosen fetcher (rendezvous hash) and has internet. Else it waits and copies from the fetcher. 5-minute signed URLs; the agent never sees registry passwords.' },
+    { from: 'stager', to: 'stager', label: 'docker load · dry run', detail: 'Load the images (do not run them). Build every container spec, resolve every expression, check ports and mounts.' },
+    { from: 'stager', to: 'cloud', label: 'proposal status: ready', detail: '<code>POST /v1/agent/proposals/{revId}/status</code> { siteSlug: app, staging: ready, progress: 1 }.' },
+    { from: 'link', to: 'peer', label: 'GET /_opm/peer/cloud-view', detail: 'Every 10 s the agents exchange their cloud view. The newer <code>fetchedAt</code> wins, so a site without internet always has the newest cloud view that any peer saw.' },
+    { from: 'link', to: 'peer', label: 'ping /_opm/peer/ping', detail: 'Every 10 s. A peer is reachable when it answered in the last 30 s. The answer carries its head and staging state.' },
+    { from: 'link', to: 'cloud', label: 'POST heartbeat (30 s)', detail: 'Sites seen, head, staging, a short metrics summary. The cloud marks the site online when the last heartbeat is younger than 90 s.' },
+    { from: 'pipe', to: 'cloud', label: 'POST /v1/agent/activities', detail: 'All entries after kv.ackSeq, in batches of 500. The answer is { ackSeq }. The cloud never changes an existing record.' },
+  ],
+});
+
+// ---------- reachability matrix
+const S = ['app', 'db', 'cloud'];
+const link = { 'app|db': true, 'app|cloud': true, 'db|cloud': false };
+const key = (a, b) => [a, b].sort((x, y) => S.indexOf(x) - S.indexOf(y)).join('|');
+function drawMx() {
+  const t = document.getElementById('mx');
+  t.innerHTML = '<tr><th></th>' + S.map((s) => `<th class="mono small">${s}</th>`).join('') + '</tr>' + S.map((a) => '<tr><th class="mono small">' + a + '</th>' + S.map((b) => a === b ? '<td>—</td>' : `<td><button type="button" data-k="${key(a, b)}" class="${link[key(a, b)] ? 'ok' : 'no'}">${link[key(a, b)] ? 'ok' : 'cut'}</button></td>`).join('') + '</tr>').join('');
+  t.querySelectorAll('button').forEach((b) => (b.onclick = () => { link[b.dataset.k] = !link[b.dataset.k]; drawMx(); }));
+  const meshOk = link['app|db'];
+  const cloudFor = (s) => link[key(s, 'cloud')] ? 'direct' : (meshOk && link[key(s === 'app' ? 'db' : 'app', 'cloud')] ? 'relay via ' + (s === 'app' ? 'db' : 'app') : 'no cloud (browser tunnel if a tab is active)');
+  document.getElementById('mxOut').innerHTML = `<div>app → cloud: <b>${cloudFor('app')}</b> · db → cloud: <b>${cloudFor('db')}</b></div>
+    <div>Approve gate: <b style="color:${meshOk ? 'var(--ok)' : 'var(--bad)'}">${meshOk ? 'can open (all sites reachable)' : 'closed (db not reachable from app)'}</b></div>
+    <div class="small muted">Staging needs a cloud path (direct or relay) for every site. The gate needs every site reachable over the mesh.</div>`;
+}
+drawMx();
+
+// ---------- relay diagram
+(function () {
+  const svg = document.getElementById('relaySvg');
+  const B = (x, y, t, s, cls) => {
+    svg.appendChild(svgEl('rect', { x, y, width: 200, height: 70, rx: 9, class: 'box ' + cls }));
+    svg.appendChild(svgEl('text', { x: x + 100, y: y + 30, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 650 }, t));
+    svg.appendChild(svgEl('text', { x: x + 100, y: y + 50, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, s));
+  };
+  B(20, 100, 'site db', 'no internet · signs request', 'cs');
+  B(350, 100, 'site app', 'has internet · /_opm/peer/relay', 'agent');
+  B(680, 100, 'Cloud API', 'POST /v1/agent/relay', 'app');
+  svg.appendChild(svgEl('line', { x1: 220, y1: 135, x2: 350, y2: 135, stroke: 'var(--teal)', 'stroke-width': 2, 'stroke-dasharray': '5 3' }));
+  svg.appendChild(svgEl('line', { x1: 550, y1: 135, x2: 680, y2: 135, stroke: 'var(--accent)', 'stroke-width': 2 }));
+  svg.appendChild(svgEl('text', { x: 285, y: 125, 'text-anchor': 'middle', class: 'lbl' }, 'signed by db'));
+  svg.appendChild(svgEl('text', { x: 615, y: 125, 'text-anchor': 'middle', class: 'lbl' }, '{ forSite: db, request }'));
+  svg.appendChild(svgEl('text', { x: 450, y: 60, 'text-anchor': 'middle', 'font-size': 12, class: 'muted' }, 'The relay cannot change the request: the cloud checks the signature of db.'));
+})();
+
+// ---------- smart distribution demo
+(function () {
+  const svg = document.getElementById('distSvg');
+  if (svg) {
+    const b = (x, y, w, h, t, sub, cls) => { svg.appendChild(svgEl('rect', { x, y, width: w, height: h, rx: 8, class: 'box ' + (cls || '') })); svg.appendChild(svgEl('text', { x: x + w / 2, y: y + 22, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 650 }, t)); if (sub) svg.appendChild(svgEl('text', { x: x + w / 2, y: y + 40, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, sub)); };
+    const l = (x1, y1, x2, y2, cls, lab) => { svg.appendChild(svgEl('path', { d: `M${x1},${y1} L${x2},${y2}`, class: 'ln ' + cls })); if (lab) svg.appendChild(svgEl('text', { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 5, 'text-anchor': 'middle', class: 'lbl' }, lab)); };
+    b(360, 10, 180, 50, 'cloud', 'api.opm.example', 'app');
+    b(60, 170, 200, 60, 'site app', 'internet ✓', 'agent');
+    b(350, 170, 200, 60, 'site db', 'no internet', 'cs');
+    b(640, 170, 200, 60, 'site ops', 'internet ✓', 'agent');
+    l(160, 170, 400, 60, 'ln-cloud', 'own poll + downloads');
+    l(740, 170, 500, 60, 'ln-cloud', 'own poll + downloads');
+    l(260, 200, 350, 200, 'ln-agent', 'cloud view · blobs');
+    l(550, 200, 640, 200, 'ln-agent', 'cloud view · blobs');
+    svg.appendChild(svgEl('text', { x: 450, y: 255, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'db gets the newest cloud view and every blob from its peers; its reports go out through a peer, unchanged'));
+  }
+  const SITES = ['app', 'db', 'ops'];
+  const BLOBS = ['sha256:1a7c…', 'sha256:5e02…', 'sha256:9b4d…', 'sha256:c3f8…'];
+  const st = { net: { app: true, db: false, ops: true }, have: { app: [0, 1], db: [0], ops: [0] }, log: '' };
+  function h32(s) { let x = 2166136261; for (const c of s) { x ^= c.charCodeAt(0); x = Math.imul(x, 16777619) >>> 0; } return x; }
+  function fetcher(bi) { const c = SITES.filter((s) => st.net[s]).sort((a, b) => h32(BLOBS[bi] + b) - h32(BLOBS[bi] + a)); return c[0] || null; }
+  const ctl = document.getElementById('dCtl');
+  function renderCtl() {
+    ctl.innerHTML = SITES.map((s) => `<label><input type="checkbox" data-net="${s}" ${st.net[s] ? 'checked' : ''}/> ${s} has internet</label>`).join('');
+    ctl.querySelectorAll('[data-net]').forEach((i) => (i.onchange = () => { st.net[i.dataset.net] = i.checked; render(); }));
+  }
+  function render() {
+    const rows = BLOBS.map((bl, bi) => `<tr><td class="mono small">${bl}</td>${SITES.map((s) => `<td><label class="small"><input type="checkbox" data-have="${s}|${bi}" ${st.have[s].includes(bi) ? 'checked' : ''}/> has</label></td>`).join('')}<td class="small">${fetcher(bi) ? `<span class="tag ok">${fetcher(bi)}</span>` : '<span class="tag bad">none (no internet)</span>'}</td></tr>`).join('');
+    document.getElementById('dTbl').innerHTML = `<thead><tr><th>Blob</th>${SITES.map((s) => `<th>${s}${st.net[s] ? '' : ' · offline'}</th>`).join('')}<th>Fetcher (rendezvous)</th></tr></thead><tbody>${rows}</tbody>`;
+    document.querySelectorAll('#dTbl [data-have]').forEach((i) => (i.onchange = () => { const [s, bi] = i.dataset.have.split('|'); const n = +bi; st.have[s] = i.checked ? [...new Set([...st.have[s], n])] : st.have[s].filter((x) => x !== n); render(); }));
+    document.getElementById('dOut').innerHTML = st.log || 'Toggle internet and the "has" boxes, then click <b>Fetch missing blobs</b>.';
+  }
+  document.getElementById('dFetch').onclick = () => {
+    const lines = [];
+    BLOBS.forEach((bl, bi) => {
+      const holders = SITES.filter((s) => st.have[s].includes(bi));
+      SITES.forEach((s) => {
+        if (st.have[s].includes(bi)) return;
+        if (holders.length) { lines.push(`<code>${s}</code> copies <code>${bl}</code> from peer <b>${holders[0]}</b> (local network).`); return; }
+        const f = fetcher(bi);
+        if (!f) { lines.push(`<code>${s}</code> waits for <code>${bl}</code>: no site has internet and no peer has it.`); return; }
+        if (f === s) lines.push(`<code>${s}</code> is the fetcher: downloads <code>${bl}</code> from the cloud.`);
+        else lines.push(`<code>${s}</code> sends fetch-request to <b>${f}</b>, then copies <code>${bl}</code> from it.`);
+      });
+      const f = fetcher(bi);
+      if (!holders.length && f) holders.push(f);
+    });
+    BLOBS.forEach((bl, bi) => { const ok = SITES.some((s) => st.have[s].includes(bi)) || fetcher(bi); if (ok) SITES.forEach((s) => { if (!st.have[s].includes(bi)) st.have[s].push(bi); }); });
+    st.log = lines.length ? '<ol>' + lines.map((x) => `<li>${x}</li>`).join('') + '</ol><p>Every copy passes the sha256 check. Staging shows the source per blob (cloud · peer &lt;slug&gt;).</p>' : 'Every site already has every blob.';
+    render();
+  };
+  document.getElementById('dReset').onclick = () => { st.have = { app: [0, 1], db: [0], ops: [0] }; st.log = ''; render(); };
+  renderCtl(); render();
+  // cloud view
+  const cv = { app: '12:04:31', db: '11:50:02', ops: '12:04:58' };
+  function renderCv(msg) {
+    document.getElementById('cvCtl').innerHTML = SITES.map((s) => `<label class="small">${s} fetchedAt <input type="time" step="1" data-cv="${s}" value="${cv[s]}" style="font:inherit;font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/></label>`).join('') + '<button class="btn primary" type="button" id="cvGo">Exchange (10 s tick)</button>';
+    document.querySelectorAll('[data-cv]').forEach((i) => (i.onchange = () => { cv[i.dataset.cv] = i.value.length === 5 ? i.value + ':00' : i.value; }));
+    document.getElementById('cvGo').onclick = () => {
+      const newest = SITES.reduce((a, b) => (cv[b] > cv[a] ? b : a));
+      const t = cv[newest];
+      const out = SITES.map((s) => (cv[s] === t ? `<li><code>${s}</code> keeps its own view (${t}).</li>` : `<li><code>${s}</code> adopts the view of <b>${newest}</b> (${t} &gt; ${cv[s]}).</li>`));
+      SITES.forEach((s) => (cv[s] = t));
+      renderCv('<b>Latest fetch wins.</b><ul>' + out.join('') + '</ul>');
+    };
+    document.getElementById('cvOut').innerHTML = msg || 'Each site shows the cloud server time of its last view. Click Exchange.';
+  }
+  renderCv();
+})();
+</script>
+</body>
+</html>

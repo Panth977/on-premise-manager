@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent GUI</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .mono { font-family: var(--mono); }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0; font-size: 13px; }
+  .proto-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+  .proto { min-width: 900px; font-size: 13px; position: relative; }
+  .actor-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-start; justify-content: center; padding-top: 70px; z-index: 5; }
+  .actor-pop { width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); }
+  .actor-pop h3 { margin: 0 0 4px; font-size: 16px; }
+  .actor-pop input { width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); margin: 10px 0 6px; }
+  .actor-pop .sugg { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
+  .actor-pop .sugg button { text-align: left; font: inherit; font-size: 12.5px; background: none; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer; color: var(--text); display: flex; justify-content: space-between; }
+  .actor-pop .sugg button:hover { background: var(--surface-2); }
+  .actor-pop .err { color: var(--bad); font-size: 12px; min-height: 16px; }
+  .actor-chip { font-size: 12px; border: 1px solid var(--border); border-radius: 99px; padding: 2px 10px; }
+  .bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .dots { display: flex; gap: 5px; } .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--border); display: inline-block; }
+  .url { flex: 1; font-family: var(--mono); font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .top { display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .top .dep { font-weight: 650; }
+  .body { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 560px; }
+  .snav { border-right: 1px solid var(--border); padding: 8px; background: var(--surface-2); }
+  .snav .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 10px 8px 4px; }
+  .snav button { display: block; width: 100%; text-align: left; font: inherit; font-size: 13px; color: var(--text); background: none; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+  .snav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .snav button:hover:not(.on) { background: var(--surface); }
+  .snav select { width: 100%; margin: 2px 0 4px; }
+  .snav .shead { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .snav .shead .tag { align-self: flex-start; }
+  .snav button.sub { padding-left: 22px; font-size: 12.5px; }
+  .snav .foot { margin-top: 14px; padding: 8px 6px; border-top: 1px solid var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .crumb { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .scr { padding: 14px 18px; min-width: 0; }
+  .scr h3 { margin: 0 0 4px; font-size: 17px; }
+  .scr .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+  .wt { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 8px 0; }
+  .wt th, .wt td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: middle; }
+  .wt th { font-size: 11px; text-transform: uppercase; color: var(--muted); background: var(--surface-2); }
+  .wt input, .wt select { font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); max-width: 220px; }
+  .wt input:disabled, .wt select:disabled { opacity: 0.55; cursor: not-allowed; }
+  .wbtn { font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  .wbtn.pri { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .wbtn.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
+  .wbtn.bad { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .wbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .ban { padding: 8px 12px; border-radius: 8px; margin: 8px 0; font-size: 12.5px; }
+  .ban.info { background: var(--accent-soft); } .ban.warn { background: var(--warn-soft); } .ban.ok { background: var(--ok-soft); } .ban.bad { background: var(--bad-soft); }
+  .stale-b { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); }
+  tr.stale td { opacity: 0.5; }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile.stale { opacity: 0.5; }
+  .gate li { list-style: none; margin: 4px 0; }
+  .gate { padding-left: 0; }
+  .steps2 { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+  .steps2 span { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); font-size: 12px; }
+  .steps2 .done { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+  .steps2 .run { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+  .steps2 .fail { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+  .dlg { border: 2px solid var(--warn); border-radius: 10px; padding: 14px; margin: 10px 0; background: var(--surface); max-width: 520px; }
+  .logbox { font-family: var(--mono); font-size: 11.5px; background: #05070a; color: #cfd6df; border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre; }
+  .hm { display: flex; gap: 2px; margin: 4px 0; } .hm i { width: 10px; height: 14px; border-radius: 2px; display: inline-block; background: var(--ok); opacity: 0.8; }
+  .hm i.d { background: var(--bad); } .hm i.g { background: var(--border); }
+  .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
+  .diff { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+  .login { max-width: 360px; margin: 50px auto; border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .login label { display: block; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .login input { width: 100%; font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+  .reason { font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">On-prem agent</div>
+<h1>Agent GUI (routes)</h1>
+<div class="callout note" id="commit-only-105"><b>Agent 0.14.1: one action — Commit (SPEC §21 #105)</b><p>There is no working copy and no draft any more. Every edit stays <b>in your browser</b> (kept in local storage, so a reload loses nothing) until you press <b>Commit…</b> and give a message — that writes the commit directly. The bar on every config page shows <i>N changes (not committed)</i> · Discard · Review · Commit…; drawers and dialogs <b>Apply</b> into it, there is no Save button. If someone else committed meanwhile, your changes are rebased onto the new head (automatically when nothing conflicts). On a site, a Commit in the agent GUI also <b>applies</b> the changes to the containers (a failed apply writes no commit); there, "uncommitted" means only changes made on the server outside the agent — commit those first. Details: <a href="branches-commits.md">branches-commits.md §15</a>.</p></div>
+<div class="callout note" id="commit-tx-107"><b>Agent 0.15.1: one Commit = one transaction, including the files (SPEC §21 #107)</b><p>Editing a file — a volume's starter content (create, edit, rename, move, delete, upload files or folders), a File's content, a volume archive — is a pending change like any other: nothing is uploaded while you edit and there is no Apply or Save content button. The bytes stay in your browser (memory + IndexedDB, so a reload restores them too) and the change bar counts every file; Review shows a per-file diff. <b>Commit…</b> first uploads only the new files to a staging area ("Uploading 2 of 5 files · 1.2 MB of 3 MB"), then writes the commit; the server checks every file, moves it into the store and only then makes the commit visible. If anything fails — an upload, validation, someone else committed first, the network — nothing is committed, the staged files are deleted and your changes (files included) stay in the browser so you can retry. <b>Drafts:</b> everything you have not committed is auto-saved in this browser (IndexedDB) per account; after a refresh or when you come back you are asked “You have unsaved changes from &lt;time&gt; (N changes) — Restore or Discard?”. A draft is only offered when it was made on the current latest commit — otherwise it is discarded with a notice. Drafts expire 1 hour after the site was last open in any tab (an open tab keeps them alive) and are deleted when you log out. Details: <a href="branches-commits.md">branches-commits.md §16</a>.</p></div>
+<div class="callout note" id="branches-104"><b>Agent 0.14 / §21 #104: the Branch page</b><p><b>Deployment › Branch</b> replaces Diff: the cloud head (commit, message, author, staged), this site's branch (ahead / behind), <b>Uncommitted</b> (your GUI edits plus changes made on the server by hand: containers, images, env, ports, files, persist-volume content) with Commit… / Discard, <b>Merge from cloud</b> (cherry-pick; deletions = "remove locally"; refused while anything is uncommitted), <b>Fast-forward all sites</b> and History (revert / reset). There is no local proposal and no approve countdown; Roll back to a snapshot keeps the 60 s wait and asks for a commit message. See <a href="branches-commits.md">branches-commits.md</a>.</p></div>
+<p class="lede">Every agent serves the same GUI in three ways (all three need the same login with the deployment access key, then the "Who is working right now?" popup): (1) <code>https://&lt;any edge host&gt;/_opm/</code> through the agent edge (embedded Caddy, ports 80/443), (2) <code>http://&lt;site host&gt;:8080/_opm/</code> (<code>agentGuiAliasPort</code>, from the agent itself, so it works when the edge cannot bind 80/443), (3) <code>http://&lt;site host&gt;:7080/_opm/</code> (<code>agentPort</code>, also the mesh). Whichever site you open, you see all sites of the deployment. Below is a clickable wireframe of every route. The address bar shows the exact route.</p>
+
+<h2 id="proto-h">Clickable prototype</h2>
+<ol class="small">
+  <li>Log in with the deployment access key (demo key: <code>K7QF-2M3X-PL4D-6WZT-R3VB-6HJN</code>; the real one: cloud Setup page → <b>View</b>, any time). The session ends 6 h after login (use "Simulate 6 h passed").</li>
+  <li>Answer the "Who is working right now?" popup: type an email or click a recent one. It comes back on every refresh and new tab, and after "Change person".</li>
+  <li>Pick a site in the ONE selector at the top of the sidebar (<code>*</code> = All sites). Every page uses it and it is part of the address (<code>/_opm/app/&lt;site&gt;/…</code>); the GUI remembers it per browser tab. A page that needs one site says "Choose a site to see …" when All sites is selected. Pages for the whole deployment (Variables, Diff, …) ignore it or use it as a filter.</li>
+  <li>The sidebar has four sections that open and close (remembered): <b>Docker</b> (Containers, Volumes, Docker, Network), <b>Agent</b> (Agent, Debug, Transfers, Internet — agent 0.11.2 merged Send and Receive into Transfers, <a href="#transfers">below</a>), <b>Deployment</b> (Sites, Variables, Secrets, Files, Diff, Backups) and <b>Site</b> (Status, Activities, Config); agent 0.11.0 adds <b>Dev tools</b> after Docker (Connections, SQL, Redis, MQTT, HTTP client, History; <a href="#devtools">below</a>, not in this prototype). Config shows Containers · Edge · Volumes · Settings as tabs in the page. The sidebar header shows the deployment, the site selector, this site, head, reachability and cloud route; the footer holds the actor (Change person, Log out) and the theme toggle. There is no top bar.</li>
+  <li>Use the demo controls to cut a site, toggle the Approve gate, and speed up the 60-second wait.</li>
+</ol>
+<div class="ctl">
+  <span>Opened on:</span><div class="seg" id="openSeg"><button data-v="app" class="on">app · 10.0.1.10</button><button data-v="db">db · 10.0.1.11</button></div>
+  <label><input type="checkbox" id="dbDown" /> db unreachable</label>
+  <label><input type="checkbox" id="fast" checked /> demo speed ×10</label>
+  <button class="btn" type="button" id="sim6h">Simulate 6 h passed (session expires)</button>
+  <button class="btn" type="button" id="simRefresh">Simulate refresh (popup again)</button>
+</div>
+<div class="proto-wrap"><div class="proto" id="proto"></div></div>
+
+<h2 id="routes">Route table</h2>
+<p>The prototype and this table use the same data. "Who does the work" says which agent acts. The agent you opened forwards each action to that agent over the mesh.</p>
+<div class="tbl-wrap"><table id="routeTbl"><thead><tr><th>Route</th><th>What is shown</th><th>Actions</th><th>Who does the work</th></tr></thead><tbody></tbody></table></div>
+
+<h2 id="one-form">The same forms as the cloud console (§21 #102)</h2>
+<p>The agent GUI renders the cloud console's forms from the shared package <code>ui/</code>: the container page, the edge host drawer, route page, nginx import and Test a URL, the volume drawer, site settings, the dev-tool preset / connection drawer, and the persist settings. Variables, secrets and files open the cloud's definition drawers. What a site may not change (service, version and name of a container; definitions; starter content; presets; the site label) stays visible in the SAME place, disabled, with a lock icon: "Cloud only — change it in the cloud console". Side-by-side screenshots: <a href="gui-consistency.md">gui-consistency.md</a>.</p>
+
+<h2 id="local-rules">What you can change locally</h2>
+<div class="grid g2">
+  <div class="card"><h4>Allowed on the site (§21 #113: a site is standalone, like Portainer with commit history)</h4><ul>
+    <li>Variables, secrets and files: add, change the whole definition and the value / content, remove</li>
+    <li>Containers: add (pick an image: a catalog version, a docker reference pulled by this host, or an image already on the host), duplicate, remove, <b>Change image…</b>, and every field: env, mount sources, ports, restart, resources, depends, command</li>
+    <li>The site label and dev-tool presets</li>
+    <li>When Docker is changed outside OPM (docker run / compose): shown as uncommitted, or committed by the agent as <b>UNKNOWN (changed in Docker)</b> — the site's drift policy on the Branch page</li>
+    <li>Site volumes: add, edit label / description / Back up / location, remove an unused one (Config → Volumes). The kind (folder / single file) is fixed after create. Starter content and Persist to cloud are shown read-only: they change only in the cloud console (§21 #101, V_LOCAL_VOLUME_CONTENT).</li>
+    <li>agentPort, agentGuiAliasPort, not-found page (Config → Settings)</li>
+    <li>The edge: ports, body limit, hosts, TLS modes, response headers, routes (route page), and <b>Import from nginx.conf…</b> (Config → Edge; <a href="networking.html#edge">rules</a>)</li>
+    <li>Reset a volume of THIS site to its starter content (Backups → volumes; 60 s + ACCEPT, a snapshot first; <a href="backups.html#reset">how</a>). This is an action, not a proposal.</li>
+    <li>Site depends</li></ul></div>
+  <div class="card"><h4>Only from the cloud</h4><ul>
+    <li>Add or remove a site</li>
+    <li>A volume's Persist to cloud setting and its cloud content versions (§21 #101)</li></ul>
+    <p class="small muted">Every local change is one commit of the site's branch, applied through the same engine as a cloud merge (a pre-update snapshot first), so History → Revert / Reset rolls it back. Merge it into the cloud from the deployment's Agent branches page.</p></div>
+</div>
+<div class="callout note" id="fast-forward"><b>The 60-second wait and ⏩ Hold to fast-forward</b><p>Approve, Roll back, Reset to starter content, Empty and Restore all show the same countdown. Next to Cancel is <b>⏩ Hold to fast-forward</b>: hold it (mouse, finger, or Space / Enter on the focused button) and the wait runs twice as fast at once, four times as fast after 1.5 s. Let go and it slides back to normal speed. The agent counts the wait itself, so the shortest possible wait is a quarter (15 s of 60); if the browser stops sending "still holding" for 1.5 s, the agent goes back to normal speed by itself. A fast-forwarded approval shows "fast-forwarded (×4, 18 s real)" in the Diff history and in the activity.</p></div>
+<div class="callout note" id="mismatch"><b>A database that keeps restarting after an image upgrade</b><p>When a container keeps restarting and its log says <code>DATA DIRECTORY / IMAGE VERSION MISMATCH</code> (custom-pg) or <code>database files are incompatible with server</code> (PostgreSQL), the Status page shows a hint with <b>Copy data volume aside, then empty it</b>: the volume is copied to <code>volume-copies/</code> with the container stopped, then emptied (60 s + its name), and the container starts with a new, empty data directory. The old data stays in the copy (Docker → Volumes → Copies) to restore or migrate later.</p></div>
+<div class="callout note"><b>Image names in the GUI</b><p>The Status and Config pages show each container image as <code>&lt;serviceSlug&gt;:&lt;version&gt;</code>, for example <code>northwind-backend:v1</code>. This is the same name that <code>docker ps</code> shows on the server. The source reference of the image (the docker tag in the registry) stays in the cloud. Volume mount paths can use <code>{{ container.env.NAME }}</code>: the GUI shows the resolved path. The container view's volume rows use the same single grouped dropdown as the cloud (Data volumes with "shared with X" and "+ New data volume…", Files, Secrets, Advanced: host path…, Not mounted); Read-only is a toggle only for volume / host (off = read-write). The column "Inside the container" shows file / secret rows as text "mounted read-only at &lt;path&gt;" with an Edit path link, and "shared copy · also used by X" when other containers mount the same file / secret. The Files page shows "On the server" for every file (one copy per site at its location; agent home = the agent data dir) and "Preview for site…" for files with expressions; the Volumes section shows the location and the absolute folder. See <a href="agent.html#images">Image names on a site</a>.</p></div>
+
+<h2 id="tools">Docker section and the container page (operator toolbox)</h2>
+<p>The <b>Docker</b> section of the sidebar holds Containers, Volumes, Docker and Network for the selected site. Click a container to open its own page (<code>/_opm/app/&lt;site&gt;/containers/&lt;container&gt;</code>) with the tabs <b>Overview</b> (state, health history, ports, mounts, environment with secret values masked, restarts, image, depends and start order), <b>Logs</b>, <b>Terminal</b>, <b>Monitoring</b>, <b>Inspect</b>, <b>Processes &amp; events</b> and <b>Config</b> (the container editor; edits become a local proposal). Logs, terminal and monitoring are per container. Host monitoring (CPU, memory, swap, disks, load) is on Site → Status, the host shell is Agent → Agent → <b>Host shell</b>, the agent's live log is Agent → Debug → <b>Live agent log</b>, and the edge access log is Docker → Network → <b>Edge access log</b>. The Status page rows have quick actions that open these tabs. With <code>*</code> (All sites), Containers, Volumes and Docker show every reachable site. Another site's tools work through the agent you opened: it forwards the request over the mesh.</p>
+<div class="tbl-wrap"><table><thead><tr><th>Page</th><th>What it does</th><th>Who / what is logged</th></tr></thead><tbody>
+<tr><td>Container › Logs</td><td>Live logs of the container (follow); <b>Merge with…</b> adds other containers merged by time; stdout / stderr, since / until, tail count, search with highlight, timestamps, wrap, download <code>.log</code> (raw bytes). ANSI colors (16 / 256 / truecolor, bold, dim, italic, underline, inverse) render as styled text; other escape codes are removed; toggles <b>Colors</b> (default on) and <b>Raw</b> (ESC shown as ␛); search ignores the escape codes. The same rendering is used for failed-container log tails on Diff and in the cloud Activities drawer. The agent's own log is in Debug, the edge access log in Network.</td><td>Reading needs a session. Known secret values are masked.</td></tr>
+<tr><td>Container › Terminal, Agent › Host shell</td><td>A shell inside the container (sh, bash or your command), or on the server (Host shell on the Agent page). Copy / paste, resize, up to 4 sessions per site, closed after 30 min without typing. Transcripts of the last 7 days can be viewed or downloaded.</td><td>Needs the declared person. The host shell asks you to type the site name. Activities <code>terminal.opened</code> / <code>terminal.closed</code> (who, what, how long).</td></tr>
+<tr><td>Status (host), Container › Monitoring</td><td>Host CPU, memory, swap, disks, load, uptime on Status; per container CPU, memory, network, disk I/O, restarts, OOM. Charts for 1 h, 24 h and 7 days. Amber / red badges: CPU &gt; 85 % or memory &gt; 90 % (red after 5 min), disk &gt; 90 %.</td><td>Sampled every 15 s on the site; kept 7 days.</td></tr>
+<tr><td>Containers</td><td>Live state, health, image, ports, CPU / memory sparklines, restarts. Restart / stop / start (with a confirm). The container page: inspect (secret values masked), processes, Docker events of the last 24 h.</td><td>Activities <code>container.restarted</code> / <code>stopped</code> / <code>started</code>. A stopped container shows "stopped manually" until you start it or the next update.</td></tr>
+<tr><td>Volumes</td><td>The volume manager. Persist-to-cloud volumes (§21 #101) have a sync badge and a <b>Cloud sync</b> tab: live / last snapshot / waiting to upload, <b>Snapshot now</b>, the pending cloud version and <b>Apply cloud version</b> (plan: fast-forward, or Overwrite / Keep live / Per file with a per-file diff (live ↔ cloud, base → live, base → cloud) → 60 s wait ⏩ → result with the Backups snapshot and restarted containers), persist settings (read-only) and this site's snapshot history. Each volume shows its size, file count, kind, backup flag, location, last snapshot, starter content and the containers that use it with their live state. <b>Files</b>: browse, view, edit a text file up to 1 MiB (you see a diff before saving), upload files or whole folders (also by drag and drop), new folder, rename / move, delete (type DELETE). <b>Actions</b>: Snapshot now (only this volume), Download <code>.tar.gz</code>, <b>Copy…</b> to a folder on the server (default <code>&lt;agent home&gt;/volume-copies/&lt;volume&gt;-&lt;time&gt;</code>) or into another volume, <b>Restore…</b> from a copy or an uploaded <code>.tar.gz</code>, <b>Empty…</b>, Reset to starter content. Empty and Restore wait 60 s (hold ⏩ to fast-forward) and need the volume name typed; the containers that use the volume stop first and start again afterwards. <b>Copies</b> lists the copies (restore from one, delete it); <b>History</b> lists the actions with their progress. <code>*</code> lists every site's volumes.</td><td><code>volume.downloaded</code>, <code>volume.emptied</code>, <code>volume.copied</code>, <code>volume.restored</code>, <code>volume.op-failed</code>, <code>volume.copy-deleted</code>, <code>volume.file-*</code>, <code>snapshot.created</code></td></tr>
+<tr><td>Network</td><td>DNS, TCP connect, HTTP GET (status, headers, timing) and ping, from the server or from inside a container; tab <b>Edge access log</b> (live). Link to the edge "Test a URL" tester.</td><td><code>tool.netcheck</code>.</td></tr>
+<tr><td>Docker</td><td>Images (in use / unused / protected), <code>docker system df</code>, "Prune unused images" (type PRUNE). The images of the current configuration are never removed.</td><td><code>docker.images-pruned</code>.</td></tr>
+</tbody></table></div>
+<div class="callout note"><b>Turning tools off</b><p>A client can switch off the shells in <code>/etc/opm/agent.json</code>: <code>"tools": {"hostShell": false, "containerExec": false}</code> (both on by default). <code>"devTools": false</code> in the same object switches off <a href="#devtools">Dev tools</a> (agent 0.11.0). The GUI then hides them and says how to turn them on. <code>"hostShell": {"user": "opm"}</code> runs the host shell as another user (the agent must run as root for that).</p></div>
+<div class="callout warn"><b>Transcripts</b><p>Terminal transcripts record what the terminal SHOWED (not your keystrokes). They stay on the site for 7 days and are never uploaded to the cloud. Every secret value the site knows is replaced by <code>••••••</code> before anything is written; a secret the agent does not know (for example a password the application prints) is not masked, so treat transcripts as sensitive.</p></div>
+
+<h2 id="transfers">Transfers (Send + Receive in one module, agent 0.11.2)</h2>
+<p><b>Agent › Transfers</b> (<span class="mono">/_opm/app/{site}/transfers</span>, one site; under "All sites" it asks for a site) shows two columns: <b>Send</b> (this site → cloud) on the left and <b>Receive</b> (cloud → this site) on the right; at phone width Send comes first. The old <span class="mono">…/send</span> and <span class="mono">…/receive</span> URLs redirect here.</p>
+<ul>
+  <li><b>Send</b> is one button with two choices: <b>Browser</b> (pick a file on this computer; it is stored on the site first) or <b>Path</b> (a picker of the server's whole filesystem from <span class="mono">/</span>: folders load when opened or expanded, breadcrumbs, a typed path box, up, a hidden-files switch, size and modified time). Only files can be sent (tar a folder on the server first); files over 2 GiB, folders the agent cannot read ("no permission") and blocked paths (the agent's own data, <span class="mono">/proc</span>, <span class="mono">/sys</span>, <span class="mono">/dev</span>, <span class="mono">/run</span>, password databases, SSH host keys) cannot be picked. Listing is read-only and not logged; sending writes <span class="mono">transfer.sent</span>.</li>
+  <li><b>Store-and-forward</b>: a sent file is <i>queued</i> on the site, <i>uploading</i> (with %) while a direct or relay route to the cloud exists, then <i>stored in the cloud</i> — whether or not anyone has the cloud page open. Retries show their count and last error. A file from the cloud is <i>pending</i> until the agent is online, <i>downloading</i>, then <i>on this site</i>; Save on server and Download are available once it is on the site.</li>
+</ul>
+
+<h2 id="devtools">Dev tools (service GUIs run by the agent)</h2>
+<p>Agent 0.11.0 adds <b>Dev tools</b>: workbenches for the services of a site — an <b>HTTP client</b> (Postman-like), <b>PostgreSQL</b>, <b>SQLite</b>, <b>Cassandra (CQL)</b>, <b>Redis</b> and <b>MQTT</b>. The browser is only the workbench: every query, command and request is run <b>by the agent on the site server</b> (SPEC §7.6, §21 #97; API <a href="api.html#devtools">Dev tools endpoints</a>). The sidebar section <b>DEV TOOLS</b> (after Docker) holds six pages for the selected site; with <code>*</code> selected each page asks you to pick a site (a connection lives on one site). Another site's tools work through the agent you opened (forwarded over the mesh with your name as the actor).</p>
+<div class="tbl-wrap"><table><thead><tr><th>Page</th><th>Route</th><th>What it does</th></tr></thead><tbody>
+<tr><td>Connections</td><td class="mono small">/_opm/app/{site}/devtools</td><td>Every connection of the site: presets first, then manual ones, with kind, target, the remembered-client state (connected / idle / error), read-only and preset badges. Add, Edit, Test, Disconnect, Delete, <b>Duplicate to edit locally</b>.</td></tr>
+<tr><td>SQL</td><td class="mono small">…/devtools/sql?c=&lt;connectionId&gt;</td><td>The SQL / CQL workbench for PostgreSQL, SQLite and Cassandra connections (<code>devtools/postgres|sqlite|cassandra</code> redirect here with <code>?kind=</code>).</td></tr>
+<tr><td>Redis</td><td class="mono small">…/devtools/redis?c=</td><td>Key browser, value editors, console, server info.</td></tr>
+<tr><td>MQTT</td><td class="mono small">…/devtools/mqtt?c=</td><td>Live subscriptions, topic tree, publish.</td></tr>
+<tr><td>HTTP client</td><td class="mono small">…/devtools/http?c=</td><td>Request builder, environments, response viewer.</td></tr>
+<tr><td>History</td><td class="mono small">…/devtools/history</td><td>Every execution on the site (from the activities), filterable, with <b>Open</b> to put a statement back in a workbench.</td></tr>
+</tbody></table></div>
+<p class="small muted">The connection is <code>?c=&lt;connectionId&gt;</code>; without it (or with an unknown one) a page opens the connection last used on this site and tool (remembered in the browser), else the first one. Switching the site keeps the tool and drops <code>?c</code>. Every tool page has the same frame: a connection picker grouped by kind, the state badge, "preset · from revision seq n", "read-only", <b>Test</b> / <b>Disconnect</b> / <b>Edit</b> / <b>Duplicate to edit locally</b>, a problem banner and <b>Add connection</b>.</p>
+
+<h3 id="devtools-connections">Presets and manual connections</h3>
+<div class="grid g2">
+  <div class="card"><h4>Presets (from the cloud)</h4><ul>
+    <li>Defined on the site's <b>Dev tools</b> tab in the cloud template or deployment (<a href="cloud-frontend.html#devtools">how</a>) and stored as <code>SiteConfig.devTools</code>; they reach the site with the revision.</li>
+    <li>Id <code>p:&lt;presetSlug&gt;</code>. Read-only on the agent: Edit and Delete are refused; <b>Duplicate to edit locally</b> makes a manual copy (expressions kept).</li>
+    <li>Credentials are never literals: <code>{{ secret.x }}</code> / <code>{{ var.y }}</code> / <code>{{ containers.&lt;c&gt;.env.&lt;NAME&gt; }}</code> (agent 0.11.1, §21 #99: the final env value of that container, e.g. its <code>POSTGRES_PASSWORD</code>) expressions resolved on the site at use.</li>
+    <li>A local proposal cannot change presets (they are cloud configuration).</li></ul></div>
+  <div class="card"><h4>Manual (on the site)</h4><ul>
+    <li>Always available: <b>Add connection</b> → kind → target (a container + port of this site, host : port, an http(s) URL, or for SQLite a file in a declared site volume or a path inside a container) → authentication → options. <b>Test</b> works on the unsaved form.</li>
+    <li>Id <code>c_&lt;ULID&gt;</code>, stored in the agent database of that site and shared by every operator of the site.</li>
+    <li>A password / token is None, a secret expression, or a <b>stored literal</b>. Expression fields complete <code>containers.&lt;c&gt;.env.&lt;NAME&gt;</code> too (names from the head; values stay on the agent, secrets masked in the preview).</li>
+    <li>Not deployment state: not in snapshots, <code>.opmsnap</code> or <code>.opmlog</code>; a rollback does not touch them.</li></ul></div>
+</div>
+<p><b>Remembered connections.</b> The agent keeps one pooled client per connection: it connects on first use and reuses the client for the next query, closes it after 10 min idle (<code>devTools.idleTimeoutSec</code>), on Disconnect, when the connection (or its preset, or a rotated secret) changes, and reconnects once by itself when a query fails on a dropped connection. A container target is reached on its site-network IP, or through its published port on 127.0.0.1 when that IP is not reachable (Docker Desktop / Colima); the frame shows which.</p>
+<p><b>Credential modes</b> (§21 #103): None · <b>Value</b> (typed, masked, show / hide toggle; a manual connection keeps it on the agent) · Secret · Container env · Expression — the same control as the cloud preset drawer. A preset whose password / token is a static Value from the cloud config is shown masked in the read-only preset form; its <b>View</b> is below the form, and <b>Duplicate to edit locally</b> copies the value.</p>
+<p><b>Credential reveal.</b> A stored literal is shown as <code>••••••</code> in every read. <b>View</b> shows it for 60 s (the same RevealValue countdown as secrets, at most 30 per minute), and writes <code>devtools.credential-revealed</code>. <b>Change</b> replaces it; saving with the masked value keeps the stored one. Expressions are not revealed here (reveal the secret itself). The same applies to secret variables of HTTP environments.</p>
+
+<h3 id="devtools-sql">SQL workbench (PostgreSQL, SQLite, Cassandra)</h3>
+<ul>
+  <li><b>Editor</b> (CodeMirror, loaded only on dev tools pages): dialect highlight, schema completion (namespaces, tables, columns with type and 🔑, functions), hover cards, lint of unknown tables / columns, find / replace, multi-cursor, folding. <b>Mod-Enter</b> runs the selection, else the statement under the cursor; <b>Shift-Mod-Enter</b> runs all; Mod-S saves; Mod-/ comments. An error position is marked in the editor.</li>
+  <li><b>Tabs</b> per site + connection, remembered in the browser (text, params — never credentials). Params panel for <code>$n</code> / <code>?</code>, transaction toggle (PostgreSQL / SQLite; rolled back on error), timeout and rows per page per run, <b>Cancel</b> for a running query.</li>
+  <li><b>Schema tree</b>: schemas / keyspaces → tables, views, materialised views (row estimate, size) → columns; functions; a table drawer with indexes, constraints and the DDL. A DDL statement refreshes it.</li>
+  <li><b>Results</b>: one pill per statement (errors red: code, position, detail, hint; the rest is skipped after an error), command tag, rows affected, notices. Virtualised grid: 1000 rows per page with <b>Load more</b> (10 000 buffered for 15 min), filter + sort on loaded rows, column resize, cell / range / row selection, copy as TSV, sum / avg in the status bar, export CSV / JSON / NDJSON, value viewer (Text / JSON / Hex, date formats) with <b>Download full value</b> for cells over 64 KiB.</li>
+  <li><b>Inline edit</b> for <code>SELECT * FROM table</code> results whose primary key columns are all present: edit cells, set NULL, delete rows, add rows; <b>Save…</b> shows the generated DELETE / UPDATE / INSERT and runs them in one transaction (logged and classified like any statement). Not for Cassandra, read-only connections or truncated cells.</li>
+  <li><b>Explain</b>: PostgreSQL plan tree (self time bars, estimate vs actual warning, filters) + text; <b>Analyze</b> = EXPLAIN ANALYZE. SQLite shows EXPLAIN QUERY PLAN; Cassandra has none.</li>
+  <li><b>Saved</b> queries per site (folders = collections, shared by operators, unredacted — the operator's explicit store).</li>
+</ul>
+
+<h3 id="devtools-redis-mqtt-http">Redis, MQTT and the HTTP client</h3>
+<div class="tbl-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+<tr><td>Redis</td><td>Key browser: SCAN with pattern + type filter (200 per call, Load more), tree split on <code>:</code> or a flat list with type / TTL / size. Value pane per type (string, hash, list, set, sorted set, stream) with paging; every edit is a logged command (SET … KEEPTTL, HSET / HDEL, LSET / RPUSH / LREM, SADD / SREM, ZADD / ZREM, XADD / XDEL, EXPIRE / PERSIST, RENAMENX, DEL). <b>Console</b>: redis-cli quoting, ↑↓ history per site + connection (lines with AUTH / CONFIG SET pass / ACL SETUSER are never stored), RESP-typed replies. <b>Info</b>: INFO sections, keyspace per db, SLOWLOG. Blocked commands (MONITOR, SUBSCRIBE family, SHUTDOWN, DEBUG, MODULE, REPLICAOF, MIGRATE, CLIENT KILL) are refused.</td></tr>
+<tr><td>MQTT</td><td>Live sessions (each with its own MQTT client on the server; up to 4 per GUI session, up to 6 h): add / remove topic filters with QoS, pause (keeps receiving), clear, filter; payload views JSON / Text / Hex / Base64; retained and dup badges; topic tree with live counts + topics seen. <b>Publish</b> with QoS 0–2 and retain; an empty retained payload clears the retained message (typed confirm). Subscriptions are remembered per site + connection; a dropped stream reconnects.</td></tr>
+<tr><td>HTTP client</td><td>Request tabs per site + connection: method, URL with <code>{{var}}</code> (environment, green) and OPM expressions (<code>{{ secret.x }}</code>, violet) highlighted, params ↔ URL in sync, headers, auth (inherit from the connection / none / basic / bearer / API key), body JSON / text / form / multipart / binary. A preview line shows the resolved URL (environment secrets as •••). <b>Environments</b> hold variables (secret ones masked, revealable). Response: status, time, size, final URL, body Pretty / Raw / Preview (images; HTML in a sandboxed frame) / Hex, headers, cookies, timing bars (DNS / connect / TLS / first byte), redirect chain, the request as sent, <b>Download full body</b> above 2 MiB, <b>Copy as curl</b>. Saved requests in collections.</td></tr>
+<tr><td>History</td><td>The site's <code>devtools.query</code> (and MQTT publish) activities, newest first: filters kind, connection, mine, ok / failed; expand a statement; <b>Open</b> puts the (redacted) statement into the workbench (SQL / HTTP as a new tab, Redis into the console history). There is no second store with full statements.</td></tr>
+</tbody></table></div>
+
+<h3 id="devtools-safety">Destructive statements, read-only connections, logging</h3>
+<ul>
+  <li><b>Typed confirm.</b> A destructive statement (DROP / TRUNCATE, DELETE / UPDATE without WHERE, ALTER …, FLUSHALL / FLUSHDB / CONFIG SET / DEL with a pattern-like key, clearing a retained MQTT message) opens a confirm with the reasons and the statement: type the <b>connection name</b> to run it. The agent re-classifies on the server; the GUI warning is advice.</li>
+  <li><b>Read-only connections</b> are enforced by the agent: PostgreSQL in a <code>READ ONLY</code> transaction (transaction control refused), SQLite opened read-only, Cassandra and Redis write commands refused, MQTT no publish, HTTP only GET / HEAD / OPTIONS.</li>
+  <li><b>Every execution is logged</b> as <code>devtools.query</code> with the actor, connection, target, the statement / command / request <b>redacted</b> (passwords, tokens and every secret value of the site → <code>••••••</code>, at most 4 KiB), duration, rows, status — never result data. Forwarded actions are logged on both sites. Schema browsing and the Redis key browser are not logged (reads of metadata).</li>
+  <li>Limits: 30 s default timeout (up to 3600 s), 8 running executions per site, 120 executions per minute per session.</li>
+</ul>
+<div class="callout note" id="devtools-switch"><b>Turning Dev tools off</b><p><code>/etc/opm/agent.json</code> <code>"tools": {"devTools": false}</code> (default <code>true</code>) switches Dev tools off on that site: every dev tools page shows "Dev tools are turned off on this site" with the reason and a link to the setting, and the API answers 403. The switch is also on <b>Agent → agent.json → Edit settings</b> (<b>Dev tools</b>; saving restarts the agent). Limits live in <code>"devTools": {…}</code> of the same file (edit the file + restart). Agents older than 0.11.0 have no Dev tools and do not show the switch.</p></div>
+
+<h2 id="agent-page">Agent page (the agent itself)</h2>
+<p><b>Agent → Agent</b> (<code>/_opm/app/{site}/agent</code>, SPEC §18.A, API §7.5; tab <b>Host shell</b> = a terminal on the server) puts everything <code>opm-agent</code> does on the command line into the GUI, including the upgrade. With <code>*</code> it shows one card per site (version, latest, badge) and <b>Upgrade all</b>. Another site's page works through the agent you opened (forwarded over the mesh, with your name as the actor). Try it in the prototype above: pick a site in the selector on top, then Agent → <b>Agent</b>.</p>
+<div class="tbl-wrap"><table><thead><tr><th>Section</th><th>What it shows / does</th><th>Logged</th></tr></thead><tbody>
+<tr><td>Overview</td><td>Version and build (Go version, commit, build time), pid and uptime, config path, data dir, the binary and <code>opm-agent.prev</code>, ports, Docker, systemd state and whether the boot guard is installed, enrollment (date, site key fingerprint <code>SHA256:…</code>; for a revoked site the re-enroll steps), cloud link (route, last fetch, last heartbeat, error).</td><td>—</td></tr>
+<tr><td>Release + upgrade</td><td>Installed vs latest (the version the cloud pins) with release notes. <b>Check release</b> verifies the release signature without downloading. <b>Upgrade to X</b>: type the site slug → download → verify → swap → restart → health, with a progress stepper. While the agent restarts, an overlay polls <code>/_opm/api/health</code> every 2 s and continues on the same login. If the new version is not healthy within 60 s, the old one comes back by itself (<a href="agent.html#self-upgrade">how</a>). History of the last 10 upgrades.</td><td><code>agent.upgrade-started</code>, <code>agent.upgraded</code>, <code>agent.upgrade-failed</code>, <code>agent.rolled-back</code></td></tr>
+<tr><td>Health</td><td>The public <code>GET /_opm/api/health</code>: ok / not ok with each check, database schema, cloud connection (route, last contact), Docker, and whether systemd socket activation holds the ports (connections wait instead of failing while the agent restarts).</td><td>—</td></tr>
+<tr><td>Upgrade all</td><td>Every reachable site below the pin, one at a time, the site you opened LAST (it restarts); stops on the first failure; type UPGRADE. Sites below 0.10.0 or unreachable are skipped. Cancel stops after the current site.</td><td>per site, as above</td></tr>
+<tr><td>Restart agent</td><td>Type the site slug. systemd restarts the service; the containers keep running.</td><td><code>agent.restarted</code></td></tr>
+<tr><td>agent.json</td><td>The file with secrets masked (<code>••••</code> + last 4). <b>Edit settings</b>: host shell, container exec, Dev tools (<code>tools.devTools</code>, agent 0.11.0), container names (plain / prefixed), default edge HTTP port, GUI alias port — validated, written atomically (the old file kept as <code>agent.json.bak</code>), then the agent restarts. Every other key: edit the file on the server and restart.</td><td><code>agent.config-changed</code></td></tr>
+<tr><td>Support bundle</td><td><code>opm-support-&lt;site&gt;-&lt;time&gt;.tar.gz</code>: version, masked agent.json, the last 24 h of the debug log, Docker info, containers, the last 500 activities, status, upgrade history. No secrets, keys, transcripts or volumes.</td><td><code>agent.support-bundle-downloaded</code></td></tr>
+<tr><td>Uninstall</td><td>Copyable commands for the server only (stop + remove the service, the binary, <code>.prev</code>, the boot guard; the data wipe is optional). Never a button.</td><td>—</td></tr>
+</tbody></table></div>
+<h3>Command line → GUI</h3>
+<div class="tbl-wrap"><table><thead><tr><th><code>opm-agent …</code></th><th>In the GUI</th></tr></thead><tbody>
+<tr><td><code>version</code>, <code>status</code></td><td>Agent → Overview</td></tr>
+<tr><td><code>verify-release</code></td><td>Agent → <b>Check release</b> (and the verify card of every upgrade)</td></tr>
+<tr><td><code>upgrade</code></td><td>Agent → <b>Upgrade to X</b> (also: cloud console → Setup → <b>Upgrade agent</b>)</td></tr>
+<tr><td><code>snapshot list / export / import</code></td><td>Backups → the snapshot list, <b>Download</b> (.opmsnap with / without images), <b>Import .opmsnap</b></td></tr>
+<tr><td>(none)</td><td>Agent → <b>Restart agent</b>, <b>Edit settings</b>, <b>Download support bundle</b></td></tr>
+<tr><td><code>keygen</code>, <code>enroll</code>, <code>install</code></td><td>Command line only (before the site is enrolled there is no GUI). The page shows the fingerprint, the enrollment date and the re-enroll steps.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><b>Hard fallback</b><p>If the upgrade from this page or from the cloud cannot run (or you need a downgrade or a clean reinstall), rerun the site's install command on the server. It asks "Installed A → available B: UPGRADE | DOWNGRADE | SAME", keeps agent.json, the site key, the data and the enrollment, backs up the database, and rolls back by itself when the new agent is not healthy within 60 s. Without a terminal add <code>OPM_YES=1</code> after <code>sudo</code>. <a href="agent.html#fallback">Details</a>.</p></div>
+<div class="callout note"><b>An agent older than 0.10.0</b><p>An older agent (for example 0.7.2, where <code>sudo opm-agent upgrade</code> says "unknown command") has no Agent page. Upgrade it <b>once</b> by running the site's <b>Upgrade / reinstall command</b> on the server (cloud Setup page → the site's card → View → Copy; always viewable, or Regenerate for an upgrade-only command). After that, upgrades are a button here or in the cloud console.</p></div>
+</main>
+</div>
+<script id="edge-lib">
+// ---------- edge (embedded Caddy) · shared model, resolver, editor (same code on every docs page that shows the edge) ----------
+const EDGE_PORTS = { web: { http: 80 }, api: { http: 3000 }, redis: { redis: 6379 }, postgres: { sql: 5432 }, migrate: {} };
+function edgeSample(site) {
+  if (site === 'db') return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: '10.0.1.11', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }], routes: [] };
+  return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: 'plant.acme.com', tls: { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: true },
+    { hostname: '10.0.1.10', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }],
+  routes: [
+    { routeId: 'api', hosts: [], match: { pathPrefix: '/api', methods: null }, action: { type: 'proxy', containerSlug: 'api', portName: 'http', stripPrefix: true, addPrefix: null, setHeaders: { 'X-Forwarded-Prefix': '/api' }, removeHeaders: [], websocket: false, timeoutSec: 60 }, order: 1 },
+    { routeId: 'old', hosts: [], match: { pathPrefix: '/old', methods: null }, action: { type: 'redirect', to: '/new', status: 308, keepPath: true }, order: 2 },
+    { routeId: 'docs', hosts: ['plant.acme.com'], match: { pathPrefix: '/docs', methods: null }, action: { type: 'redirect', to: 'https://docs.acme.com{path}', status: 301, keepPath: false }, order: 3 },
+    { routeId: 'web', hosts: [], match: { pathPrefix: '/', methods: null }, action: { type: 'proxy', containerSlug: 'web', portName: 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: true, timeoutSec: 60 }, order: 4 }] };
+}
+const edgeEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const edgePrefixHit = (p, path) => p === '/' || path === p || path.startsWith(p.endsWith('/') ? p : p + '/');
+function edgeHostOf(edge, hn) {
+  hn = hn.toLowerCase();
+  let h = edge.hosts.find((x) => x.hostname.toLowerCase() === hn);
+  if (h) return [h, 'exact'];
+  h = edge.hosts.find((x) => x.hostname.startsWith('*.') && hn.endsWith(x.hostname.slice(1).toLowerCase()) && hn.split('.').length === x.hostname.split('.').length);
+  if (h) return [h, 'wildcard'];
+  h = edge.hosts.find((x) => x.hostname === '*');
+  return h ? [h, 'any host (*)'] : [null, ''];
+}
+// Resolve one request exactly like the agent edge does. opts: { method, notReady: { containerSlug: true } }
+function edgeResolve(edge, raw, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase(), steps = [];
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'http://' + raw); } catch (e) { return { status: 0, kind: 'bad', title: 'Not a URL', steps: ['Enter for example https://plant.acme.com/api/v1/x'] }; }
+  const scheme = u.protocol.slice(0, -1), hn = u.hostname.replace(/^\[|\]$/g, ''), q = u.search, path = u.pathname || '/';
+  if (scheme !== 'http' && scheme !== 'https') return { status: 0, kind: 'bad', title: 'Only http and https', steps: [] };
+  const port = u.port ? +u.port : scheme === 'https' ? 443 : 80;
+  const want = scheme === 'https' ? edge.httpsPort : edge.httpPort;
+  if (port !== want) return { status: 0, kind: 'bad', title: `Port ${port} is not an edge port`, steps: [`The edge listens on http ${edge.httpPort} and https ${edge.httpsPort == null ? 'off' : edge.httpsPort}.`, 'agentPort and agentGuiAliasPort serve only /_opm/ and do not use these rules.'] };
+  const [host, how] = edgeHostOf(edge, hn);
+  if (!host) return { status: scheme === 'https' ? 0 : 404, kind: 'bad', title: scheme === 'https' ? 'TLS handshake fails' : '404 · site not-found page', steps: [`No entry in edge.hosts matches <code>${edgeEsc(hn)}</code> and there is no "*" host.`, scheme === 'https' ? 'There is no certificate for this name.' : 'The edge answers with the site not-found page.'] };
+  steps.push(`Host <code>${edgeEsc(hn)}</code> → <code>${edgeEsc(host.hostname)}</code> (${how}) · TLS ${host.tls.mode}`);
+  if (scheme === 'https' && host.tls.mode === 'none') return { status: 0, kind: 'bad', title: 'TLS handshake fails', host, steps: steps.concat(['TLS mode is none for this host, so the edge has no certificate for HTTPS.']) };
+  if (scheme === 'http' && host.redirectHttpToHttps && host.tls.mode !== 'none' && edge.httpsPort != null) {
+    const loc = `https://${hn}${edge.httpsPort === 443 ? '' : ':' + edge.httpsPort}${path}${q}`;
+    return { status: 308, kind: 'redirect', title: '308 → HTTPS', host, location: loc, steps: steps.concat(['redirectHttpToHttps is on for this host. Routes are not checked on HTTP.']) };
+  }
+  if (path === '/_opm' || path.startsWith('/_opm/')) {
+    const known = path === '/_opm' || path === '/_opm/' || /^\/_opm\/(app|install)(\/|$)/.test(path) || path.startsWith('/_opm/api/') || path.startsWith('/_opm/assets/');
+    return { status: known ? 200 : 404, kind: 'agent', title: known ? '200 · agent GUI / API' : '404 · agent 404 page', host, steps: steps.concat(['<code>/_opm/</code> is reserved on every host. Routes are not checked.', known ? 'The agent answers (in process, not a container).' : 'Unknown /_opm/ path → the AGENT 404 page (never the site page). /_opm/peer/ is only on agentPort.']) };
+  }
+  const cand = edge.routes.filter((r) => !r.hosts.length || r.hosts.includes(host.hostname)).sort((a, b) => a.order - b.order || b.match.pathPrefix.length - a.match.pathPrefix.length);
+  steps.push(`Routes for this host, in order: ${cand.map((r) => `<code>${edgeEsc(r.routeId)}</code>`).join(' → ') || 'none'}`);
+  const r = cand.find((x) => edgePrefixHit(x.match.pathPrefix, path) && (!x.match.methods || !x.match.methods.length || x.match.methods.includes(method)));
+  if (!r) return { status: 404, kind: 'bad', title: '404 · site not-found page', host, steps: steps.concat(['No route matches. The edge serves the site not-found page (notFoundPageId; built-in page if null).']) };
+  const pre = r.match.pathPrefix, rest = pre === '/' ? path : path.slice(pre.replace(/\/$/, '').length);
+  steps.push(`First match: route <code>${edgeEsc(r.routeId)}</code> (prefix <code>${edgeEsc(pre)}</code>)`);
+  const a = r.action;
+  if (a.type === 'redirect') {
+    let loc = String(a.to).replace(/\{path\}/g, path).replace(/\{query\}/g, q).replace(/\{host\}/g, hn);
+    if (a.keepPath) loc = loc.replace(/\/$/, '') + (rest === '/' ? '' : rest) + q;
+    return { status: a.status, kind: 'redirect', title: `${a.status} redirect`, host, route: r, location: loc, steps: steps.concat([a.keepPath ? `keepPath: the rest of the path (<code>${edgeEsc(rest || '/')}</code>) and the query are added.` : 'keepPath is off: only the placeholders in "to" are used.']) };
+  }
+  if ((opts.notReady || {})[a.containerSlug]) return { status: 503, kind: 'bad', title: '503 · not-found page', host, route: r, steps: steps.concat([`Container <code>${edgeEsc(a.containerSlug)}</code> is not ready (health check). The edge serves the not-found page with status 503.`]) };
+  let up = a.stripPrefix ? (rest && rest.startsWith('/') ? rest : '/' + (rest || '')) : path;
+  if (a.addPrefix) up = a.addPrefix.replace(/\/$/, '') + up;
+  const cport = (EDGE_PORTS[a.containerSlug] || {})[a.portName];
+  const upstream = `http://${a.containerSlug}:${cport == null ? '?' : cport}${up}${q}`;
+  const hdr = Object.entries(a.setHeaders || {}).map(([k, v]) => `${k}: ${v}`);
+  return { status: 200, kind: 'proxy', title: 'proxy → container', host, route: r, upstream, steps: steps.concat([
+    a.stripPrefix ? `stripPrefix: <code>${edgeEsc(path)}</code> → <code>${edgeEsc(up)}</code>` : 'stripPrefix is off: the path goes unchanged.',
+    `Upstream (site network, DNS = container name): <code>${edgeEsc(upstream)}</code>`,
+    hdr.length ? `setHeaders: <code>${edgeEsc(hdr.join(' · '))}</code>` : 'Headers: X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host are always set.',
+    a.websocket ? 'WebSocket upgrade allowed.' : `Timeout ${a.timeoutSec} s.`]) };
+}
+function edgeExplainHTML(res) {
+  const cls = res.kind === 'proxy' ? 'ok' : res.kind === 'redirect' ? 'warn' : res.kind === 'agent' ? 'agent' : 'bad';
+  return `<div class="ee-res"><span class="tag ${cls}">${res.status || '—'}</span> <b>${res.title}</b>${res.location ? ` → <code>${edgeEsc(res.location)}</code>` : ''}<ol>${res.steps.map((s) => `<li>${s}</li>`).join('')}</ol></div>`;
+}
+// opts: { containers: [{ slug, hostPorts: number[] }], agentPort, agentGuiAliasPort, files: [], secrets: [] }
+function edgeValidate(edge, opts) {
+  opts = opts || {};
+  const E = [], W = [], slugRe = /^[a-z0-9][a-z0-9-]{0,62}$/;
+  const names = edge.hosts.map((h) => h.hostname.toLowerCase());
+  const isIp = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || s.includes(':');
+  if (edge.httpPort === edge.httpsPort) E.push('httpPort and httpsPort must differ.');
+  [['httpPort', edge.httpPort], ['httpsPort', edge.httpsPort]].forEach(([k, p]) => {
+    if (p == null) return;
+    if (!Number.isInteger(p) || p < 1 || p > 65535) E.push(`${k} ${p} must be 1–65535.`);
+    if (p === opts.agentPort) E.push(`${k} ${p} is the agentPort.`);
+    if (p === opts.agentGuiAliasPort) E.push(`${k} ${p} is the agentGuiAliasPort.`);
+  });
+  (opts.containers || []).forEach((c) => (c.hostPorts || []).forEach((p) => {
+    if (p === 80 || p === 443 || p === edge.httpPort || p === edge.httpsPort) E.push(`Container ${c.slug} publishes host port ${p}; ${p} belongs to the edge. Add a route instead.`);
+  }));
+  edge.hosts.forEach((h, i) => {
+    const n = h.hostname;
+    if (!n) E.push(`hosts[${i}]: hostname is empty.`);
+    if (names.indexOf(n.toLowerCase()) !== i) E.push(`Host ${n} is listed two times.`);
+    if (n !== '*' && !n.includes('{{') && !isIp(n) && !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(n)) E.push(`Host "${n}" is not a DNS name, a wildcard, an IP or "*".`);
+    if (h.tls.mode === 'acme') {
+      if (n === '*' || isIp(n)) E.push(`Host ${n}: ACME cannot issue a certificate for an IP or "*". Use internal.`);
+      if (!h.tls.email) E.push(`Host ${n}: ACME needs an email.`);
+      if (n.startsWith('*.') && h.tls.challenge !== 'dns-01') E.push(`Host ${n}: a wildcard certificate needs the dns-01 challenge.`);
+      if (h.tls.challenge === 'dns-01' && (!h.tls.dnsProvider || !h.tls.dnsTokenSecretSlug)) E.push(`Host ${n}: dns-01 needs dnsProvider and dnsTokenSecretSlug.`);
+      if (h.tls.challenge !== 'dns-01') { const need = h.tls.challenge === 'http-01' ? 80 : 443; W.push(`Host ${n}: ${h.tls.challenge} needs internet on this site AND ${n} reachable from the internet on port ${need}.`); if ((need === 80 ? edge.httpPort : edge.httpsPort) !== need) E.push(`Host ${n}: ${h.tls.challenge} needs the edge on port ${need}.`); }
+    }
+    if (h.tls.mode === 'files' && (!h.tls.certFileSlug || !h.tls.keySecretSlug)) E.push(`Host ${n}: files mode needs certFileSlug and keySecretSlug.`);
+    if (h.tls.mode === 'files' && opts.files && h.tls.certFileSlug && !opts.files.includes(h.tls.certFileSlug)) E.push(`Host ${n}: file ${h.tls.certFileSlug} does not exist.`);
+    if (h.tls.mode === 'files' && opts.secrets && h.tls.keySecretSlug && !opts.secrets.includes(h.tls.keySecretSlug)) E.push(`Host ${n}: secret ${h.tls.keySecretSlug} does not exist.`);
+    if (h.redirectHttpToHttps && (h.tls.mode === 'none' || edge.httpsPort == null)) E.push(`Host ${n}: redirectHttpToHttps needs TLS and an httpsPort.`);
+  });
+  const ids = edge.routes.map((r) => r.routeId);
+  const sorted = edge.routes.slice().sort((a, b) => a.order - b.order);
+  sorted.forEach((r, i) => {
+    if (!slugRe.test(r.routeId)) E.push(`Route id "${r.routeId}" is not a slug.`);
+    if (ids.indexOf(r.routeId) !== ids.lastIndexOf(r.routeId)) E.push(`Route id ${r.routeId} is used two times.`);
+    const p = r.match.pathPrefix;
+    if (!p || p[0] !== '/') E.push(`Route ${r.routeId}: pathPrefix must start with "/".`);
+    if (p === '/_opm' || (p && p.startsWith('/_opm/'))) E.push(`Route ${r.routeId}: /_opm/ is reserved for the agent.`);
+    r.hosts.forEach((x) => { if (!edge.hosts.some((h) => h.hostname === x)) E.push(`Route ${r.routeId}: host ${x} is not in edge.hosts.`); });
+    const a = r.action;
+    if (a.type === 'proxy') {
+      const ports = EDGE_PORTS[a.containerSlug];
+      if (opts.containers && !opts.containers.some((c) => c.slug === a.containerSlug)) E.push(`Route ${r.routeId}: container ${a.containerSlug} does not exist on this site.`);
+      else if (!ports || !(a.portName in ports)) E.push(`Route ${r.routeId}: port ${a.portName} does not exist on the image of ${a.containerSlug}.`);
+      if (!(a.timeoutSec >= 1 && a.timeoutSec <= 3600)) E.push(`Route ${r.routeId}: timeoutSec must be 1–3600.`);
+      if (a.addPrefix && a.addPrefix[0] !== '/') E.push(`Route ${r.routeId}: addPrefix must start with "/".`);
+    } else {
+      if (!a.to) E.push(`Route ${r.routeId}: redirect needs "to".`);
+      if (![301, 302, 303, 307, 308].includes(+a.status)) E.push(`Route ${r.routeId}: status must be 301, 302, 303, 307 or 308.`);
+    }
+    const shadow = sorted.slice(0, i).find((o) => edgePrefixHit(o.match.pathPrefix, p) && (!o.hosts.length || (r.hosts.length && r.hosts.every((x) => o.hosts.includes(x)))) && !o.match.methods);
+    if (shadow) W.push(`Route ${r.routeId} never matches: route ${shadow.routeId} (prefix ${shadow.match.pathPrefix}) is before it. Move it up.`);
+  });
+  return { E: [...new Set(E)], W: [...new Set(W)] };
+}
+function edgeCert(h) {
+  const m = h.tls.mode;
+  if (m === 'none') return '<span class="muted">— (HTTP only)</span>';
+  if (m === 'internal') return '<span class="tag ok">valid</span> <span class="small">OPM local CA · 12 h · renews itself</span>';
+  if (m === 'files') return `<span class="tag ok">valid</span> <span class="small">from file ${edgeEsc(h.tls.certFileSlug || '?')}</span>`;
+  return h.hostname === 'plant.acme.com' ? '<span class="tag ok">valid</span> <span class="small">Let\'s Encrypt R11 · until 2027-01-04</span>' : '<span class="tag warn">pending</span> <span class="small">first issue after apply</span>';
+}
+(function () {
+  if (document.getElementById('ee-style')) return;
+  const s = document.createElement('style'); s.id = 'ee-style';
+  s.textContent = `.ee{font-size:13px}.ee h5{margin:14px 0 6px;font-size:13px}.ee .ee-w{overflow-x:auto;-webkit-overflow-scrolling:touch}.ee table{width:100%;border-collapse:collapse;min-width:640px}.ee th,.ee td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top;font-size:12px}.ee th{color:var(--muted);font-weight:600}.ee input[type=text],.ee input[type=number],.ee select{font:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);max-width:100%}.ee input.w{width:150px}.ee input.n{width:64px}.ee .ee-b{font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer}.ee .ee-b.pri{background:var(--accent);color:#fff;border-color:transparent}.ee .ee-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.ee .ee-sub{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.ee .ee-res{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px;background:var(--surface-2);overflow-wrap:anywhere}.ee .ee-res ol{margin:6px 0 0 18px;padding:0}.ee .ee-msg li{margin:2px 0}.ee .ee-try{cursor:pointer;text-decoration:underline;margin-right:8px;font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}.ee code{overflow-wrap:anywhere}`;
+  document.head.appendChild(s);
+})();
+// Mount an interactive editor into el. edge is edited in place. opts: { local, onChange, containers, agentPort, agentGuiAliasPort, files, secrets, testUrl }
+function mountEdge(el, edge, opts) {
+  opts = opts || {};
+  const S = el.__ee || (el.__ee = { url: opts.testUrl || 'https://plant.acme.com/api/v1/x', method: 'GET', notReady: {}, newHost: '' });
+  const svcs = Object.keys(EDGE_PORTS).filter((k) => !opts.containers || opts.containers.some((c) => c.slug === k));
+  const opt = (vals, cur) => vals.map((v) => `<option ${String(v) === String(cur) ? 'selected' : ''}>${v}</option>`).join('');
+  const sorted = () => edge.routes.sort((a, b) => a.order - b.order);
+  const draw = () => {
+    sorted();
+    const v = edgeValidate(edge, opts);
+    const hostRows = edge.hosts.map((x, i) => {
+      const t = x.tls, m = t.mode;
+      const extra = m === 'acme' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.email" data-i="${i}" value="${edgeEsc(t.email)}" placeholder="email" aria-label="ACME email"/><select data-f="h.tls.challenge" data-i="${i}" aria-label="challenge">${opt(['http-01', 'tls-alpn-01', 'dns-01'], t.challenge)}</select>${t.challenge === 'dns-01' ? `<input type="text" class="w" data-f="h.tls.dnsProvider" data-i="${i}" value="${edgeEsc(t.dnsProvider)}" placeholder="dns provider (cloudflare)"/><input type="text" class="w" data-f="h.tls.dnsTokenSecretSlug" data-i="${i}" value="${edgeEsc(t.dnsTokenSecretSlug)}" placeholder="token secret slug"/>` : ''}</div>`
+        : m === 'files' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.certFileSlug" data-i="${i}" value="${edgeEsc(t.certFileSlug)}" placeholder="cert file slug"/><input type="text" class="w" data-f="h.tls.keySecretSlug" data-i="${i}" value="${edgeEsc(t.keySecretSlug)}" placeholder="key secret slug"/></div>`
+        : m === 'internal' ? '<span class="small muted">clients trust the OPM local CA (download in the agent GUI)</span>' : '<span class="small muted">HTTP only</span>';
+      return `<tr><td><input type="text" class="w" data-f="h.hostname" data-i="${i}" value="${edgeEsc(x.hostname)}" aria-label="hostname"/></td><td><select data-f="h.tls.mode" data-i="${i}" aria-label="TLS mode">${opt(['none', 'internal', 'acme', 'files'], m)}</select></td><td>${extra}</td><td><input type="checkbox" data-f="h.redirect" data-i="${i}" ${x.redirectHttpToHttps ? 'checked' : ''} aria-label="HTTP to HTTPS"/></td><td>${edgeCert(x)}</td><td><button type="button" class="ee-b" data-e="delHost" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const routeRows = edge.routes.map((r, i) => {
+      const a = r.action;
+      const act = a.type === 'proxy'
+        ? `<div class="ee-sub"><select data-f="r.svc" data-i="${i}" aria-label="container">${opt(svcs, a.containerSlug)}</select>:<select data-f="r.port" data-i="${i}" aria-label="port">${opt(Object.keys(EDGE_PORTS[a.containerSlug] || {}), a.portName)}</select><label><input type="checkbox" data-f="r.strip" data-i="${i}" ${a.stripPrefix ? 'checked' : ''}/> strip prefix</label><input type="text" class="n" style="width:90px" data-f="r.addPrefix" data-i="${i}" value="${edgeEsc(a.addPrefix)}" placeholder="add prefix"/><label><input type="checkbox" data-f="r.ws" data-i="${i}" ${a.websocket ? 'checked' : ''}/> websocket</label><input type="number" class="n" data-f="r.timeout" data-i="${i}" value="${a.timeoutSec}" aria-label="timeout s"/>s<input type="text" class="w" data-f="r.headers" data-i="${i}" value="${edgeEsc(Object.entries(a.setHeaders || {}).map(([k, x]) => k + '=' + x).join('; '))}" placeholder="set headers: K=V; K2=V2"/></div>`
+        : `<div class="ee-sub"><input type="text" class="w" style="width:200px" data-f="r.to" data-i="${i}" value="${edgeEsc(a.to)}" aria-label="redirect to"/><select data-f="r.status" data-i="${i}" aria-label="status">${opt([301, 302, 307, 308], a.status)}</select><label><input type="checkbox" data-f="r.keep" data-i="${i}" ${a.keepPath ? 'checked' : ''}/> keep path</label></div>`;
+      return `<tr><td>${r.order}</td><td style="white-space:nowrap"><button type="button" class="ee-b" data-e="up" data-i="${i}" ${i ? '' : 'disabled'} aria-label="move up">↑</button> <button type="button" class="ee-b" data-e="down" data-i="${i}" ${i < edge.routes.length - 1 ? '' : 'disabled'} aria-label="move down">↓</button></td><td><input type="text" class="n" style="width:70px" data-f="r.id" data-i="${i}" value="${edgeEsc(r.routeId)}" aria-label="route id"/></td><td><select data-f="r.hosts" data-i="${i}" aria-label="hosts">${['all hosts'].concat(edge.hosts.map((x) => x.hostname)).map((x) => `<option ${(r.hosts.length ? r.hosts[0] : 'all hosts') === x ? 'selected' : ''}>${edgeEsc(x)}</option>`).join('')}</select></td><td><input type="text" class="n" style="width:80px" data-f="r.prefix" data-i="${i}" value="${edgeEsc(r.match.pathPrefix)}" aria-label="path prefix"/></td><td><select data-f="r.type" data-i="${i}" aria-label="action">${opt(['proxy', 'redirect'], a.type)}</select></td><td>${act}</td><td><button type="button" class="ee-b" data-e="delRoute" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const res = edgeResolve(edge, S.url, { method: S.method, notReady: S.notReady });
+    el.innerHTML = `<div class="ee">
+      ${opts.local ? '<div class="small muted">Local edit on this site. Save → a <b>local proposal</b> (needs approval, then sent to the cloud).</div>' : ''}
+      <div class="ee-row"><b>Ports</b> http <input type="number" class="n" data-f="httpPort" value="${edge.httpPort}" aria-label="httpPort"/> https <input type="number" class="n" data-f="httpsPort" value="${edge.httpsPort == null ? '' : edge.httpsPort}" placeholder="off" aria-label="httpsPort"/><span class="small muted">served by the agent (embedded Caddy). Containers may not publish these ports.</span></div>
+      <h5>Hosts (${edge.hosts.length})</h5><div class="ee-w"><table><tr><th>Hostname</th><th>TLS mode</th><th>TLS details</th><th>HTTP→HTTPS</th><th>Certificate</th><th></th></tr>${hostRows}</table></div>
+      <div class="ee-row"><input type="text" class="w" id="edgeNewHost" value="${edgeEsc(S.newHost)}" placeholder="new hostname, e.g. ops.acme.com" aria-label="new hostname"/><button type="button" class="ee-b" data-e="addHost" id="edgeAddHost">+ Add host</button></div>
+      <h5>Routes (${edge.routes.length}) · first match wins, top to bottom</h5><div class="ee-w"><table><tr><th>#</th><th>Order</th><th>Route id</th><th>Hosts</th><th>Path prefix</th><th>Action</th><th>Action fields</th><th></th></tr>${routeRows}</table></div>
+      <div class="ee-row"><button type="button" class="ee-b" data-e="addRoute" data-v="proxy" id="edgeAddProxy">+ Proxy route</button><button type="button" class="ee-b" data-e="addRoute" data-v="redirect" id="edgeAddRedirect">+ Redirect route</button><span class="small muted">/_opm/ is reserved on every host. No match → not-found page (404). Target not ready → 503.</span></div>
+      <div class="ee-msg">${v.E.length ? `<div class="ee-res" style="border-color:var(--bad)"><b style="color:var(--bad)">${v.E.length} error(s) · cannot save</b><ul>${v.E.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : '<div class="ee-res"><span class="tag ok">valid</span> The agent turns this into Caddy JSON and reloads without dropped connections.</div>'}${v.W.length ? `<div class="ee-res" style="border-color:var(--warn)"><b style="color:var(--warn)">Warnings</b><ul>${v.W.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+      <h5>Test a URL</h5>
+      <div class="ee-row"><select id="edgeMethod" aria-label="method">${opt(['GET', 'POST', 'PUT', 'DELETE'], S.method)}</select><input type="text" id="edgeUrl" style="flex:1;min-width:200px" value="${edgeEsc(S.url)}" aria-label="URL to test"/><button type="button" class="ee-b pri" data-e="test" id="edgeTest">Test</button></div>
+      <div class="ee-row small">${svcs.map((s) => `<label><input type="checkbox" data-nr="${s}" ${S.notReady[s] ? 'checked' : ''}/> ${s} not ready</label>`).join(' ')}</div>
+      <div class="small">Try: ${['https://plant.acme.com/api/v1/x?id=7', 'http://plant.acme.com/api/v1/x', 'https://plant.acme.com/old/a?b=1', 'https://plant.acme.com/docs/setup', 'https://10.0.1.10/', 'https://10.0.1.10/_opm/app', 'http://10.0.1.10/_opm/nope', 'http://10.0.1.10/apix', 'https://other.example/'].map((x) => `<span class="ee-try" data-e="try" data-v="${x}">${x}</span>`).join('')}</div>
+      <div id="edgeOut">${edgeExplainHTML(res)}</div></div>`;
+  };
+  const changed = () => { if (opts.onChange) opts.onChange(edge); draw(); };
+  el.onclick = (ev) => {
+    const b = ev.target.closest('[data-e]'); if (!b || !el.contains(b)) return;
+    ev.stopPropagation();
+    const e = b.dataset.e, i = +b.dataset.i, R = edge.routes;
+    if (e === 'test') { S.url = el.querySelector('#edgeUrl').value; S.method = el.querySelector('#edgeMethod').value; return draw(); }
+    if (e === 'try') { S.url = b.dataset.v; return draw(); }
+    if (e === 'up' && i > 0) [R[i - 1].order, R[i].order] = [R[i].order, R[i - 1].order];
+    if (e === 'down' && i < R.length - 1) [R[i + 1].order, R[i].order] = [R[i].order, R[i + 1].order];
+    if (e === 'delRoute') R.splice(i, 1);
+    if (e === 'delHost') { const n = edge.hosts[i].hostname; edge.hosts.splice(i, 1); R.forEach((r) => (r.hosts = r.hosts.filter((x) => x !== n))); }
+    if (e === 'addHost') { const n = el.querySelector('#edgeNewHost').value.trim(); if (!n) return; const star = edge.hosts.findIndex((x) => x.hostname === '*'); edge.hosts.splice(star === -1 ? edge.hosts.length : star, 0, { hostname: n, tls: /^\d|\*$/.test(n) ? { mode: 'internal' } : { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: !/^\d|\*$/.test(n) }); S.newHost = ''; }
+    if (e === 'addRoute') { const n = R.length + 1; R.forEach((r) => (r.order += 1)); R.unshift({ routeId: 'route-' + n, hosts: [], match: { pathPrefix: '/new-' + n, methods: null }, action: b.dataset.v === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: true, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false }, order: 1 }); }
+    R.sort((a, b) => a.order - b.order).forEach((r, k) => (r.order = k + 1));
+    changed();
+  };
+  el.onkeydown = (ev) => { if (ev.target.id === 'edgeUrl' && ev.key === 'Enter') { S.url = ev.target.value; draw(); } if (ev.target.id === 'edgeNewHost' && ev.key === 'Enter') el.querySelector('#edgeAddHost').click(); };
+  el.oninput = (ev) => { if (ev.target.id === 'edgeNewHost') S.newHost = ev.target.value; if (ev.target.id === 'edgeUrl') S.url = ev.target.value; };
+  el.onchange = (ev) => {
+    const t = ev.target; ev.stopPropagation();
+    if (t.dataset.nr) { S.notReady[t.dataset.nr] = t.checked; return draw(); }
+    if (t.id === 'edgeMethod') { S.method = t.value; return draw(); }
+    const f = t.dataset.f; if (!f) return;
+    const i = +t.dataset.i, val = t.type === 'checkbox' ? t.checked : t.value;
+    if (f === 'httpPort') edge.httpPort = +val;
+    if (f === 'httpsPort') edge.httpsPort = val === '' ? null : +val;
+    if (f.startsWith('h.')) {
+      const x = edge.hosts[i];
+      if (f === 'h.hostname') { const old = x.hostname; x.hostname = String(val).trim(); edge.routes.forEach((r) => (r.hosts = r.hosts.map((y) => (y === old ? x.hostname : y)))); }
+      if (f === 'h.redirect') x.redirectHttpToHttps = val;
+      if (f === 'h.tls.mode') x.tls = val === 'acme' ? { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null } : val === 'files' ? { mode: 'files', certFileSlug: 'tls-cert', keySecretSlug: 'tls-key' } : { mode: val };
+      if (f.startsWith('h.tls.') && f !== 'h.tls.mode') x.tls[f.slice(6)] = val || null;
+    }
+    if (f.startsWith('r.')) {
+      const r = edge.routes[i], a = r.action;
+      if (f === 'r.id') r.routeId = val.trim();
+      if (f === 'r.prefix') r.match.pathPrefix = val.trim();
+      if (f === 'r.hosts') r.hosts = val === 'all hosts' ? [] : [val];
+      if (f === 'r.type') r.action = val === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false };
+      if (f === 'r.svc') { a.containerSlug = val; a.portName = Object.keys(EDGE_PORTS[val] || {})[0] || ''; }
+      if (f === 'r.port') a.portName = val;
+      if (f === 'r.strip') a.stripPrefix = val;
+      if (f === 'r.addPrefix') a.addPrefix = val.trim() || null;
+      if (f === 'r.ws') a.websocket = val;
+      if (f === 'r.timeout') a.timeoutSec = +val;
+      if (f === 'r.headers') a.setHeaders = Object.fromEntries(String(val).split(';').map((p) => p.split('=').map((y) => y.trim())).filter((p) => p[0]).map(([k, ...rest]) => [k, rest.join('=')]));
+      if (f === 'r.to') a.to = val.trim();
+      if (f === 'r.status') a.status = +val;
+      if (f === 'r.keep') a.keepPath = val;
+    }
+    changed();
+  };
+  draw();
+  return { redraw: draw };
+}
+// ---------- end edge ----------
+</script>
+<script>
+const DEP = 'acme-plant';
+const SITES = { app: { host: '10.0.1.10', label: 'Application server' }, db: { host: '10.0.1.11', label: 'Database server' } };
+setInterval(() => document.querySelectorAll('[data-left]').forEach((e) => { e.textContent = Math.max(0, Math.ceil(((ST.reveal[e.dataset.left] || 0) - Date.now()) / 1000)) + ' s'; }), 1000);
+const ST = { reveal: {}, revLog: [], tun: { state: 'busy', other: { actor: 'meera@ops.example', since: '09:12', site: 'db' }, reqs: 0, bytes: 0, err: '—', rows: [], timer: null, confirm: false },
+  open: 'app', dbDown: false, fast: true, actor: null, actorAt: null, actorErr: '', session: null, loginErr: '', loginFails: 0, route: 'app', site: 'app',
+  head: 7, gate: { parent: true, reach: true, staged: true, idle: true }, sel: 'cloud-8',
+  phase: 'idle', count: 0, mode: 'update', failAt: '', stepIdx: -1, typed: '', timer: null,
+  varEdit: null, local: [], applied: [], failedIds: [], receiveSaved: {}, sent: [],
+};
+const AG_EDGE = { app: edgeSample('app'), db: edgeSample('db') };
+const AG_PORTS = { app: { agent: 7080, alias: 8080, err: '' }, db: { agent: 7080, alias: 8080, err: '' } };
+const CERTS = {};
+function agCert(s, x) {
+  const k = s + '|' + x.hostname;
+  if (!CERTS[k]) CERTS[k] = x.tls.mode === 'internal' ? { issuer: 'OPM local CA (acme-plant/' + s + ')', until: 'today 21:40 (12 h)', last: 'today 09:40', err: '' }
+    : x.tls.mode === 'files' ? { issuer: 'from file ' + x.tls.certFileSlug, until: '2027-03-01', last: '—', err: '' }
+    : x.hostname === 'plant.acme.com' ? { issuer: "Let's Encrypt R11", until: '2027-01-04', last: '2026-10-06 03:12', err: '' }
+    : { issuer: '—', until: '—', last: '—', err: 'acme: no internet on this site (http-01 needs it)' };
+  return CERTS[k];
+}
+const VARS = [
+  { s: 'company-name', type: 'string', v: 'ACME Corp' },
+  { s: 'api-workers', type: 'number', v: '4' },
+  { s: 'log-level', type: 'enum', v: 'info', opts: ['debug', 'info', 'warn'] },
+  { s: 'db-name', type: 'string', v: 'plant' },
+];
+const SECVAL = { 'db-password': 'q8Vt2mZr6LxW1nPc9KbY4sHd7JfE3aGu', 'session-key': 'Kp3vX9_rT2mQ8sLw4nZb6yHc1dJf7gUe0aPk5Ro', 'api-token': 'tok_5Hc8Lw2Qz9Rm' };
+const SECRETS = [
+  { s: 'db-password', set: true, gen: 'alnum · 32' },
+  { s: 'session-key', set: true, gen: 'base64url · 48' },
+  { s: 'smtp-password', set: false, gen: 'enter by hand' },
+];
+const FILES = [
+  { s: 'web-config', mime: 'application/json', ed: 'text', size: '0.2 KB', sha: 'sha256:41de…', loc: '/var/lib/opm/config/web.json (./config/web.json)' },
+  { s: 'tls-cert', mime: 'application/x-pem-file', ed: 'binary', size: '3.1 KB', sha: 'sha256:9a0c…', loc: 'auto · /var/lib/opm/files/tls-cert' },
+];
+const CONT = {
+  app: [
+    { c: 'web', svc: 'web', version: 'v3', kind: 'service', env: [['API_BASE', '/api']], ports: '80 (site only) · edge route /', state: 'running', health: 'healthy', cpu: 2, ram: 24, restarts: 0, depends: 'api' },
+    { c: 'api', svc: 'api', version: 'v2', kind: 'service', env: [['WORKERS', '{{ var.api-workers }}'], ['DATABASE_URL', 'postgres://app:{{ secret.db-password | url }}@{{ site.db.host }}:{{ site.db.port.postgres.sql }}/{{ var.db-name }}']], ports: '3000 (site only) · edge route /api', state: 'running', health: 'healthy', cpu: 11, ram: 210, restarts: 0, depends: 'redis' },
+    { c: 'redis', svc: 'redis', version: 'v1', kind: 'service', env: [], ports: '6379 (site only)', state: 'running', health: 'healthy', cpu: 1, ram: 18, restarts: 0, depends: '—' },
+    { c: 'migrate', svc: 'api', version: 'v2', kind: 'job', env: [['TASK', 'migrate']], ports: '—', state: 'exited (0)', health: 'completed', cpu: 0, ram: 0, restarts: 0, depends: 'api' },
+  ],
+  db: [
+    { c: 'postgres', svc: 'postgres', version: 'v1', kind: 'service', env: [['POSTGRES_DB', '{{ var.db-name }}'], ['POSTGRES_PASSWORD', 'secret: db-password']], ports: '5432 → 5432', state: 'running', health: 'healthy', cpu: 6, ram: 380, restarts: 0, depends: '—' },
+  ],
+};
+const PROPS = () => [
+  { id: 'cloud-8', seq: 8, origin: 'cloud', by: 'meera@ops.example', when: '09:12', changes: ['api.version: v2 → v3', 'migrate.version: v2 → v3', 'var api-workers: 4 → 6'], status: ST.applied.includes('cloud-8') ? 'applied' : (ST.failedIds.includes('cloud-8') ? 'failed-rolled-back' : 'ready'), staging: { app: 'ready', db: 'ready' } },
+  ...ST.local.map((l) => ({ ...l, status: ST.applied.includes(l.id) ? 'applied' : (ST.failedIds.includes(l.id) ? 'failed-rolled-back' : 'ready'), staging: { app: 'ready', db: 'ready' } })),
+];
+// declared site volumes (SiteConfig.volumes) + what GET /_opm/api/sites/{s}/volumes adds: size, last snapshot, orphans, host paths
+const AG_VOLS = {
+  app: [
+    { v: 'api-uploads', path: '/var/lib/opm/volumes/api-uploads', label: 'API uploads', backup: true, used: ['api → /srv/uploads', 'web → /srv/web/uploads (ro)'], size: '1.1 GB', last: '01JB7Z…K3 · today 09:40', declared: true },
+    { v: 'redis-aof', path: '/var/lib/opm/volumes/redis-aof', label: 'Redis AOF', backup: true, used: ['redis → /data'], size: '120 MB', last: '01JB7Z…K3 · today 09:40', declared: true },
+    { v: 'api-cache', path: '/var/lib/opm/cache/api (./cache/api)', label: 'API cache', backup: false, used: ['api → /cache'], size: '640 MB', last: null, declared: true },
+    { v: 'worker-data', path: '/var/lib/opm/volumes/worker-data', label: '', backup: false, used: [], size: '2.0 GB', last: '01JB2M…8F · 3 days ago', declared: false },
+  ],
+  db: [{ v: 'postgres-pgdata', path: '/var/lib/opm/volumes/postgres-pgdata', label: 'PostgreSQL data', backup: true, used: ['postgres → /var/lib/postgresql/data'], size: '6.4 GB', last: '01JB7Z…K3 · today 09:40', declared: true }],
+};
+const AG_HOSTPATHS = { app: [], db: [['postgres', '/backup', '/mnt/nas/pg-dumps']] };
+const SNAPS = [
+  { id: '01JB7Z…K3', when: 'today 09:40', reason: 'pre-update', seq: 7, size: '1.8 GB' },
+  { id: '01JB6R…2Q', when: 'yesterday 02:00', reason: 'scheduled', seq: 7, size: '1.7 GB' },
+  { id: '01JB2M…8F', when: '3 days ago', reason: 'manual', seq: 6, size: '1.6 GB' },
+];
+const RECENT = [
+  { email: 'ravi@acme.example', last: 'today 09:50' },
+  { email: 'meera@ops.example', last: 'yesterday 17:12' },
+  { email: 'kiran@acme.example', last: '3 days ago' },
+];
+const who = () => ST.actor || 'unknown';
+const DEMO_KEY = 'K7QF2M3XPL4D6WZTR3VB6HJN';
+function login(key) {
+  const k = (key || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  if (ST.loginFails >= 5) { ST.loginErr = '429 rate-limited: 5 failures in 5 min from this IP. Wait 5 min.'; render(); return; }
+  if (k !== DEMO_KEY) { ST.loginFails++; ST.loginErr = `401 invalid-key. Wrong access key (${ST.loginFails} of 5).`; ACTS.push([ST.open, 217 + ACTS.length, 'now', null, 'agent', 'login.failed', `Login failed on ${ST.open} (Chrome · 10.0.9.21)`]); render(); return; }
+  ST.loginFails = 0; ST.loginErr = '';
+  ST.session = { id: '01JBA0' + Math.random().toString(36).slice(2, 8).toUpperCase(), expiresAt: Date.now() + 6 * 3600e3 };
+  ACTS.push([ST.open, 217 + ACTS.length, 'now', null, 'agent', 'login.succeeded', `Login on ${ST.open} · session ${ST.session.id} · ends in 6 h (Chrome · 10.0.9.21)`]);
+  render();
+}
+function logout(reason) {
+  if (ST.session && reason !== 'expired') ACTS.push([ST.open, 217 + ACTS.length, 'now', ST.actor, 'agent', 'logout', `Logout on ${ST.open} · session ${ST.session.id}`]);
+  ST.session = null; ST.actor = null;
+  ST.loginErr = reason === 'expired' ? '401 session-expired: the session ended 6 h after login. Log in again.' : '';
+  render();
+}
+const left = () => { const m = Math.max(0, Math.round((ST.session.expiresAt - Date.now()) / 60000)); return `${Math.floor(m / 60)} h ${m % 60} m`; };
+function declare(email) {
+  const e = (email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { ST.actorErr = 'Type a valid email address.'; render(); return; }
+  ST.actor = e; ST.actorAt = new Date(); ST.actorErr = '';
+  const i = RECENT.findIndex((r) => r.email === e);
+  if (i >= 0) RECENT.splice(i, 1);
+  RECENT.unshift({ email: e, last: 'now' });
+  ACTS.push([ST.open, 217 + ACTS.length, 'now', e, 'agent', 'actor.declared', `Actor declared on ${ST.open} · session ${ST.session ? ST.session.id : '—'} (Chrome · 10.0.9.21)`]);
+  render();
+}
+const ACTS = [
+  ['app', 214, '09:41', 'meera@ops.example', 'cloud', 'proposal.created', 'Proposal seq 8 published'],
+  ['app', 215, '09:44', null, 'system', 'proposal.staged', 'Staging ready on app'],
+  ['db', 98, '09:44', null, 'system', 'proposal.staged', 'Staging ready on db'],
+  ['app', 216, '09:50', 'ravi@acme.example', 'agent', 'actor.declared', 'Actor declared on app (Chrome · 10.0.9.21)'],
+  ['db', 99, '09:52', null, 'system', 'snapshot.created', 'Scheduled snapshot'],
+];
+
+const SCREENS = [
+  { r: 'containers', g: 'Docker', n: 'Containers', path: (s) => `/_opm/app/${s}/containers`, shows: 'Live state, health, image, ports, CPU / memory sparklines; a row opens the container page /_opm/app/{site}/containers/{container} with the tabs Overview · Logs · Terminal · Monitoring · Inspect · Processes &amp; events · Config', acts: 'Restart / stop / start (confirm), open a container', who: 'The site (or all for *)' },
+  { r: 'volumes', g: 'Docker', n: 'Volumes', path: (s) => `/_opm/app/${s}/volumes`, shows: 'The volume manager: files, copies, history', acts: 'Snapshot, download, copy, restore, empty (60 s + name)', who: 'The site (or all for *)' },
+  { r: 'docker', g: 'Docker', n: 'Docker', path: (s) => `/_opm/app/${s}/docker`, shows: 'docker system df, images (in use / unused / protected)', acts: 'Prune unused images (type PRUNE)', who: 'The site (or all for *)' },
+  { one: true, r: 'network', g: 'Docker', n: 'Network', path: (s) => `/_opm/app/${s}/network`, shows: 'DNS / TCP / HTTP / ping checks from the host or a container; tab Edge access log', acts: 'Run a check', who: 'The site' },
+  { r: 'agent', g: 'Agent', n: 'Agent', path: (s) => `/_opm/app/${s}/agent`, shows: 'The agent itself: version + build, uptime, paths, ports, Docker, systemd + boot guard, enrollment (site key fingerprint), cloud link; installed vs latest + release notes; upgrade progress + history; agent.json (secrets masked); support bundle; uninstall lines; CLI map. * = one card per site', acts: 'Check release · Upgrade to X (typed site slug) · Upgrade all (typed UPGRADE) · Restart agent · Edit settings (agent.json safe settings) · Download support bundle', who: 'The site (forwarded over the mesh); Upgrade all = the opened agent coordinates, itself last' },
+  { r: 'debug', g: 'Agent', n: 'Debug', path: (s) => `/_opm/app/${s}/debug`, shows: 'The agent debug log', acts: 'Filter by level / module', who: 'The site (or all for *)' },
+  { one: true, r: 'transfers', g: 'Agent', n: 'Transfers', path: (s) => `/_opm/app/${s}/transfers`, shows: 'Left: files this site sends to the cloud (queued / uploading / stored). Right: files from the cloud (pending / downloading / on this site / saved / downloaded)', acts: 'Send → Browser (pick a local file) or Path (server filesystem picker); Save on server (path) or download', who: 'The site (store-and-forward both ways; nobody has to be on the other end)' },
+  { r: 'internet', g: 'Agent', n: 'Internet', path: (s) => `/_opm/app/${s}/internet`, shows: 'Browser internet tunnel for the deployment: free / in use by another tab / active here, live counters', acts: 'Give internet from this browser, Stop, Revoke the other tab', who: 'The opened agent holds the lease; all sites use it over the mesh' },
+  { r: 'app', g: 'Deployment', n: 'Sites', path: (s) => `/_opm/app/${s}/sites`, shows: 'All sites: online, mesh link matrix, head, staging', acts: 'Open a site screen', who: 'The opened agent (reads peers over the mesh)' },
+  { r: 'variables', g: 'Deployment', n: 'Variables', path: (s) => `/_opm/app/${s}/variables`, shows: 'Variable values (same on all sites)', acts: 'Edit → Create local proposal', who: 'Coordinator on apply (all sites)' },
+  { r: 'secrets', g: 'Deployment', n: 'Secrets', path: (s) => `/_opm/app/${s}/secrets`, shows: 'Secret names, set / not set, value masked (View: 60 s, logged)', acts: 'View (any time) · Set a new value → local proposal', who: 'Coordinator on apply (all sites)' },
+  { r: 'files', g: 'Deployment', n: 'Files', path: (s) => `/_opm/app/${s}/files`, shows: 'Deployment files, text editor for text files', acts: 'Edit / upload → local proposal', who: 'Coordinator on apply (all sites)' },
+  { r: 'updates', g: 'Deployment', n: 'Diff', path: (s) => `/_opm/app/${s}/diff`, shows: 'The proposal compared with the head (what runs now), staging per site, the gate, progress, history; Change the proposal = local edits', acts: 'Approve (60 s + type ACCEPT)', who: 'The approving agent = coordinator' },
+  { r: 'backups', g: 'Deployment', n: 'Backups', path: (s) => `/_opm/app/${s}/backups`, shows: 'Volumes per site (size, Back up on / off, used by, last snapshot, orphan folders, host paths "never backed up") and the snapshots of all sites', acts: 'Download, import, roll back (same gate)', who: 'Coordinator (all sites)' },
+  { r: 'status', g: 'Site', n: 'Status', path: (s) => `/_opm/app/${s}/status`, shows: 'Containers (image &lt;serviceSlug&gt;:&lt;version&gt;), host, uptime heatmaps, edge certificates (issuer, valid until, last renewal, last error), container logs', acts: 'Renew a certificate · Download local CA (logged)', who: 'The site (or all for *)' },
+  { r: 'activities', g: 'Site', n: 'Activities', path: (s) => `/_opm/app/${s}/activities`, shows: 'Activity log', acts: 'Filter, go to download', who: 'The site (or all for *)' },
+  { hide: true, r: 'download', g: 'Site', n: 'Activities · download', path: (s) => `/_opm/app/${s}/activities/download`, shows: 'Bundle options and manifest', acts: 'Download .opmlog', who: 'The site (or all for *)' },
+  { r: 'config', g: 'Site', n: 'Config', path: (s) => `/_opm/app/${s}/config` + (s === '*' ? '' : '/' + (ST.ctab || 'containers')), shows: 'The site part of the config; for one site the sections are tabs inside the page: Containers · Edge (hosts + TLS, routes, Test a URL) · Volumes (declared site volumes) · Settings (host, depends, agentPort, agentGuiAliasPort, notFoundPageId)', acts: 'Edit allowed fields (env, mount sources, volumes, edge, settings) → local proposal', who: 'Coordinator on apply' },
+];
+
+const staleOn = (s) => ST.dbDown && s === 'db';
+const sb = (s) => staleOn(s) ? ' <span class="stale-b">stale · last seen 12:04</span>' : '';
+const sitesFor = () => ST.site === '*' ? ['app', 'db'] : [ST.site];
+const sec = () => (ST.fast ? 100 : 1000);
+
+function gateOk() { return ST.gate.parent && ST.gate.reach && !ST.dbDown && ST.gate.staged && ST.gate.idle; }
+
+function navHtml() {
+  // nav2 (SPEC §21 #98): ONE site selector on top (part of every URL), four collapsible sections
+  let html = `<div class="grp">Site</div><select data-sitesel="all">${['*', 'app', 'db'].map((x) => `<option value="${x}" ${ST.site === x ? 'selected' : ''}>${x === '*' ? 'All sites (*)' : x}</option>`).join('')}</select>`;
+  ST.secs = ST.secs || {};
+  ['Docker', 'Agent', 'Deployment', 'Site'].forEach((g) => {
+    const items = SCREENS.filter((s) => s.g === g && !s.hide);
+    const open = ST.secs[g] ?? items.some((s) => s.r === ST.route);
+    html += `<button type="button" class="grp" data-sec="${g}" aria-expanded="${open}">${open ? '▾' : '▸'} ${g}</button>`;
+    if (open) items.forEach((s) => (html += `<button type="button" data-r="${s.r}" class="${ST.route === s.r ? 'on' : ''}">${s.n}</button>`));
+  });
+  return html;
+}
+
+function contRows(s) {
+  return CONT[s].map((c) => `<tr class="${staleOn(s) ? 'stale' : ''}"><td class="mono">${s}</td><td class="mono">${c.c}</td><td class="mono">${c.svc}:${c.version}</td><td>${c.kind}</td><td>${c.state}</td><td>${c.health}</td><td>${c.restarts}</td><td>${c.cpu}%</td><td>${c.ram} MB</td></tr>`).join('');
+}
+
+const R = {
+  app() {
+    const tile = (s) => `<div class="tile ${staleOn(s) ? 'stale' : ''}"><b class="mono">${s}</b> · ${SITES[s].label}${sb(s)}<div class="small">host <span class="mono">${SITES[s].host}</span> · ${staleOn(s) ? 'offline' : 'online'} · head seq ${ST.head}</div><div class="small">containers: ${CONT[s].length} · staging: ${staleOn(s) ? 'unknown' : 'ready (seq 8)'}</div><div class="small">cloud: ${s === 'app' ? 'direct' : (ST.dbDown ? '—' : 'relay via app')}</div></div>`;
+    const ok = !ST.dbDown;
+    return `<h3>Sites</h3><div class="sub">Deployment ${DEP} · 2 sites · same config on every site</div>
+      <div class="tiles">${tile('app')}${tile('db')}</div>
+      <h4 style="margin-top:14px">Mesh links</h4>
+      <table class="wt" style="max-width:420px"><tr><th></th><th>app</th><th>db</th><th>cloud</th></tr>
+        <tr><th>app</th><td>—</td><td>${ok ? '✓ 3 ms' : '✗'}</td><td>✓ direct</td></tr>
+        <tr><th>db</th><td>${ok ? '✓ 3 ms' : '✗'}</td><td>—</td><td>${ok ? 'relay via app' : '✗'}</td></tr></table>`;
+  },
+  variables() {
+    const rows = VARS.map((v, i) => `<tr><td class="mono">${v.s}</td><td>${v.type}</td><td>${v.opts ? `<select data-var="${i}">${v.opts.map((o) => `<option ${o === v.v ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<input data-var="${i}" value="${v.v}" />`}</td></tr>`).join('');
+    return `<h3>Variables</h3><div class="sub">Same values on every site. A change becomes a local proposal and needs the same approval on all sites.</div>
+      <table class="wt"><tr><th>variableSlug</th><th>type</th><th>value</th></tr>${rows}</table>${localBtn('variables')}`;
+  },
+  secrets() {
+    return `<h3>Secrets</h3><div class="sub">Values are stored like variables (plain, prototype). The GUI shows ••• (RevealValue). <b>View</b> shows the value for 60 s with a countdown, then masks it again; you can View again any time, and every view writes the activity <span class="mono">secret.revealed</span>. There is no Regenerate here: a new value goes through a local proposal. When a site gets secret values (proposal download, peer copy), the activity <span class="mono">secret.fetched</span> is written.</div>
+      <table class="wt"><tr><th>secretSlug</th><th>state</th><th>value</th><th>generate</th><th>new value</th></tr>${SECRETS.map((s, i) => `<tr><td class="mono">${s.s}</td><td>${s.set ? '<span class="tag ok">set</span>' : '<span class="tag warn">not set</span>'}</td><td>${!s.set ? '<span class="muted">—</span>' : (ST.reveal[s.s] || 0) > Date.now() ? `<span class="mono">${SECVAL[s.s] || 'value'}</span> <span class="tag warn" data-left="${s.s}">${Math.ceil(((ST.reveal[s.s] || 0) - Date.now()) / 1000)} s</span> <button class="wbtn" type="button" data-copy="${s.s}">Copy</button>` : `<span class="mono">•••</span> <span class="small muted">${(SECVAL[s.s] || '').length} chars</span> <button class="wbtn" type="button" data-reveal="${s.s}" title="Show for 60 s (logged)">&#128065; View</button>`}</td><td class="small">${s.gen}</td><td><input type="password" data-sec="${i}" placeholder="type a new value" /></td></tr>`).join('')}</table>${ST.revLog.length ? `<div class="box" style="margin-top:8px"><h5 style="margin-top:0">New activities</h5>${ST.revLog.map((x) => `<div class="small mono">${x}</div>`).join('')}</div>` : ''}${localBtn('secrets')}`;
+  },
+  files() {
+    return `<h3>Files</h3><div class="sub">Deployment files. Text files open in the editor; binary files upload or download.</div>
+      <div class="small muted">One copy per site; every container that mounts a file shares it read-only. The location is set in the cloud.</div><table class="wt"><tr><th>fileSlug</th><th>mime</th><th>editor</th><th>size</th><th>content</th><th>on the server</th><th></th></tr>${FILES.map((f) => `<tr><td class="mono">${f.s}</td><td class="small">${f.mime}</td><td>${f.ed}</td><td>${f.size}</td><td class="mono small">${f.sha}</td><td class="mono small">${f.loc}</td><td>${f.ed === 'text' ? '<button class="wbtn" type="button" data-edit="1">Edit</button>' : '<button class="wbtn" type="button">Upload</button>'}</td></tr>`).join('')}</table>
+      ${ST.fileOpen ? `<div class="logbox" contenteditable="true" id="fileEd">{\n  "title": "ACME plant",\n  "apiBase": "/api",\n  "uploadLimitMb": 20\n}</div>${localBtn('files')}` : ''}`;
+  },
+  sites() {
+    const site = (s) => `<h4 class="mono">${s}${sb(s)}</h4><table class="wt"><tr><th>container</th><th>image</th><th>env (first)</th><th>restart</th><th></th></tr>
+      ${CONT[s].map((c, i) => `<tr><td class="mono">${c.c}</td><td><span class="mono">${c.svc}:</span><select disabled title="Changing an image version is a cloud change"><option>${c.version}</option></select><div class="reason">service + version: cloud only</div></td><td>${c.env[0] ? `<input data-envedit="${s}.${i}" value="${c.env[0][1].replace(/"/g, '&quot;')}" />` : '<span class="muted">—</span>'}</td><td><select data-envedit="${s}.${i}.r"><option>always</option><option>on-failure</option><option>never</option></select></td><td><button class="wbtn" disabled title="Removing a container is a cloud change">Remove</button></td></tr>`).join('')}</table>
+      <div class="row"><button class="wbtn" disabled title="Adding a container is a cloud change">+ Add container</button><span class="reason">Add / remove / duplicate / rename a container, change its service or version, add / remove a site: only from the cloud. One service may run as several containers (here <b>api</b> and the job <b>migrate</b>).</span></div><div class="small muted">Volumes: ${AG_VOLS[s].filter((v) => v.declared).map((v) => `<span class="mono">${v.v}</span> (${v.backup ? 'back up' : 'no backup'})`).join(' · ')}</div>`;
+    return `<h3>Sites config</h3><div class="sub">Every site of the deployment. Same document on all sites.</div>${site('app')}${site('db')}${localBtn('sites')}`;
+  },
+  updates() {
+    const ps = PROPS();
+    const p = ps.find((x) => x.id === ST.sel) || ps[0];
+    const list = `<table class="wt"><tr><th>seq</th><th>origin</th><th>by</th><th>changes</th><th>status</th></tr>${ps.map((x) => `<tr style="cursor:pointer" data-sel="${x.id}" class="${x.id === p.id ? 'sel' : ''}"><td>${x.seq}</td><td><span class="tag ${x.origin === 'cloud' ? 'app' : 'agent'}">${x.origin}</span></td><td class="small">${x.by}</td><td class="small">${x.changes.length} change(s)</td><td><span class="tag ${x.status === 'applied' ? 'ok' : x.status.startsWith('failed') ? 'bad' : ''}">${x.status}</span></td></tr>`).join('')}</table>`;
+    const stage = ['app', 'db'].map((s) => `<tr class="${staleOn(s) ? 'stale' : ''}"><td class="mono">${s}${sb(s)}</td><td>${staleOn(s) ? 'unknown' : (ST.gate.staged ? '<span class="tag ok">ready</span>' : '<span class="tag">downloading</span>')}</td><td>${ST.gate.staged ? '14 / 14 layers · 2 / 2 files · dry run ok' : '9 / 14 layers'}</td></tr>`).join('');
+    const g = [['parent', `Proposal parent = head (seq ${ST.head}) on every site`], ['reach', 'Every site (current + proposed) is reachable now'], ['staged', 'Staging is ready on every site'], ['idle', 'No other update is running']];
+    const reachNow = ST.gate.reach && !ST.dbDown;
+    const gateList = g.map(([k, t]) => { const ok = k === 'reach' ? reachNow : ST.gate[k]; return `<li>${ok ? '✅' : '❌'} ${t} <label class="small muted"><input type="checkbox" data-gate="${k}" ${ST.gate[k] ? 'checked' : ''} ${k === 'reach' && ST.dbDown ? 'disabled' : ''}/> demo</label></li>`; }).join('');
+    const applied = p.status === 'applied';
+    return `<h3>Diff</h3><div class="sub">One button: Approve. There is no schedule and no deny. A newer proposal replaces an old one.</div>${list}
+      <h4>Proposal seq ${p.seq} · ${p.origin} · ${p.by}</h4><div class="diff">${p.changes.map((c) => `<div class="add">+ ${c}</div>`).join('')}</div>
+      <h4>Staging per site</h4><table class="wt"><tr><th>site</th><th>staging</th><th>detail</th></tr>${stage}</table>
+      <h4>Gate</h4><ul class="gate">${gateList}</ul>
+      ${applied && ST.phase === 'idle' ? '<div class="ban ok">This proposal is applied. It is the head now.</div>' : flowHtml()}`;
+  },
+  backups() {
+    const vt = (s) => `<h4 class="mono">${s}${sb(s)} · volumes <span class="small muted">agent home /var/lib/opm</span></h4><table class="wt"><tr><th>volume</th><th>label</th><th>on the server</th><th>size on disk</th><th>back up</th><th>used by</th><th>last snapshot</th></tr>${AG_VOLS[s].map((v) => `<tr class="${v.declared ? '' : 'stale'}"><td class="mono">${v.v}</td><td>${v.declared ? (v.label || '<span class="mono muted">' + v.v + '</span>') : '<span class="small">not declared — kept on disk, never backed up</span>'}</td><td class="mono small">${v.path}</td><td>${v.size}</td><td>${v.declared ? (v.backup ? '<span class="tag ok">on</span>' : '<span class="tag">off</span>') : '—'}</td><td class="small">${v.used.join('<br>') || '—'}</td><td class="small">${v.last || 'never'}</td></tr>`).join('')}${AG_HOSTPATHS[s].map((h) => `<tr><td class="small">host path</td><td class="small">${h[0]} → ${h[1]}</td><td class="mono small">${h[2]}</td><td>—</td><td><span class="tag warn">never backed up</span></td><td class="small">${h[0]}</td><td>—</td></tr>`).join('')}</table>`;
+    return `<h3>Backups</h3><div class="sub">Snapshots of all sites: config + exact image digests + the declared site volumes with Back up on. Change Back up under Config › Volumes (local proposal) or in the cloud.</div>
+      ${vt('app')}${vt('db')}<div class="small muted">From <span class="mono">GET /_opm/api/sites/{siteSlug}/volumes</span>. Host paths, files, secrets and back-up-off volumes are never archived.</div><h4>Snapshots</h4>
+      <div class="row"><button class="wbtn" type="button" data-snap="new">Take a snapshot now</button><label class="wbtn" style="cursor:pointer">Import .opmsnap <input type="file" style="display:none" data-import="1" /></label></div>
+      <table class="wt"><tr><th>snapshotId</th><th>when</th><th>reason</th><th>head seq</th><th>size (all sites)</th><th></th></tr>
+      ${SNAPS.map((s) => `<tr><td class="mono">${s.id}</td><td>${s.when}</td><td><span class="tag">${s.reason}</span></td><td>${s.seq}</td><td>${s.size}</td><td><button class="wbtn" type="button">Download</button> <button class="wbtn" type="button" data-rb="${s.id}">Roll back</button></td></tr>`).join('')}</table>
+      ${ST.mode === 'rollback' && ST.rbTarget ? `<h4>Roll back to ${ST.rbTarget}</h4><div class="small">Volumes restored (by volumeSlug, into their location — default <span class="mono">&lt;agentHome&gt;/volumes/&lt;volumeSlug&gt;/</span> — whatever container mounts them now): <span class="mono">app/api-uploads</span> 1.1 GB · <span class="mono">app/redis-aof</span> 120 MB · <span class="mono">db/postgres-pgdata</span> 6.4 GB. Kept as they are: <span class="mono">app/api-cache</span> (back up off).</div><div class="ban warn">Data written after this snapshot is lost on the restored volumes.</div><ul class="gate"><li>${gateOk() ? '✅' : '❌'} All sites reachable, no update running (same gate as Diff)</li></ul>${flowHtml()}` : ''}`;
+  },
+  status() {
+    const hm = (seed) => Array.from({ length: 48 }, (_, i) => `<i class="${(i * seed) % 37 === 5 ? 'd' : ''}"></i>`).join('');
+    return `<h3>Status · ${ST.site}</h3><div class="sub">Containers, host, uptime.</div>
+      <table class="wt"><tr><th>site</th><th>container</th><th>image</th><th>kind</th><th>state</th><th>health</th><th>restarts</th><th>CPU</th><th>RAM</th></tr>${sitesFor().map(contRows).join('')}</table>
+      ${sitesFor().map((s) => `<div class="small"><b class="mono">${s}</b>${sb(s)} · host CPU ${s === 'app' ? 18 : 9}% · RAM ${s === 'app' ? '3.1 / 8' : '2.2 / 16'} GB · disk ${s === 'app' ? '41' : '63'}% <div class="small muted">last 24 h (30-min groups of 30 s samples)</div><div class="hm">${hm(s === 'app' ? 3 : 7)}</div></div>`).join('')}
+      <h4>Certificates (edge)</h4><table class="wt"><tr><th>site</th><th>host</th><th>TLS</th><th>issuer</th><th>valid until</th><th>last renewal</th><th>last error</th><th></th></tr>${sitesFor().flatMap((s) => AG_EDGE[s].hosts.filter((x) => x.tls.mode !== 'none').map((x) => { const c = agCert(s, x); return `<tr><td class="mono">${s}</td><td class="mono">${x.hostname}</td><td>${x.tls.mode}${x.tls.challenge ? ' · ' + x.tls.challenge : ''}</td><td>${c.issuer}</td><td>${c.until}</td><td>${c.last}</td><td class="small" style="color:${c.err ? 'var(--bad)' : 'inherit'}">${c.err || '—'}</td><td><button class="wbtn" type="button" data-renew="${s}|${x.hostname}">Renew</button>${x.tls.mode === 'internal' ? ` <button class="wbtn" type="button" data-localca="${s}">Download local CA</button>` : ''}</td></tr>`; })).join('')}</table>
+      ${ST.certLog && ST.certLog.length ? `<div class="logbox">${ST.certLog.join('\n')}</div>` : ''}<div class="small muted">Download local CA = <span class="mono">GET /_opm/api/certs/local-ca.crt</span>. Install it once on client devices that open hosts in internal mode.</div>
+      <h4>Container logs</h4><div class="row"><select>${sitesFor().flatMap((s) => CONT[s].map((c) => `<option>${s} / ${c.c}</option>`)).join('')}</select><input placeholder="search" style="font:inherit;padding:3px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)" /></div>
+      <div class="logbox">09:44:01 api  listening on :3000\n09:44:02 api  connected to postgres at 10.0.1.11:5432\n09:44:10 web  GET /api/orders 200 12ms</div>`;
+  },
+  activities() {
+    const rows = ACTS.filter((a) => ST.site === '*' || a[0] === ST.site);
+    return `<h3>Activities · ${ST.site}</h3><div class="sub">Append-only log with a hash chain. The upload pipe sends it to the cloud.</div>
+      <div class="row"><button class="wbtn" type="button" data-r="download">Download bundle…</button></div>
+      <table class="wt"><tr><th>site</th><th>seq</th><th>time</th><th>actor</th><th>origin</th><th>type</th><th>summary</th></tr>${rows.map((a) => `<tr class="${staleOn(a[0]) ? 'stale' : ''}"><td class="mono">${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td><td class="small">${a[3] || '—'}</td><td>${a[4]}</td><td class="mono small">${a[5]}</td><td>${a[6]}</td></tr>`).join('')}</table>`;
+  },
+  download() {
+    return `<h3>Download activities · ${ST.site}</h3><div class="sub">A signed .opmlog file. Send it to the operations team; they upload it in the cloud (upsert, existing records are skipped).</div>
+      <div class="row"><label>from <input type="date" value="2026-09-07" /></label><label>to <input type="date" value="2026-10-07" /></label><label><input type="checkbox" /> include debug log</label></div>
+      <div class="diff">manifest.json\n{ "deploymentId": "${DEP}", "sites": ${JSON.stringify(sitesFor())}, "seq": ${JSON.stringify(Object.fromEntries(sitesFor().map((s) => [s, s === 'app' ? [1, 216] : [1, 99]])))}, "signedBy": ${JSON.stringify(sitesFor())} }</div>
+      <div class="row"><button class="wbtn pri" type="button">Download acme-plant-${ST.site === '*' ? 'all' : ST.site}.opmlog</button></div>`;
+  },
+  agent() {
+    const AG = ST.ag || (ST.ag = { phase: null, ver: { app: '0.10.0', db: '0.10.0' } });
+    const latest = '0.10.1';
+    if (ST.site === '*') {
+      return `<h3>Agent · *</h3><div class="sub">One card per site. Open a site for the details.</div>${['app', 'db'].map((s) => `<div class="tile ${staleOn(s) ? 'stale' : ''}"><b class="mono">${s}</b>${sb(s)}<div class="small">agent <span class="mono">${AG.ver[s]}</span> · latest <span class="mono">${latest}</span> · ${AG.ver[s] === latest ? 'up to date' : '<b style="color:var(--warn)">upgrade available</b>'} · systemd active · boot guard installed · up 3 d 4 h</div></div>`).join('')}
+        <div class="row"><button class="wbtn pri" type="button" onclick="agUpAll()">Upgrade all (${['app', 'db'].filter((s) => AG.ver[s] !== latest).length})</button><span class="small muted">One site at a time, this site (${ST.open}) last; stops on the first failure. Agents below 0.10.0 are skipped: rerun their install command once.</span></div>`;
+    }
+    const s = ST.site, v = AG.ver[s];
+    const steps = ['download', 'verify', 'swap', 'restart', 'health'];
+    const idx = AG.phase ? steps.indexOf(AG.phase) : -1;
+    const prog = AG.phase ? `<div class="row">${steps.map((p, i) => `<span class="wbtn ${i < idx || AG.phase === 'done' ? 'ok' : i === idx ? 'pri' : ''}">${p}</span>`).join(' → ')}</div>
+      <div class="small">${AG.phase === 'done' ? `<b style="color:var(--ok)">Upgraded to ${latest}</b> · the page reconnected on the same session · activity agent.upgraded` : AG.phase === 'restart' || AG.phase === 'health' ? 'Agent restarting… polling /_opm/api/info every 2 s (containers keep running). Not healthy within 60 s → opm-agent.prev comes back by itself.' : AG.phase === 'download' ? 'Downloading 14.2 / 21.6 MB (signed site identity, resumable)' : 'Signature ok (key from agent.json · SHA256:q3Vb…) · sha256 match · self-test ok'}</div>` : '';
+    return `<h3>Agent · ${s}</h3><div class="sub">Everything <span class="mono">opm-agent</span> does on the command line, in the GUI. keygen / enroll / install stay on the command line.</div>
+      <table class="wt"><tr><th>version</th><td class="mono">${v} · go1.24 · linux/amd64 · commit 48fbd78</td></tr><tr><th>process</th><td>pid 812 · up 3 d 4 h · <span class="mono">/usr/local/bin/opm-agent</span> · prev <span class="mono">opm-agent.prev</span> (0.9.0)</td></tr>
+      <tr><th>paths</th><td class="mono">/etc/opm/agent.json · /var/lib/opm</td></tr><tr><th>systemd</th><td>opm-agent.service active (running) · boot guard installed</td></tr>
+      <tr><th>enrollment</th><td>enrolled 2026-09-30 · site key <span class="mono">SHA256:Zt8w…</span></td></tr><tr><th>cloud</th><td>direct · last fetch 09:44:10 · last heartbeat 09:44:02</td></tr></table>
+      <div class="tile"><b>Release</b> · installed <span class="mono">${v}</span> · latest <span class="mono">${latest}</span> ${v === latest ? '· up to date' : '· <b style="color:var(--warn)">upgrade available</b>'}<div class="small muted">Notes: health-check fixes; Agent page.</div>
+        <div class="row"><button class="wbtn" type="button" onclick="agCheck()">Check release</button><button class="wbtn pri" type="button" ${v === latest || (AG.phase && AG.phase !== 'done') ? 'disabled' : ''} onclick="agUpgrade('${s}')">Upgrade to ${latest}</button><button class="wbtn" type="button">Restart agent</button></div>${AG.check ? '<div class="small">✓ signature ok · key source agent.json · sha256 known · no download</div>' : ''}${prog}</div>
+      <div class="tile"><b>Health</b> <span class="small muted">GET /_opm/api/health</span><div class="small"><b style="color:var(--ok)">ok</b> · schema 1 · cloud connected (direct, 2 s ago) · Docker ok · socket activation on (80, 7080, 8080)</div></div>
+      <div class="tile small"><b>Hard fallback</b> · If an upgrade from here or the cloud cannot run, or you need a downgrade, rerun this site's install command on the server. It asks UPGRADE / DOWNGRADE / SAME, keeps the setup, backs up the database and rolls back by itself.</div>
+      <div class="tile"><b>agent.json</b> <span class="small muted">secrets masked</span><div class="logbox">{\n  "apiBase": "https://api.opm.example",\n  "deploymentId": "${DEP}",\n  "siteSlug": "${s}",\n  "agentPort": 7080,\n  "guiAliasPort": 8080,\n  "releasePublicKey": "MCowBQYDK2VwAyEA…",\n  "edgeHttpPort": 80,\n  "containerNames": "plain",\n  "tools": { "hostShell": true, "containerExec": true }\n}</div><div class="row"><button class="wbtn" type="button">Edit settings</button><span class="small muted">host shell · container exec · container names · default edge port · GUI alias port</span></div></div>
+      <div class="tile"><b>Support bundle</b> <span class="small muted">version, agent.json (masked), debug log 24 h, Docker info, containers, last 500 activities, status, upgrade history — no secrets, keys, transcripts or volumes</span><div class="row"><button class="wbtn" type="button">Download support bundle</button></div></div>
+      <div class="tile"><b>Uninstall</b> <span class="small muted">runs on the server, never from here</span><div class="logbox">sudo systemctl disable --now opm-agent\nsudo rm -f /etc/systemd/system/opm-agent.service\nsudo rm -rf /etc/systemd/system/opm-agent.service.d\nsudo systemctl daemon-reload\nsudo rm -f /usr/local/bin/opm-agent /usr/local/bin/opm-agent.prev /usr/local/bin/opm-agent.new\nsudo rm -f /usr/local/lib/opm/upgrade-guard.sh</div></div>`;
+  },
+  debug() {
+    return `<h3>Debug · ${ST.site}</h3><div class="sub">The agent's own log (JSON lines). Kept 7 days / 200 MB.</div>
+      <div class="row"><select><option>all levels</option><option>warn+</option><option>error</option></select><select><option>all modules</option><option>stager</option><option>mesh</option><option>cloud</option><option>coordinator</option></select></div>
+      <div class="logbox">${sitesFor().map((s) => `{"ts":"09:44:00","site":"${s}","level":"info","module":"stager","msg":"staging ready","revSeq":8}\n{"ts":"09:44:10","site":"${s}","level":"debug","module":"mesh","msg":"ping","peer":"${s === 'app' ? 'db' : 'app'}","rttMs":3}`).join('\n')}</div>`;
+  },
+  config() {
+    if (ST.site === '*') return `<h3>Config · *</h3><div class="sub">Pick one site in the sidebar to edit. Summary of all sites:</div><table class="wt"><tr><th>site</th><th>host</th><th>containers</th><th>depends</th><th>edge</th><th>GUI ports</th></tr><tr><td class="mono">app</td><td>10.0.1.10</td><td>web, api, redis, migrate</td><td>db</td><td>:80 :443 · ${AG_EDGE.app.hosts.length} hosts · ${AG_EDGE.app.routes.length} routes</td><td>7080 · ${AG_PORTS.app.alias ?? 'off'}</td></tr><tr class="${staleOn('db') ? 'stale' : ''}"><td class="mono">db${sb('db')}</td><td>10.0.1.11</td><td>postgres</td><td>—</td><td>:80 :443 · ${AG_EDGE.db.hosts.length} hosts · ${AG_EDGE.db.routes.length} routes (not-found page)</td><td>7080 · ${AG_PORTS.db.alias ?? 'off'}</td></tr></table>`;
+    const s = ST.site, t = ST.ctab || 'containers';
+    const tabs = `<div class="crumb">${s} › Config › <b>${{ containers: 'Containers', edge: 'Edge', volumes: 'Volumes', settings: 'Settings' }[t]}</b></div>`;
+    const vols = AG_VOLS[s].filter((v) => v.declared);
+    const body = t === 'volumes' ? `<div class="small muted">Volumes are folders on the site server (auto: <span class="mono">&lt;agentHome&gt;/volumes/&lt;name&gt;</span>, or a custom <span class="mono">./…</span> / absolute location; agent home here: <span class="mono">/var/lib/opm</span>). Back up = included in snapshots. Host paths are never backed up.</div><table class="wt"><tr><th>name</th><th>label</th><th>on the server</th><th>back up</th><th>used by</th><th></th></tr>${vols.map((v) => `<tr><td class="mono">${v.v}</td><td><input value="${v.label}" /></td><td class="mono small">${v.path}</td><td><input type="checkbox" ${v.backup ? 'checked' : ''} /></td><td class="small">${v.used.map((u) => u.split(' →')[0]).join(', ') || '—'}</td><td><button class="wbtn" type="button">Edit</button> <button class="wbtn" type="button" ${v.used.length ? 'disabled title="Used by ' + v.used.map((u) => u.split(' →')[0]).join(', ') + ': pick another source first"' : ''}>Delete</button></td></tr>`).join('')}</table><div class="row"><button class="wbtn" type="button">+ Add volume</button><span class="reason">Adding, editing and removing site volumes is allowed locally (a local proposal). A used volume cannot be removed.</span></div>`
+      : t === 'containers' ? `<table class="wt"><tr><th>container</th><th>image</th><th>env</th><th>ports</th><th>depends</th></tr>${CONT[s].map((c) => `<tr><td class="mono">${c.c}</td><td><span class="mono">${c.svc}:</span><select disabled title="Image versions change only from the cloud"><option>${c.version}</option></select></td><td class="small mono">${c.env.map((e) => `${e[0]}=<input value="${e[1].replace(/"/g, '&quot;')}" />`).join('<br>') || '—'}</td><td>${c.ports}</td><td>${c.depends}</td></tr>`).join('')}</table><div class="small muted">Add / remove a container and change a version: only from the cloud. Host ports 80 / 443 belong to the edge.</div>`
+      : t === 'edge' ? `<div class="sub">Edge of site <b>${s}</b> · embedded Caddy in this agent · reload without dropped connections</div><div id="agEdge"></div>`
+      : `<table class="wt"><tr><th>item</th><th>value</th><th></th></tr><tr><td>agentPort</td><td><input id="agAgentPort" value="${AG_PORTS[s].agent}" style="width:70px" /></td><td class="small muted">mesh <span class="mono">/_opm/peer/</span> + fallback GUI (way 3)</td></tr><tr><td>agentGuiAliasPort</td><td><input id="agAliasPort" value="${AG_PORTS[s].alias ?? ''}" placeholder="off" style="width:70px" /></td><td class="small muted">GUI only, from the agent itself, not Caddy (way 2). 1024–65535, ≠ agentPort, edge ports, container hostPorts. Empty = off.</td></tr><tr><td>edge ports</td><td class="mono">${AG_EDGE[s].httpPort} / ${AG_EDGE[s].httpsPort ?? 'off'}</td><td class="small muted">GUI way 1: <span class="mono">/_opm/</span> on every edge host. Change on the Edge page.</td></tr><tr><td>notFoundPageId</td><td><select><option>nf-basic · Plain 404</option><option>nf-acme · ACME branded</option></select></td><td class="small muted">edge: no route → 404, target not ready → 503</td></tr></table><div class="small" id="agPortErr" style="color:var(--bad)">${AG_PORTS[s].err || ''}</div>`;
+    return `${tabs}<h3>Config · ${s}</h3><div class="sub">host ${SITES[s].host} · depends: ${s === 'app' ? 'db' : '—'} · notFoundPageId: nf-basic</div>${body}${localBtn('config · ' + t)}`;
+  },
+  internet() {
+    const T = ST.tun;
+    const cnt = `<div class="row"><span class="tag">requests: <b>${T.reqs}</b></span><span class="tag">bytes: <b>${(T.bytes / 1024).toFixed(1)} KB</b></span><span class="tag">last error: ${T.err}</span></div>`;
+    let body = '';
+    if (T.state === 'busy') body = `<div class="ban warn"><b>In use by another tab.</b> ${T.other.actor} gives internet from a browser on site <b>${T.other.site}</b> since ${T.other.since}. Only one tab per deployment can do this.</div>
+      ${T.confirm ? `<div class="dlg"><b>Revoke the other tab?</b><p class="small">The other tab stops at once. Its person sees "revoked by ${ST.actor || 'you'}". This is logged.</p><button class="wbtn warn" type="button" data-tun="revoke-yes">Revoke</button> <button class="wbtn" type="button" data-tun="revoke-no">Cancel</button></div>` : `<button class="wbtn warn" type="button" data-tun="revoke" id="tunRevoke">Revoke the other tab</button> <span class="small muted">or leave this page</span>`}`;
+    if (T.state === 'free') body = `<div class="ban info"><b>Free.</b> No browser gives internet now. Sites without internet wait for a peer with internet, or for you.</div><button class="wbtn pri" type="button" data-tun="start" id="tunStart">Give internet from this browser</button>`;
+    if (T.state === 'active') body = `<div class="ban ok"><b>Active in this tab</b> · lease 01JB9T…Q2 · actor ${ST.actor || '—'}. Keep this tab open. If you close it, the tunnel stops after 30 s.</div>${cnt}
+      <table class="wt"><tr><th>reqId</th><th>request</th><th>step</th></tr>${T.rows.slice(0, 6).map((r) => `<tr><td class="mono">${r.id}</td><td class="mono small">${r.what}</td><td><span class="tag ${r.step === 'response → agent' ? 'ok' : ''}">${r.step}</span></td></tr>`).join('') || '<tr><td colspan="3" class="muted">waiting for requests…</td></tr>'}</table>
+      <button class="wbtn" type="button" data-tun="stop" id="tunStop">Stop</button>`;
+    return `<h3>Internet (browser tunnel)</h3><div class="sub">Route order for cloud traffic: own internet → a peer site → this browser. Requests are signed by the site; the browser only carries them.</div>${body}
+      <p class="small muted">Payloads (also proposals with secret values) pass through this tab. The tab is same-origin with the agent GUI only. Every secret fetch is still logged as <span class="mono">secret.fetched</span>. End-to-end encryption is a later item.</p>`;
+  },
+  transfers() {
+    const s = ST.site === '*' ? 'app' : ST.site;
+    const rows = [['t1', 'license-2027.key', '2 KB'], ['t2', 'plant-layout.svg', '340 KB']];
+    return `<h3>Transfers · ${s}</h3><div class="sub">Left = Send (this site → cloud), right = Receive (cloud → this site). Both are store-and-forward: the agent queues and retries until the other side has the file; nobody has to be on the other end. Max 2 GiB.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+      <div><h4>Send · ${s} → cloud</h4>
+      <div class="row"><input id="sendPath" value="/var/log/app/export-2026-10.csv" style="font:inherit;font-family:var(--mono);padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);min-width:200px" /><button class="wbtn pri" type="button" data-send="path">Send · Path</button><label class="wbtn" style="cursor:pointer">Send · Browser <input type="file" style="display:none" data-sendfile="1" /></label></div>
+      <p class="small muted">In the real GUI one <b>Send</b> button asks "Browser" or "Path"; Path opens a picker of the server's whole filesystem.</p>
+      <table class="wt"><tr><th>file</th><th>size</th><th>state</th></tr>${ST.sent.map((f) => `<tr><td class="mono">${f}</td><td>12 MB</td><td><span class="tag">queued</span></td></tr>`).join('')}<tr><td class="mono">diag-2026-10-01.tar.gz</td><td>48 MB</td><td><span class="tag ok">stored in the cloud</span></td></tr></table></div>
+      <div><h4>Receive · cloud → ${s}</h4>
+      <table class="wt"><tr><th>file</th><th>size</th><th>state</th><th></th></tr>${rows.map(([id, n, sz]) => `<tr><td class="mono">${n}</td><td>${sz}</td><td>${ST.receiveSaved[id] ? `<span class="tag ok">saved on server</span><div class="mono small">${ST.receiveSaved[id]}</div>` : '<span class="tag ok">on this site</span>'}</td><td><input data-rpath="${id}" value="/opt/acme/${n}" style="font:inherit;font-family:var(--mono);font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);width:150px" /> <button class="wbtn" type="button" data-save="${id}">Save on server</button></td></tr>`).join('')}</table></div>
+      </div>`;
+  },
+};
+
+function localBtn(where) {
+  return `<div class="row"><button class="wbtn pri" type="button" data-local="${where}">Create local proposal</button><span class="reason">It goes to Diff and needs the same approval on all sites.</span></div>`;
+}
+
+const STEPS = ['lock', 'snapshot', 'apply', 'verify', 'commit'];
+function flowHtml() {
+  const label = ST.mode === 'rollback' ? 'Roll back' : 'Approve';
+  if (ST.phase === 'idle') {
+    return `<div class="row"><label class="small"><input type="checkbox" id="failChk" ${ST.failAt ? 'checked' : ''}/> simulate a failure in VERIFY</label></div>
+      ${gateOk() ? `<button class="wbtn ok" type="button" data-approve="1">${label}</button>` : `<div class="ban warn">The ${label} button is hidden: a gate condition is false.</div>`}`;
+  }
+  if (ST.phase === 'count') return `<div class="ban info">Wait ${ST.count} s. Read the changes again. <button class="wbtn" type="button" data-cancel="1">Cancel</button></div>`;
+  if (ST.phase === 'type') return `<div class="dlg"><b>Type ACCEPT to ${ST.mode === 'rollback' ? 'roll back' : 'apply'} on all sites</b><p class="small">A snapshot is taken first. Any failure rolls back every site. Actor: <b class="mono">${who()}</b> (declared, written in the activity log).</p><input id="acc" value="${ST.typed}" placeholder="ACCEPT" style="font:inherit;font-family:var(--mono);padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)" /> <button class="wbtn ok" type="button" data-go="1" ${ST.typed === 'ACCEPT' ? '' : 'disabled'}>Start</button> <button class="wbtn" type="button" data-cancel="1">Cancel</button></div>`;
+  const pills = STEPS.map((s, i) => `<span class="${ST.phase === 'failed' && i === STEPS.indexOf('verify') ? 'fail' : i < ST.stepIdx || ST.phase === 'done' ? 'done' : i === ST.stepIdx ? 'run' : ''}">${i + 1} · ${s.toUpperCase()}</span>`).join('');
+  if (ST.phase === 'run') return `<div class="steps2">${pills}</div><div class="small muted">Coordinator: ${ST.open}. Every step is an activity.</div>`;
+  if (ST.phase === 'rollback') return `<div class="steps2">${pills}</div><div class="ban bad">VERIFY failed: api did not complete within 300 s. ROLLBACK on every site: previous config, previous images, restore snapshot volumes…</div>`;
+  if (ST.phase === 'failed') return `<div class="steps2">${pills}</div><div class="ban bad">Status failed-rolled-back. Every site runs head seq ${ST.head} again. Snapshot 01JB7Z…K3 was used.</div><button class="wbtn" type="button" data-reset="1">OK</button>`;
+  return `<div class="steps2">${pills}</div><div class="ban ok">${ST.mode === 'rollback' ? 'Rolled back. A new revision (origin agent, "rollback to …") is the head.' : 'Applied on every site.'} Head seq ${ST.head}.</div><button class="wbtn" type="button" data-reset="1">OK</button>`;
+}
+
+function startCount() {
+  ST.phase = 'count'; ST.count = 60;
+  clearInterval(ST.timer);
+  ST.timer = setInterval(() => { ST.count -= 1; if (ST.count <= 0) { clearInterval(ST.timer); ST.phase = 'type'; ST.typed = ''; } render(); }, sec());
+}
+function runSteps() {
+  ST.phase = 'run'; ST.stepIdx = 0;
+  clearInterval(ST.timer);
+  const fail = ST.failAt === 'verify';
+  ST.timer = setInterval(() => {
+    if (fail && ST.stepIdx === STEPS.indexOf('verify')) {
+      clearInterval(ST.timer); ST.phase = 'rollback'; render();
+      setTimeout(() => { ST.phase = 'failed'; if (ST.mode === 'update') ST.failedIds.push(ST.sel); ACTS.push(['app', 217, 'now', who(), 'agent', 'update.rolled-back', 'VERIFY failed; all sites rolled back']); render(); }, sec() * 20);
+      return;
+    }
+    ST.stepIdx += 1;
+    if (ST.stepIdx >= STEPS.length) {
+      clearInterval(ST.timer); ST.phase = 'done'; ST.head += 1;
+      if (ST.mode === 'update') ST.applied.push(ST.sel);
+      ACTS.push(['app', 217, 'now', who(), 'agent', ST.mode === 'update' ? 'update.applied' : 'update.rolled-back', ST.mode === 'update' ? `Applied seq ${ST.head}` : `Rollback to ${ST.rbTarget}`]);
+    }
+    render();
+  }, sec() * 15);
+}
+
+function tunAct(a) {
+  const T = ST.tun;
+  const log = (type, sum) => { ACTS.push([ST.open, 217 + ACTS.length, 'now', ST.actor || null, 'agent', type, sum]); };
+  if (a === 'revoke') T.confirm = true;
+  if (a === 'revoke-no') T.confirm = false;
+  if (a === 'revoke-yes') { T.confirm = false; T.state = 'free'; log('internet.tunnel.revoked', 'by ' + (ST.actor || '—')); }
+  if (a === 'start') { T.state = 'active'; T.reqs = 0; T.bytes = 0; T.rows = []; log('internet.tunnel.started', ST.actor || '—'); tunLoop(); }
+  if (a === 'stop') { T.state = 'free'; clearInterval(T.timer); log('internet.tunnel.stopped', ST.actor || '—'); }
+  render();
+}
+function tunLoop() {
+  const T = ST.tun;
+  const WHAT = ['POST /v1/agent/heartbeat', 'GET /v1/agent/poll?cursor=88', 'POST /v1/agent/activities (12)', 'GET signed URL · blob sha256:3f…', 'POST /v1/agent/proposals/01JB…/status'];
+  const STEPS = ['queued', 'browser → cloud', 'cloud → browser', 'response → agent'];
+  clearInterval(T.timer);
+  let n = 0;
+  T.timer = setInterval(() => {
+    if (T.state !== 'active') { clearInterval(T.timer); return; }
+    T.rows.forEach((r) => { const i = STEPS.indexOf(r.step); if (i < STEPS.length - 1) { r.step = STEPS[i + 1]; if (r.step === 'response → agent') { T.reqs += 1; T.bytes += 600 + (n % 5) * 900; } } });
+    if (n % 2 === 0) T.rows.unshift({ id: '01JB9R…' + String(n).padStart(2, '0'), what: WHAT[n % WHAT.length], step: 'queued' });
+    n += 1;
+    if (ST.route === 'internet') render();
+  }, ST.fast ? 450 : 1100);
+}
+
+function agCheck() { ST.ag.check = true; render(); }
+function agUpgrade(s) {
+  if (prompt(`Upgrade the agent of ${s} to 0.10.1? The agent restarts; the containers keep running. Type the site slug:`) !== s) return;
+  const steps = ['download', 'verify', 'swap', 'restart', 'health', 'done'];
+  let i = 0;
+  ST.ag.phase = steps[0]; render();
+  const t = setInterval(() => { i += 1; ST.ag.phase = steps[i]; if (steps[i] === 'done') { ST.ag.ver[s] = '0.10.1'; clearInterval(t); } render(); }, sec());
+}
+function agUpAll() {
+  if (prompt('Upgrade every site below 0.10.1, one at a time (this site last). Type UPGRADE:') !== 'UPGRADE') return;
+  ST.ag.ver = { app: '0.10.1', db: '0.10.1' }; render();
+}
+
+function render() {
+  const sc = SCREENS.find((s) => s.r === ST.route) || SCREENS[0];
+  const site = ST.site;
+  const path = sc.path(site);
+  const host = SITES[ST.open].host;
+  const el = document.getElementById('proto');
+  if (!ST.session) {
+    el.innerHTML = `<div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">https://${host}/_opm/login</span></div>
+      <div class="login" id="loginScr"><h3 style="margin:0 0 4px">${DEP} · site ${ST.open}</h3><div class="small muted">Log in with the deployment access key. Don't have it? In the cloud, open this deployment's Setup page and click <b>View</b> next to the access key (or Regenerate it). The session ends 6 h after login.</div>
+      <label for="loginKey">Access key</label><input id="loginKey" type="password" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" />
+      <div class="err" style="color:var(--bad);font-size:12px;min-height:16px;margin:4px 0">${ST.loginErr}</div>
+      <button class="wbtn pri" type="button" id="loginGo">Log in</button>
+      <div class="small muted" style="margin-top:10px">After login the agent asks "Who is working right now?" on every page load. Same login on the edge (<span class="mono">/_opm/</span>), on :8080 and on :7080.</div></div>`;
+    const k = document.getElementById('loginKey');
+    document.getElementById('loginGo').onclick = () => login(k.value);
+    k.onkeydown = (e) => { if (e.key === 'Enter') login(k.value); };
+    return;
+  }
+  const top = `<div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">https://${host}${path}</span></div>`;
+  const shead = `<div class="shead"><span class="dep"><b>${DEP}</b></span><span class="tag">this site: ${ST.open}</span><span class="tag ${ST.dbDown ? 'warn' : 'ok'}">${ST.dbDown ? '1 site unreachable' : 'all sites reachable'}</span><span class="tag ${ST.open === 'app' || !ST.dbDown ? 'ok' : 'warn'}">cloud: ${ST.open === 'app' ? 'direct' : 'relay via app'}</span><span class="tag">head seq ${ST.head}</span></div>`;
+  const foot = `<div class="foot"><span class="actor-chip" id="sessChip">${ST.actor ? `<b>${ST.actor}</b>` : 'actor: —'}</span><span class="small muted">session ends in ${left()}</span><button type="button" class="wbtn" data-logout="1" id="chgPerson">Change person</button><button type="button" class="wbtn" data-signout="1" id="logOut">Log out</button><button type="button" class="wbtn">◐ Theme</button></div>`;
+  el.innerHTML = top + `<div class="body"><div class="snav">${shead}${navHtml()}${foot}</div><div class="scr">${sc.one && ST.site === '*' ? `<h3>${sc.n}</h3><div class="sub">Choose a site to see ${sc.n.toLowerCase()}: "All sites" is selected and this page belongs to one site. Pick app or db in the selector on top.</div>` : (R[sc.r] || (() => `<h3>${sc.n} · ${ST.site}</h3><div class="sub">${sc.shows}</div><div class="small muted">${sc.acts}</div>`))()}</div></div>${ST.actor ? '' : popupHtml()}`;
+  bind();
+  if (!ST.actor) bindPopup();
+}
+
+function popupHtml() {
+  return `<div class="actor-shade"><div class="actor-pop" id="actorPop" role="dialog" aria-modal="true" aria-labelledby="actorTitle">
+    <h3 id="actorTitle">Who is working right now?</h3>
+    <div class="small muted">Site <b class="mono">${ST.open}</b> of <b class="mono">${DEP}</b>. You are logged in with the access key. This popup does not log in: it names the person who works now. The agent writes this email (with the session id) as the actor of every action. It asks again on every refresh and new tab.</div>
+    <input id="actorEmail" type="email" placeholder="your.name@company.com" autocomplete="off" />
+    <div class="err">${ST.actorErr}</div>
+    <div class="small muted">Recently used in this browser</div>
+    <div class="sugg" id="actorSugg">${RECENT.slice(0, 10).map((r) => `<button type="button" data-sugg="${r.email}"><span class="mono">${r.email}</span><span class="muted">${r.last}</span></button>`).join('')}</div>
+    <button class="wbtn pri" type="button" id="actorGo">Continue</button>
+  </div></div>`;
+}
+function bindPopup() {
+  const inp = document.getElementById('actorEmail');
+  document.querySelectorAll('#actorSugg [data-sugg]').forEach((b) => (b.onclick = () => { inp.value = b.dataset.sugg; inp.focus(); }));
+  document.getElementById('actorGo').onclick = () => declare(inp.value);
+  inp.onkeydown = (e) => { if (e.key === 'Enter') declare(inp.value); };
+  inp.focus({ preventScroll: true });
+}
+
+function bind() {
+  const el = document.getElementById('proto');
+  el.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { ST.route = b.dataset.r; if (b.dataset.ctab) ST.ctab = b.dataset.ctab; ST.fileOpen = false; render(); }));
+  el.querySelectorAll('[data-reveal]').forEach((b) => (b.onclick = () => { const k = b.dataset.reveal; ST.reveal[k] = Date.now() + 60000; ST.revLog.unshift(`${ST.open}:${118 + ST.revLog.length} · ${new Date().toISOString().slice(11, 19)} · secret.revealed { secretSlug: "${k}", where: "agent", siteSlug: "${ST.open}" } · by ${who()}`); setTimeout(render, 60100); render(); }));
+  el.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => { try { navigator.clipboard.writeText(SECVAL[b.dataset.copy] || ''); } catch (e) {} b.textContent = 'Copied'; }));
+  el.querySelectorAll('[data-sitesel]').forEach((s) => (s.onchange = () => { ST.site = s.value; render(); }));
+  el.querySelectorAll('[data-sec]').forEach((b) => (b.onclick = () => { const g = b.dataset.sec; ST.secs = ST.secs || {}; ST.secs[g] = b.getAttribute('aria-expanded') !== 'true'; render(); }));
+  el.querySelectorAll('[data-ctab]').forEach((b) => (b.onclick = () => { ST.ctab = b.dataset.ctab; ST.route = 'config'; ST.fileOpen = false; render(); }));
+  el.querySelectorAll('[data-renew]').forEach((b) => (b.onclick = () => { const [s, hn] = b.dataset.renew.split('|'); const c = CERTS[s + '|' + hn]; const ok = !c.err; if (ok) { c.last = 'now'; } ST.certLog = ST.certLog || []; ST.certLog.unshift(`${ok ? 'cert.renewed' : 'cert.failed'} { siteSlug: "${s}", hostname: "${hn}", actor: "${who()}"${ok ? '' : ', error: "' + c.err + '"'} } · POST /_opm/api/certs/${hn}/renew`); render(); }));
+  el.querySelectorAll('[data-localca]').forEach((b) => (b.onclick = () => { ST.certLog = ST.certLog || []; ST.certLog.unshift(`GET /_opm/api/certs/local-ca.crt → opm-local-ca-${b.dataset.localca}.crt (download)`); render(); }));
+  const agp = (id, key) => { const i = document.getElementById(id); if (i) i.onchange = () => { const s = ST.site, v = i.value.trim() === '' ? null : +i.value; const P = Object.assign({}, AG_PORTS[s], { [key]: v }); const used = [P.agent, AG_EDGE[s].httpPort, AG_EDGE[s].httpsPort, s === 'db' ? 5432 : null].filter((x) => x != null); let err = ''; if (key === 'alias' && v != null && (!(v >= 1024 && v <= 65535) || used.includes(v))) err = `agentGuiAliasPort ${v}: must be 1024–65535 and differ from agentPort, the edge ports and every container hostPort.`; if (key === 'agent' && (v === P.alias || v === AG_EDGE[s].httpPort || v === AG_EDGE[s].httpsPort)) err = `agentPort ${v} is already used.`; AG_PORTS[s] = Object.assign(err ? AG_PORTS[s] : P, { err }); render(); }; };
+  agp('agAliasPort', 'alias'); agp('agAgentPort', 'agent');
+  const ae = document.getElementById('agEdge');
+  if (ae) mountEdge(ae, AG_EDGE[ST.site], { local: true, containers: CONT[ST.site].map((c) => ({ slug: c.c, hostPorts: c.svc === 'postgres' ? [5432] : [] })), agentPort: AG_PORTS[ST.site].agent, agentGuiAliasPort: AG_PORTS[ST.site].alias, files: FILES.map((f) => f.s), secrets: ['db-password', 'api-token', 'tls-key'], testUrl: ST.site === 'db' ? 'http://10.0.1.11/x' : 'https://plant.acme.com/api/v1/x' });
+  el.querySelectorAll('[data-tun]').forEach((b) => (b.onclick = () => tunAct(b.dataset.tun)));
+  el.querySelectorAll('[data-logout]').forEach((b) => (b.onclick = () => { ST.actor = null; render(); }));
+  el.querySelectorAll('[data-signout]').forEach((b) => (b.onclick = () => logout('user')));
+  el.querySelectorAll('[data-sel]').forEach((b) => (b.onclick = () => { if (ST.phase === 'idle') { ST.sel = b.dataset.sel; render(); } }));
+  el.querySelectorAll('[data-gate]').forEach((b) => (b.onchange = () => { ST.gate[b.dataset.gate] = b.checked; render(); }));
+  el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => { ST.fileOpen = true; render(); }));
+  el.querySelectorAll('[data-local]').forEach((b) => (b.onclick = () => {
+    const seq = 8 + ST.local.length + 1;
+    ST.local.push({ id: 'local-' + seq, seq, origin: 'agent', by: who(), when: 'now', changes: [`local change in ${b.dataset.local}`] });
+    ST.sel = 'local-' + seq; ST.route = 'updates'; render();
+  }));
+  const fc = document.getElementById('failChk');
+  if (fc) fc.onchange = () => { ST.failAt = fc.checked ? 'verify' : ''; };
+  el.querySelectorAll('[data-approve]').forEach((b) => (b.onclick = () => { if (ST.mode !== 'rollback') ST.mode = 'update'; startCount(); render(); }));
+  el.querySelectorAll('[data-cancel]').forEach((b) => (b.onclick = () => { clearInterval(ST.timer); ST.phase = 'idle'; render(); }));
+  const acc = document.getElementById('acc');
+  if (acc) { acc.oninput = () => { ST.typed = acc.value; const go = el.querySelector('[data-go]'); go.disabled = ST.typed !== 'ACCEPT'; }; acc.focus(); }
+  el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { if (ST.typed === 'ACCEPT') runSteps(); render(); }));
+  el.querySelectorAll('[data-reset]').forEach((b) => (b.onclick = () => { ST.phase = 'idle'; ST.stepIdx = -1; if (ST.mode === 'rollback') { ST.mode = 'update'; ST.rbTarget = null; } render(); }));
+  el.querySelectorAll('[data-rb]').forEach((b) => (b.onclick = () => { if (ST.phase !== 'idle') return; ST.mode = 'rollback'; ST.rbTarget = b.dataset.rb; render(); }));
+  el.querySelectorAll('[data-snap]').forEach((b) => (b.onclick = () => { SNAPS.unshift({ id: '01JB8A…' + String(SNAPS.length).padStart(2, '0'), when: 'now', reason: 'manual', seq: ST.head, size: '1.8 GB' }); render(); }));
+  el.querySelectorAll('[data-import]').forEach((b) => (b.onchange = () => { SNAPS.unshift({ id: '01JB8B…IM', when: 'now', reason: 'imported', seq: 5, size: '1.5 GB' }); render(); }));
+  el.querySelectorAll('[data-save]').forEach((b) => (b.onclick = () => { ST.receiveSaved[b.dataset.save] = el.querySelector(`[data-rpath="${b.dataset.save}"]`).value; render(); }));
+  el.querySelectorAll('[data-send]').forEach((b) => (b.onclick = () => { ST.sent.unshift(document.getElementById('sendPath').value.split('/').pop()); render(); }));
+  el.querySelectorAll('[data-sendfile]').forEach((b) => (b.onchange = () => { ST.sent.unshift(b.files[0] ? b.files[0].name : 'browser-file.bin'); render(); }));
+}
+
+seg(document.getElementById('openSeg'), (v) => {
+  if (v === 'db' && ST.dbDown) { document.querySelector('#openSeg [data-v="app"]').click(); return; }
+  ST.open = v; render();
+});
+document.getElementById('dbDown').onchange = (e) => {
+  ST.dbDown = e.target.checked;
+  if (ST.dbDown && ST.open === 'db') document.querySelector('#openSeg [data-v="app"]').click();
+  render();
+};
+document.getElementById('fast').onchange = (e) => { ST.fast = e.target.checked; };
+document.getElementById('sim6h').onclick = () => logout('expired');
+document.getElementById('simRefresh').onclick = () => { ST.actor = null; render(); };
+document.querySelector('#routeTbl tbody').innerHTML = [
+  ['/_opm/login', 'Access key field. Shown when there is no valid opm_session cookie, after Log out and after the 6 h session end (401 session-expired).', 'Log in → POST /_opm/api/login → cookie opm_session (6 h, no sliding renewal). 5 failures / 5 min per IP → 429', 'This site (writes login.succeeded / login.failed / logout)'],
+  ['actor popup (after login, on every page load; not a route)', 'Blocking popup "Who is working right now?": one email field + recently used emails (browser localStorage). Not authentication.', 'Continue → POST /_opm/api/actor (needs the cookie) → actor token (page memory, expires with the session)', 'This site (writes actor.declared)'],
+  ['header chip (every screen)', 'Email · "session ends in 4 h 12 m"', 'Change person (popup again, same session) · Log out (POST /_opm/api/logout)', 'This site'],
+  ...SCREENS.map((s) => [s.path(s.one ? '{siteSlug}' : '{siteSlug | *}'), s.shows, s.acts, s.who]),
+  ['/_opm/app/{siteSlug}/containers/{container}?tab=', 'One container: Overview (state, health history, ports, mounts, env masked, restarts, image, depends, start order) · Logs · Terminal · Monitoring · Inspect · Processes &amp; events · Config (the container editor)', 'Restart / stop / start, exec shell, edit config → local proposal', 'The site'],
+  ['/_opm/app/{siteSlug}/devtools[/sql|redis|mqtt|http|history][?c=&lt;connectionId&gt;]', 'Dev tools (agent 0.11.0): Connections (presets from the head + manual), SQL / CQL workbench, Redis, MQTT, HTTP client, History of devtools.query activities. * → choose a site. devtools/postgres|sqlite|cassandra → devtools/sql?kind=', 'Add / edit / test / duplicate / delete connections, reveal a stored credential (60 s), run SQL / Redis / HTTP, explain, cancel, export, MQTT sessions + publish, saved items, environments. Destructive → type the connection name. Off when agent.json tools.devTools = false', 'The selected site runs every query (forwarded over the mesh; activities on both sites)'],
+  ['old URLs', '/updates[?rev=] → {site}/diff · /sites → */config · /sites/{s}/send|receive and {s}/send|receive → {s}/transfers (0.11.2) · {s}/tools/logs?c=x → {s}/containers/x?tab=logs (?src=agent → debug?tab=agent, ?src=access → network?tab=access) · tools/terminal?c=x → ?tab=terminal · tools/monitoring → status (?c=x → ?tab=monitoring) · tools/containers|volumes|docker|network → the same module · /variables, /secrets, /files, /backups, /internet → {site}/…', 'Redirect (307)', '—'],
+].map((r) => `<tr><td class="mono small">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="small">${r[3]}</td></tr>`).join('');
+render();
+</script>
+</body>
+</html>

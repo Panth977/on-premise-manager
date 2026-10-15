@@ -1,0 +1,50 @@
+{
+  "name": "@opm/shared",
+  "version": "0.1.0",
+  "description": "On-Prem Manager shared contracts: types, API tables, expression engine, validation, edge resolver, access rules.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./types": { "types": "./dist/types.d.ts", "import": "./dist/types.js" },
+    "./expr": { "types": "./dist/expr.d.ts", "import": "./dist/expr.js" },
+    "./hash": { "types": "./dist/hash.d.ts", "import": "./dist/hash.js" },
+    "./validate": { "types": "./dist/validate.d.ts", "import": "./dist/validate.js" },
+    "./edge-resolve": { "types": "./dist/edge-resolve.d.ts", "import": "./dist/edge-resolve.js" },
+    "./nginx-import": { "types": "./dist/nginx-import.d.ts", "import": "./dist/nginx-import.js" },
+    "./access": { "types": "./dist/access.d.ts", "import": "./dist/access.js" },
+    "./cloud-api": { "types": "./dist/cloud-api.d.ts", "import": "./dist/cloud-api.js" },
+    "./agent-api": { "types": "./dist/agent-api.d.ts", "import": "./dist/agent-api.js" },
+    "./agent-tools": { "types": "./dist/agent-tools.d.ts", "import": "./dist/agent-tools.js" },
+    "./agent-self": { "types": "./dist/agent-self.d.ts", "import": "./dist/agent-self.js" },
+    "./canonical": { "types": "./dist/canonical.d.ts", "import": "./dist/canonical.js" },
+    "./ulid": { "types": "./dist/ulid.d.ts", "import": "./dist/ulid.js" },
+    "./ansi": { "types": "./dist/ansi.d.ts", "import": "./dist/ansi.js" },
+    "./volume-ops": { "types": "./dist/volume-ops.d.ts", "import": "./dist/volume-ops.js" },
+    "./intent-wait": { "types": "./dist/intent-wait.d.ts", "import": "./dist/intent-wait.js" },
+    "./depends": { "types": "./dist/depends.d.ts", "import": "./dist/depends.js" },
+    "./branch": { "types": "./dist/branch.d.ts", "import": "./dist/branch.js" },
+    "./pending": { "types": "./dist/pending.d.ts", "import": "./dist/pending.js" },
+    "./template-sync": { "types": "./dist/template-sync.d.ts", "import": "./dist/template-sync.js" },
+    "./devtools": { "types": "./dist/devtools.d.ts", "import": "./dist/devtools.js" },
+    "./transfers": { "types": "./dist/transfers.d.ts", "import": "./dist/transfers.js" },
+    "./volume-content": { "types": "./dist/volume-content.d.ts", "import": "./dist/volume-content.js" },
+    "./github-mirror": { "types": "./dist/github-mirror.d.ts", "import": "./dist/github-mirror.js" },
+    "./staging": { "types": "./dist/staging.d.ts", "import": "./dist/staging.js" },
+    "./icons": { "types": "./dist/icons.d.ts", "import": "./dist/icons.js" },
+    "./testdata/*": "./testdata/*"
+  },
+  "files": ["dist", "src", "testdata"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "gen:edge-vectors": "tsc -p tsconfig.json && node scripts/gen-edge-vectors.mjs",
+    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\"",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,21 @@
+import { chromium } from '@playwright/test';
+const out = process.argv[2]; const url = process.argv[3] ?? 'http://localhost:5180';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1360, height: 900 } });
+p.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('console:', m.text()); });
+p.on('pageerror', (e) => console.log('pageerror:', e.message));
+await p.goto(url + '/_opm/app');
+await p.waitForTimeout(1500);
+console.log('url', p.url());
+await p.screenshot({ path: out + '/s-login.png' });
+await p.fill('[data-testid=access-key]', 'k7qf 2m3x pl4d 6wzt r3vb 6hjn');
+await p.click('button[type=submit]');
+await p.waitForTimeout(1500);
+await p.screenshot({ path: out + '/s-actor.png' });
+await p.fill('[data-testid=actor-email]', 'tester@acme.example');
+await p.click('[data-testid=actor-continue]');
+await p.waitForTimeout(1500);
+await p.screenshot({ path: out + '/s-home.png', fullPage: true });
+const pages = (process.argv[4] ?? '').split(',').filter(Boolean);
+for (const pg of pages) { await p.goto(url + '/_opm/app' + pg); await p.waitForTimeout(400); const ae = await p.$('[data-testid=actor-email]'); if (ae) { await ae.fill('tester@acme.example'); await p.click('[data-testid=actor-continue]'); } await p.waitForTimeout(1500); await p.screenshot({ path: out + '/s-' + pg.replace(/[^a-z0-9]+/gi, '_') + '.png', fullPage: true }); }
+await b.close();

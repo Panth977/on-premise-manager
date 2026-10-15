@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Activities, status & transfers</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .logbox { font-family: var(--mono); font-size: 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; max-height: 260px; overflow: auto; }
+  .logbox div { padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
+  .logbox .acked { color: var(--ok); }
+  .logbox .pending { color: var(--muted); }
+  .logbox .dup { color: var(--warn); }
+  .logbox .new { color: var(--ok); }
+  .logbox .bad { color: var(--bad); }
+  .hm { display: grid; gap: 2px; }
+  .hm i { display: block; height: 12px; border-radius: 2px; }
+  .hmrow { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12px; margin: 3px 0; }
+  .hmrow span { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Records</div>
+<h1>Activities, status & transfers</h1>
+<div class="callout note" id="github-106"><b>Agent 0.15: drift push (SPEC §21 #106)</b><p>Agents push their uncommitted drift with <code>POST /v1/agent/branch/drift</code> (outbox, store-and-forward, secrets masked) when it changes and at start; the cloud mirrors it to GitHub as <code>deployment/&lt;slug&gt;/uncommitted/&lt;site&gt;</code>. See <a href="github-mirror.md">github-mirror.md</a>.</p></div>
+<div class="callout note" id="branches-104"><b>Agent 0.14: agent branches (SPEC §21 #104)</b><p>The cloud view carries <code>branch</code> (the deployment head commit); agents fetch it with <code>GET /v1/agent/commits/{id}</code>, stage it, and push their own commits with <code>POST /v1/agent/branch/commits</code> (store-and-forward). Heartbeats report the site branch and uncommitted drift. See <a href="branches-commits.md">branches-commits.md</a>.</p></div>
+<p class="lede">This page tells how the agent records what happens, how the records go to the cloud, how the status is measured, and how files move between the cloud and a site.</p>
+
+<h2 id="record">The activity record</h2>
+<p>Each site keeps one activity log. The log is append-only. Each record holds the hash of the record before it. Thus a change to an old record breaks the chain, and the cloud sees it.</p>
+<pre><code>interface Activity {
+  activityId: string;        // "&lt;siteSlug&gt;:&lt;seq&gt;"  e.g. "app:1042"
+  deploymentId: Id; siteSlug: Slug; seq: number; ts: Ts;
+  actor: string | null;      // email, uid, or null = system
+  origin: 'agent' | 'cloud' | 'system';
+  type: string;              // see the catalog below
+  summary: string; data: object;
+  prevHash: Sha256 | null;   // null only for seq 1
+  hash: Sha256;              // sha256(prevHash + canonical JSON without hash fields)
+  uploadedVia: 'pipe' | 'manual' | null; uploadedAt: Ts | null;
+}</code></pre>
+<div class="diagram"><svg id="chainSvg" viewBox="0 0 900 170" role="img" aria-label="Hash chain"></svg>
+<div class="cap">Each record holds the hash of the record before it. The <code>activityId</code> is the site slug plus the sequence number, so the same record always has the same ID.</div></div>
+
+<h2 id="pipe">The upload pipe</h2>
+<p>The upload pipe is a separate component of the agent. It has one job: send the records that the cloud did not acknowledge yet.</p>
+<ul>
+  <li>It sends all records after the last acknowledged <code>seq</code>, in batches of 500, to <code>POST /v1/agent/activities</code>.</li>
+  <li>The API upserts by <code>activityId</code>. It never changes a record that exists. It answers <code>{ ackSeq }</code>: the highest stored seq.</li>
+  <li>If the site has no internet, a peer site with internet relays the signed request (<code>POST /v1/agent/relay</code>).</li>
+  <li>If no path to the cloud exists, the pipe waits. It does not lose records.</li>
+</ul>
+<div class="diagram"><svg id="pipeSm" viewBox="0 0 900 200" role="img" aria-label="Upload pipe states"></svg></div>
+<h3>Try it</h3>
+<div class="controls">
+  <label><input type="checkbox" id="pNet" checked /> site <code>db</code> has internet</label>
+  <label><input type="checkbox" id="pRelay" checked /> peer <code>app</code> can relay</label>
+  <button class="btn" type="button" id="pAdd">Add 3 records</button>
+  <button class="btn primary" type="button" id="pRun">Run the pipe once</button>
+</div>
+<div class="grid g2">
+  <div><div class="small muted">Agent log on site <code>db</code></div><div class="logbox" id="pLog"></div></div>
+  <div><div class="small muted">Cloud copy</div><div class="logbox" id="pCloud"></div><p class="small" id="pMsg"></p></div>
+</div>
+
+<h2 id="manual">The manual path (no internet at all)</h2>
+<ol class="steps">
+  <li><b>Download</b>In the agent GUI, open <code>/_opm/app/{siteSlug}/activities/download</code> (<code>*</code> = all sites). The agent makes an <code>.opmlog</code> file.</li>
+  <li><b>Send</b>The site operator sends the file to the operations team, for example by email or USB.</li>
+  <li><b>Upload</b>In the cloud, open <code>/app/deployments/{deploymentId}/activities/upload</code> and upload the file.</li>
+  <li><b>Verify</b>The API checks the site signature and the hash chain of each site.</li>
+  <li><b>Upsert</b>The API inserts missing records with <code>uploadedVia: 'manual'</code>. It skips records that exist. It never changes them.</li>
+  <li><b>Report</b>The page shows the counts: inserted, skipped, rejected.</li>
+</ol>
+<div class="tbl-wrap"><table>
+<tr><th>Part of the .opmlog file</th><th>Content</th></tr>
+<tr><td><code>manifest.json</code></td><td><code>{ deploymentId, createdAt, createdBy, sites: [{ siteSlug, fromSeq, toSeq, count }] }</code></td></tr>
+<tr><td><code>activities.ndjson</code></td><td>One Activity per line, sorted by site, then by seq</td></tr>
+<tr><td><code>debug/*.jsonl</code></td><td>Optional: the debug log of each site (if "include debug log" is on)</td></tr>
+<tr><td><code>signature</code></td><td>Ed25519 signature of the site key over sha256(manifest.json + activities.ndjson)</td></tr>
+</table></div>
+<h3>Try it</h3>
+<p>The sample bundle holds records <code>db:1</code> to <code>db:8</code>. The cloud has <code>db:1</code> to <code>db:5</code> already. Record <code>db:7</code> is changed on purpose in the "tampered" version.</p>
+<div class="controls">
+  <div class="seg" id="mSeg"><button data-v="ok" class="on">Good bundle</button><button data-v="bad">Tampered bundle</button></div>
+  <button class="btn primary" type="button" id="mRun">Upload</button>
+</div>
+<div class="grid g2">
+  <div><div class="small muted">Bundle content</div><div class="logbox" id="mBundle"></div></div>
+  <div><div class="small muted">Result</div><div class="logbox" id="mRes"></div><p class="small" id="mMsg"></p></div>
+</div>
+
+<h2 id="audit">Activities and the root audit log</h2>
+<p>Changes inside a deployment write activities to that deployment's log. Saving a draft section or a site writes <code>draft.updated</code> with the list of changed paths but never the values. Starting a transfer writes <code>transfer.sent</code> with stage <code>started</code>, and finishing the upload writes it again with stage <code>uploaded</code>. Deleting a transfer writes <code>transfer.deleted</code>. Uploading a .opmlog file by hand writes <code>activities.uploaded</code> with the counts, and deleting a deployment writes <code>deployment.deleted</code>. Everything outside a deployment (catalog, templates, tags, accounts, and creating, changing or deleting a deployment) goes to the root audit log, success or failure, with a before → after diff and secrets shown as <code>***</code>.</p>
+
+<h2 id="catalog">Activity type catalog</h2>
+<p>Every action in this list writes one record. Filter the table by origin.</p>
+<div class="controls">
+  <div class="seg" id="cSeg"><button data-v="all" class="on">All</button><button data-v="agent">agent</button><button data-v="cloud">cloud</button><button data-v="system">system</button></div>
+  <input type="search" id="cQ" placeholder="Filter types…" />
+  <span class="small muted" id="cCount"></span>
+</div>
+<div class="tbl-wrap"><table id="cTbl"><thead><tr><th>type</th><th>origin</th><th>when</th><th>data fields</th></tr></thead><tbody></tbody></table></div>
+
+<h2 id="debug">Debug log</h2>
+<p>The debug log is the agent's own log. It is not an activity log. It helps when the agent does not do what you expect.</p>
+<ul>
+  <li>Format: JSON lines. Each line: <code>{ "level": "debug|info|warn|error", "ts": Ts, "module": string, "msg": string, "fields": object }</code>.</li>
+  <li>Modules: <code>cloudlink</code>, <code>mesh</code>, <code>stager</code>, <code>expr</code>, <code>driver</code>, <code>port80</code>, <code>tunnel</code>, <code>health</code>, <code>coordinator</code>, <code>snapshot</code>, <code>pipe</code>, <code>transfer</code>, <code>auth</code>, <code>gui</code>.</li>
+  <li>Rotation: one file per day. Keep 7 days or 200 MB, whichever comes first.</li>
+  <li>View: <code>/_opm/app/{siteSlug}/debug</code>. <code>*</code> merges all sites, sorted by time.</li>
+  <li>Download: include it in an <code>.opmlog</code> bundle (activity type <code>debug.downloaded</code>).</li>
+</ul>
+<div class="controls">
+  <div class="seg" id="dSeg"><button data-v="*" class="on">* all sites</button><button data-v="app">app</button><button data-v="db">db</button></div>
+  <div class="seg" id="dLvl"><button data-v="debug" class="on">debug+</button><button data-v="warn">warn+</button><button data-v="error">error</button></div>
+</div>
+<div class="logbox" id="dBox"></div>
+
+<h2 id="status">Status and uptime</h2>
+<div class="grid g2">
+  <div class="card"><h4>In the cloud</h4><ul><li>Each agent sends a heartbeat every 30 s (<code>POST /v1/agent/heartbeat</code>, or the poll).</li><li>A site is <b>online</b> if its last heartbeat is less than 90 s old.</li><li>The cloud keeps one document per site per day (<code>uptime/{siteSlug}_{yyyymmdd}</code>) with 24 hourly online fractions.</li><li>Page: <code>/app/deployments/{id}/status</code> with a 30-day heatmap.</li></ul></div>
+  <div class="card"><h4>On the site</h4><ul><li>The agent samples each site and each container every 30 s.</li><li>It keeps the raw samples for 24 h, and hourly buckets for 30 days.</li><li>A container sample is "up" when the container is running and its health check passes.</li><li>Page: <code>/_opm/app/{siteSlug}/status</code> (<code>*</code> = all sites).</li></ul></div>
+</div>
+<div class="controls">
+  <div class="seg" id="uSeg"><button data-v="24h" class="on">Last 24 h (agent, 30 s samples, 1 cell = 10 min)</button><button data-v="30d">Last 30 days (agent, 1 cell = 1 h)</button><button data-v="cloud">Cloud: online per hour</button></div>
+</div>
+<div class="card" id="uBox"></div>
+<p class="small muted">Green = up. Red = down. Grey = no data (the site was not reachable; the agent fills its own gaps when it is back, the cloud cannot).</p>
+
+<h2 id="transfers">Transfers: send and receive</h2>
+<p>Both GUIs have ONE <b>Transfers</b> page per site with two columns: on the agent (<code>/_opm/app/&lt;site&gt;/transfers</code>, Agent › Transfers) left = Send (this site → cloud), right = Receive (cloud → this site); in the cloud (<code>…/sites/&lt;site&gt;/transfers</code>) left = Send (cloud → site, browser upload only), right = Receive (from the site). The old send / receive URLs redirect (SPEC §21 #100).</p>
+<div class="callout note"><b>Store-and-forward, both ways</b><p>Nobody has to be on the other end. <b>Site → cloud:</b> the agent stores the file on the site first and answers at once (<i>queued</i>); its transfers loop creates the cloud transfer and uploads the missing 8 MiB parts whenever the site has a route to the cloud (direct or relay through another site; never the browser tunnel, whose request bodies are ≤ 4 MiB), retrying with backoff 15 s → 5 min (<i>uploading</i> → <i>stored</i>). The cloud keeps it whether or not anyone has the deployment open. <b>Cloud → site:</b> the cloud stores the browser upload; the agent fetches it the next time it is online (<i>pending</i> → <i>downloading</i> → <i>on this site</i>) and reports <code>fetched</code>, so the cloud shows "on the site" (<code>fetchedAt</code>). Nobody needs the agent GUI open.</p></div>
+<p><b>Send › Path</b> opens a picker over the whole server filesystem (from <code>/</code>, one level at a time: <code>GET /_opm/api/sites/&lt;site&gt;/transfers/fs?path=&amp;hidden=</code>, session only, not logged). The agent is a host binary (root on a standard install), so it reads the host's real files; entries it cannot read show "no permission". Files only — make a <code>.tar.gz</code> of a folder on the server first. Safety policy (sending refused, also through a symlink): the agent's own home (site key, database, secrets), its agent.json and install token; <code>/proc</code>, <code>/sys</code>, <code>/dev</code>, <code>/run</code>; <code>/etc/shadow</code>, <code>/etc/gshadow</code> (and <code>-</code> backups), <code>/etc/sudoers</code>, <code>/etc/security/opasswd</code>; SSH host private keys; anything that is not a regular file. Every send is the activity <code>transfer.sent</code> with <code>source</code> (browser | path) and <code>sourcePath</code>.</p>
+<pre><code>interface Transfer {
+  transferId: Id; deploymentId: Id; siteSlug: Slug;
+  direction: 'to-site' | 'to-cloud';
+  fileName: string; sizeBytes: number; sha256: Sha256;
+  storagePath: string;       // transfers/&lt;deploymentId&gt;/&lt;transferId&gt;
+  createdAt: Ts; createdBy: string; note: string;
+  expiresAt: Ts;             // createdAt + 30 days
+  status: 'uploading' | 'ready' | 'saved-on-server' | 'downloaded' | 'expired';
+  savedPath: string | null;
+  fetchedAt?: Ts | null;     // cloud, to-site: stored on the site (agents ≥ 0.11.2 report it)
+  sourcePath?: string | null; // agent, to-cloud: sent from this server path
+  delivery?: { phase: 'queued' | 'uploading' | 'stored' | 'pending' | 'downloading' | 'on-site';
+               bytesDone: number; attempts: number; lastError: string | null; … }; // agent API only
+}</code></pre>
+<div class="diagram"><svg id="txSvg" viewBox="0 0 900 250" role="img" aria-label="Transfer directions"></svg></div>
+<div class="diagram"><svg id="txSm" viewBox="0 0 900 140" role="img" aria-label="Transfer states"></svg></div>
+<div class="tbl-wrap"><table>
+<tr><th>Rule</th><th>Value</th></tr>
+<tr><td>Max size per file</td><td>2 GiB, resumable upload (both directions)</td></tr>
+<tr><td>Receiver online?</td><td>Never needed: stored in the cloud / on the site first, delivered when the other side is next online</td></tr>
+<tr><td>Lifetime</td><td>30 days, then status <code>expired</code> and the blob is deleted</td></tr>
+<tr><td>Integrity</td><td>sha256 checked after upload and after each download</td></tr>
+<tr><td>Access (cloud)</td><td><code>deployment.transfers</code> read (receive) / write (send)</td></tr>
+<tr><td>Access (agent)</td><td>Lists and the fs picker: session; Send / Save on server: declared actor (actor token); "Save on server" asks for an absolute path and refuses to overwrite a file</td></tr>
+<tr><td>Audit</td><td><code>transfer.sent</code>, <code>transfer.received</code>, <code>transfer.saved</code></td></tr>
+</table></div>
+</main>
+</div>
+<script>
+const MK = (svg, id) => {
+  const defs = svgEl('defs');
+  const m = svgEl('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+  m.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' }));
+  defs.appendChild(m); svg.appendChild(defs);
+};
+const BOX = (svg, x, y, w, hh, t, sub, cls) => {
+  svg.appendChild(svgEl('rect', { x, y, width: w, height: hh, rx: 8, class: 'box ' + (cls || '') }));
+  svg.appendChild(svgEl('text', { x: x + w / 2, y: y + (sub ? hh / 2 - 3 : hh / 2 + 4), 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600 }, t));
+  if (sub) svg.appendChild(svgEl('text', { x: x + w / 2, y: y + hh / 2 + 13, 'text-anchor': 'middle', 'font-size': 10, class: 'muted mono' }, sub));
+};
+const ARR = (svg, d, id, cls) => svg.appendChild(svgEl('path', { d, class: 'ln ' + (cls || 'ln-cloud'), 'marker-end': `url(#${id})` }));
+
+// hash chain
+(function () {
+  const s = document.getElementById('chainSvg'); MK(s, 'ca');
+  const R = [['db:1', 'null', 'a91f'], ['db:2', 'a91f', '3c07'], ['db:3', '3c07', 'e512'], ['db:4', 'e512', '7b2d']];
+  R.forEach(([id, p, hsh], i) => {
+    const x = 20 + i * 220;
+    s.appendChild(svgEl('rect', { x, y: 30, width: 180, height: 100, rx: 8, class: 'box agent' }));
+    s.appendChild(svgEl('text', { x: x + 12, y: 52, 'font-size': 13, 'font-weight': 650 }, id));
+    s.appendChild(svgEl('text', { x: x + 12, y: 74, 'font-size': 11, class: 'mono muted' }, 'prevHash: ' + p));
+    s.appendChild(svgEl('text', { x: x + 12, y: 92, 'font-size': 11, class: 'mono' }, 'type, data, ts …'));
+    s.appendChild(svgEl('text', { x: x + 12, y: 112, 'font-size': 11, class: 'mono', fill: 'var(--teal)' }, 'hash: ' + hsh));
+    if (i < 3) ARR(s, `M${x + 180},${110} C${x + 200},110 ${x + 200},70 ${x + 218},70`, 'ca', 'ln-agent');
+  });
+  s.appendChild(svgEl('text', { x: 450, y: 160, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'hash of record n = sha256(prevHash + canonical JSON of record n without hash fields)'));
+})();
+
+// pipe state machine
+(function () {
+  const s = document.getElementById('pipeSm'); MK(s, 'pa');
+  BOX(s, 20, 80, 130, 50, 'idle', 'nothing new');
+  BOX(s, 220, 80, 150, 50, 'find route', 'direct or relay', 'agent');
+  BOX(s, 450, 20, 160, 50, 'uploading', 'batch ≤ 500', 'app');
+  BOX(s, 700, 20, 170, 50, 'acked', 'cursor = ackSeq', 'app');
+  BOX(s, 450, 140, 160, 50, 'waiting', 'backoff 1 s → 5 min', 'ext');
+  ARR(s, 'M150,105 H218', 'pa');
+  ARR(s, 'M370,95 C410,60 420,45 448,45', 'pa');
+  ARR(s, 'M370,115 C410,150 420,165 448,165', 'pa');
+  ARR(s, 'M610,45 H698', 'pa');
+  ARR(s, 'M785,70 C785,130 120,190 85,132', 'pa');
+  ARR(s, 'M450,152 C380,150 330,140 300,132', 'pa');
+  s.appendChild(svgEl('text', { x: 300, y: 70, 'font-size': 10, class: 'muted' }, 'route found'));
+  s.appendChild(svgEl('text', { x: 300, y: 158, 'font-size': 10, class: 'muted' }, 'no route / error'));
+  s.appendChild(svgEl('text', { x: 640, y: 120, 'font-size': 10, class: 'muted' }, 'more records → upload again'));
+})();
+
+// pipe demo
+(function () {
+  let seq = 6, ack = 3;
+  const types = ['actor.declared', 'config.local-change', 'snapshot.created', 'transfer.saved', 'proposal.staged', 'update.applied'];
+  const recs = [1, 2, 3, 4, 5, 6].map((n) => ({ n, t: types[(n - 1) % types.length] }));
+  const draw = (msg) => {
+    document.getElementById('pLog').innerHTML = recs.map((r) => `<div class="${r.n <= ack ? 'acked' : 'pending'}">db:${r.n} ${r.t} ${r.n <= ack ? '✓ acked' : '· pending'}${r.n === ack ? ' ◀ cursor' : ''}</div>`).join('');
+    document.getElementById('pCloud').innerHTML = recs.filter((r) => r.n <= ack).map((r) => `<div class="acked">db:${r.n} ${r.t}</div>`).join('') || '<div class="pending">(empty)</div>';
+    if (msg !== undefined) document.getElementById('pMsg').innerHTML = msg;
+  };
+  document.getElementById('pAdd').onclick = () => { for (let i = 0; i < 3; i++) { seq++; recs.push({ n: seq, t: types[(seq - 1) % types.length] }); } draw(''); };
+  document.getElementById('pRun').onclick = () => {
+    const net = document.getElementById('pNet').checked, relay = document.getElementById('pRelay').checked;
+    if (ack === seq) return draw('Nothing to send. The pipe stays <b>idle</b>.');
+    if (!net && !relay) return draw('No route to the cloud. The pipe is <b>waiting</b> (backoff). No record is lost.');
+    const from = ack + 1, to = Math.min(seq, ack + 500);
+    ack = to;
+    draw(`Sent db:${from}…db:${to} ${net ? 'directly' : 'through the relay peer <code>app</code>'}. The API stored them and answered <code>ackSeq: ${to}</code>.`);
+  };
+  draw('');
+})();
+
+// manual demo
+(function () {
+  let mode = 'ok';
+  const t = ['install.enrolled', 'actor.declared', 'proposal.staged', 'proposal.approved', 'update.snapshot', 'update.applied', 'config.local-change', 'actor.declared'];
+  const drawB = () => {
+    document.getElementById('mBundle').innerHTML = t.map((x, i) => `<div class="${mode === 'bad' && i === 6 ? 'bad' : ''}">db:${i + 1} ${x}${mode === 'bad' && i === 6 ? ' (summary changed by hand)' : ''}</div>`).join('');
+    document.getElementById('mRes').innerHTML = '<div class="pending">(press Upload)</div>';
+    document.getElementById('mMsg').textContent = '';
+  };
+  seg(document.getElementById('mSeg'), (v) => { mode = v; drawB(); });
+  document.getElementById('mRun').onclick = () => {
+    if (mode === 'bad') {
+      document.getElementById('mRes').innerHTML = t.map((x, i) => `<div class="${i < 6 ? (i < 5 ? 'dup' : 'pending') : 'bad'}">db:${i + 1} ${i < 5 ? 'skipped (exists)' : i === 5 ? 'not inserted' : 'chain broken'}</div>`).join('');
+      document.getElementById('mMsg').innerHTML = 'Result: <b>inserted 0 · skipped 5 · rejected 3</b>. The hash of db:7 does not match, so db:6–db:8 of this site are rejected. The page asks for a new bundle.';
+      return;
+    }
+    document.getElementById('mRes').innerHTML = t.map((x, i) => `<div class="${i < 5 ? 'dup' : 'new'}">db:${i + 1} ${i < 5 ? 'skipped (exists, not changed)' : 'inserted · uploadedVia manual'}</div>`).join('');
+    document.getElementById('mMsg').innerHTML = 'Result: <b>inserted 3 · skipped 5 · rejected 0</b>.';
+  };
+})();
+
+// catalog
+(function () {
+  const C = [
+    ['install.enrolled', 'agent', 'the agent enrolled with the install token', 'agentVersion, publicKeyFingerprint, ip, hostname'],
+    ['login.succeeded', 'agent', 'a person logged in to the agent GUI with the deployment access key (/_opm/login); session 6 h, no sliding renewal', 'sessionId, siteSlug, keyVersion, ip, userAgent'],
+    ['login.failed', 'agent', 'a wrong access key at /_opm/login (5 failures / 5 min per IP → rate limit)', 'siteSlug, ip, userAgent'],
+    ['logout', 'agent', 'a person clicked Log out (session ends now); a 6 h expiry writes no record', 'sessionId, siteSlug, actor?'],
+    ['actor.declared', 'agent', 'after login, a person answered the "Who is working right now?" popup (every page load, refresh and new tab); it names the person, it is not authentication', 'email, sessionId, siteSlug, userAgent, ip'],
+    ['proposal.published', 'cloud', 'a cloud operator published a proposal from /diff', 'revId, parentRevId, seq, summary'],
+    ['proposal.created', 'agent', 'a local proposal was created in the agent GUI', 'revId, parentRevId, seq, summary'],
+    ['proposal.staged', 'agent', 'staging finished on a site', 'revId, result (ready | failed), error, durationMs'],
+    ['proposal.stale', 'agent', 'the proposal parent is not the head', 'revId, parentRevId, headRevId'],
+    ['proposal.superseded', 'cloud', 'a newer cloud proposal replaced it', 'revId, byRevId'],
+    ['proposal.approved', 'agent', 'a person approved (after 60 s and ACCEPT)', 'revId, approver email'],
+    ['update.snapshot', 'agent', 'the pre-update snapshot is done on a site', 'revId, snapshotId, sizeBytes'],
+    ['update.applied', 'agent', 'the update is committed on all sites', 'revId, seq, durationMs'],
+    ['update.failed', 'agent', 'a step failed (snapshot, apply or verify)', 'revId, step, siteSlug, containerSlug?, error, failures? (per failed container: exit code, restarts, OOM, ports, kept-as name, last 40 log lines; ≤ 12 KiB)'],
+    ['update.rolled-back', 'agent', 'the rollback after a failure is done', 'revId, snapshotId, durationMs'],
+    ['config.local-change', 'agent', 'a local edit was applied', 'revId, sections changed, actor'],
+    ['snapshot.created', 'agent', 'a manual or scheduled snapshot', 'snapshotId, reason, sizeBytes'],
+    ['snapshot.downloaded', 'agent', 'a snapshot file was downloaded', 'snapshotId, includeImages'],
+    ['snapshot.imported', 'agent', 'an .opmsnap file was imported', 'snapshotId, sizeBytes, verified'],
+    ['snapshot.rolled-back', 'agent', 'a manual rollback to a snapshot', 'snapshotId, newRevId'],
+    ['transfer.sent', 'cloud / agent', 'a file was sent (cloud → site: once when the transfer starts, stage started, and once when the upload completes, stage uploaded; site → cloud: on the agent when the file is queued on the site)', 'transferId, direction, fileName, sizeBytes, stage, source (agent: browser | path), sourcePath'],
+    ['transfer.deleted', 'cloud', 'a person deleted a transfer in the cloud', 'transferId, direction, fileName, sizeBytes, siteSlug, previousStatus'],
+    ['draft.updated', 'cloud', 'a person saved a draft section or one site in the cloud', 'section, siteSlug?, draftVersion, paths (changed paths, never values), pathsTotal'],
+    ['activities.uploaded', 'cloud', 'a person uploaded a .opmlog file by hand', 'signedBy, inserted, skipped, rejected, sites, bundle, sizeBytes'],
+    ['deployment.deleted', 'cloud', 'a person deleted the deployment (soft delete)', 'label'],
+    ['transfer.received', 'agent', 'a file was downloaded in a browser', 'transferId, direction'],
+    ['transfer.saved', 'agent', 'a received file was saved on the server', 'transferId, savedPath'],
+    ['secret.revealed', 'cloud / agent', 'a person clicked View and saw a secret value (cloud or agent GUI); shown 60 s, View again any time (cloud: also an audit entry)', 'secretSlug, actor, where (cloud | agent), siteSlug?'],
+    ['secret.regenerated', 'cloud', 'a person clicked Regenerate on a secret with a generate rule (new value shown 60 s; also draft.updated + an audit entry)', 'secretSlug, draftVersion'],
+    ['access-key.revealed', 'cloud', 'a person clicked View on the access key (cloud Setup page); shown 60 s (also an audit entry)', 'version'],
+    ['install-token.revealed', 'cloud', 'a person clicked View on an active install command (cloud Setup page); shown 60 s (also an audit entry)', 'siteSlug, tokenHash'],
+    ['secret.fetched', 'cloud / agent', 'a site got secret values: proposal download from the cloud, or a peer copy during staging; never the values', 'siteSlug, secretSlugs[], revId'],
+    ['internet.tunnel.started', 'agent', 'a browser tab started to give internet to the agent (/_opm/app/internet)', 'leaseId, actor, userAgent'],
+    ['internet.tunnel.stopped', 'agent', 'the tab stopped the tunnel', 'leaseId, actor, reqs, bytes'],
+    ['internet.tunnel.revoked', 'agent', 'another tab revoked the active tunnel (after a confirm)', 'leaseId, revokedBy, previousActor'],
+    ['internet.tunnel.expired', 'system', 'the tunnel tab did not poll for 30 s', 'leaseId, lastPollAt'],
+    ['registry.password-revealed', 'cloud', 'a person revealed a registry password (root scope). This is a root audit-log action, not a deployment activity; every root write is audited, see "Activities and the root audit log"', 'registryId, actor'],
+    ['debug.downloaded', 'agent', 'a bundle with the debug log was downloaded', 'sites, fromTs, toTs'],
+    ['agent.started', 'system', 'the agent process started', 'agentVersion, headRevId'],
+    ['agent.port-bind-failed', 'system', 'the agent could not bind a port (edge 80/443 or agentGuiAliasPort); the other listeners keep running; alert edge-port-bind-failed or gui-alias-port-bind-failed', 'port, purpose (edge-http | edge-https | gui-alias), error, owner? (the process holding the port); written once, the agent retries every 30 s'],
+    ['edge.reloaded', 'system', 'the agent loaded a new edge config into the embedded Caddy (graceful, no dropped connections)', 'revSeq, hosts, routes, durationMs'],
+    ['edge.reload-failed', 'system', 'Caddy refused the new edge config; the previous config keeps running and the update step fails → automatic rollback', 'revSeq, error'],
+    ['cert.issued', 'system', 'a first certificate for an edge host (acme, internal or files)', 'hostname, mode, issuer, notAfter'],
+    ['cert.renewed', 'system / agent', 'a certificate was renewed (automatic, or a person clicked Renew)', 'hostname, issuer, notAfter, actor?'],
+    ['cert.failed', 'system / agent', 'issue or renewal failed (an alert; ACME error text, no secrets)', 'hostname, mode, challenge, error, actor?'],
+    ['cert.local-ca-downloaded', 'agent', 'a person downloaded the local CA certificate', 'siteSlug, actor'],
+    ['site.unreachable', 'system', 'a peer did not answer for 90 s', 'peerSlug, lastSeen'],
+  ];
+  let org = 'all';
+  const draw = () => {
+    const q = document.getElementById('cQ').value.toLowerCase();
+    const rows = C.filter((r) => (org === 'all' || r[1].split(' / ').includes(org)) && (!q || r.join(' ').toLowerCase().includes(q)));
+    document.querySelector('#cTbl tbody').innerHTML = rows.map((r) => `<tr><td><code>${r[0]}</code></td><td><span class="tag ${r[1] === 'agent' ? 'agent' : r[1] === 'cloud' ? 'app' : ''}">${r[1]}</span></td><td>${r[2]}</td><td class="small mono">${r[3]}</td></tr>`).join('');
+    document.getElementById('cCount').textContent = `${rows.length} of ${C.length}`;
+  };
+  seg(document.getElementById('cSeg'), (v) => { org = v; draw(); });
+  document.getElementById('cQ').oninput = draw;
+})();
+
+// debug viewer
+(function () {
+  const L = [
+    ['09:30:01', 'app', 'info', 'cloudlink', 'poll ok', '{"proposals":1}'],
+    ['09:30:02', 'db', 'debug', 'mesh', 'peer answered', '{"peer":"app","ms":4}'],
+    ['09:30:05', 'app', 'info', 'stager', 'layer downloaded', '{"service":"api","layer":"sha256:3f…","bytes":31457280}'],
+    ['09:30:09', 'db', 'warn', 'health', 'check slow', '{"service":"postgres","ms":4200}'],
+    ['09:30:12', 'app', 'info', 'expr', 'resolved', '{"key":"DATABASE_URL","refs":["secret.db-password","site.db.host"]}'],
+    ['09:30:15', 'db', 'error', 'driver', 'port in use', '{"hostPort":5432,"by":"pid 812"}'],
+    ['09:30:16', 'app', 'info', 'coordinator', 'staging failed on db', '{"revId":"01JB…"}'],
+  ];
+  const lv = { debug: 0, info: 1, warn: 2, error: 3 };
+  let site = '*', min = 'debug';
+  const draw = () => {
+    const r = L.filter((x) => (site === '*' || x[1] === site) && lv[x[2]] >= lv[min]);
+    document.getElementById('dBox').innerHTML = r.map((x) => `<div class="${x[2] === 'error' ? 'bad' : x[2] === 'warn' ? 'dup' : ''}">{"level":"${x[2]}","ts":"2026-10-07T${x[0]}Z","site":"${x[1]}","module":"${x[3]}","msg":"${x[4]}","fields":${x[5]}}</div>`).join('') || '<div class="pending">(no lines)</div>';
+  };
+  seg(document.getElementById('dSeg'), (v) => { site = v; draw(); });
+  seg(document.getElementById('dLvl'), (v) => { min = v; draw(); });
+})();
+
+// uptime demo
+(function () {
+  let s0 = 7;
+  const rnd = () => { s0 = (s0 * 9301 + 49297) % 233280; return s0 / 233280; };
+  const rowsFor = (mode) => {
+    const n = mode === '24h' ? 144 : mode === '30d' ? 720 : 720;
+    const names = mode === 'cloud' ? ['site app', 'site db'] : ['site app', 'site db', 'app/web', 'app/api', 'db/postgres'];
+    s0 = 7;
+    return names.map((nm, k) => {
+      const cells = [];
+      for (let i = 0; i < n; i++) {
+        let c = 'var(--ok)';
+        if (mode === 'cloud' && k === 1 && i > 400 && i < 410) c = 'var(--border)';
+        else if (mode !== 'cloud' && k === 4 && i > n * 0.6 && i < n * 0.6 + (mode === '24h' ? 3 : 4)) c = 'var(--bad)';
+        else if (rnd() < 0.004) c = 'var(--bad)';
+        cells.push(c);
+      }
+      return [nm, cells];
+    });
+  };
+  seg(document.getElementById('uSeg'), (v) => {
+    const rows = rowsFor(v);
+    const cols = v === '24h' ? 144 : 120;
+    const agg = (cells) => { if (v === '24h') return cells; const out = []; for (let i = 0; i < cells.length; i += 6) { const sl = cells.slice(i, i + 6); out.push(sl.includes('var(--bad)') ? 'var(--bad)' : sl.includes('var(--border)') ? 'var(--border)' : 'var(--ok)'); } return out; };
+    document.getElementById('uBox').innerHTML = rows.map(([nm, cells]) => { const c = agg(cells); return `<div class="hmrow"><span>${nm}</span><div class="hm" style="grid-template-columns:repeat(${c.length},minmax(0,1fr))">${c.map((x) => `<i style="background:${x}"></i>`).join('')}</div></div>`; }).join('') +
+      `<p class="small muted" style="margin:6px 0 0">${v === '24h' ? '144 cells × 10 min, from 2 880 raw samples per row.' : v === '30d' ? '30 days of hourly buckets, shown as 6-hour cells (720 buckets per row).' : 'Cloud view: only "online" per site (heartbeat < 90 s). The grey block is a gap with no heartbeat.'}</p>`;
+  });
+})();
+
+// transfers diagram
+(function () {
+  const s = document.getElementById('txSvg'); MK(s, 'ta');
+  BOX(s, 20, 30, 200, 60, 'cloud …/db/transfers · Send', 'operator uploads', 'app');
+  BOX(s, 350, 85, 200, 60, 'Storage', 'transfers/<dep>/<id>', '');
+  BOX(s, 680, 30, 200, 60, 'agent db/transfers · Receive', 'fetched when online', 'agent');
+  BOX(s, 680, 160, 200, 60, 'agent db/transfers · Send', 'Browser | Path → queued', 'agent');
+  BOX(s, 20, 160, 200, 60, 'cloud …/db/transfers · Receive', 'operator downloads', 'app');
+  ARR(s, 'M220,60 C280,60 300,100 348,105', 'ta');
+  ARR(s, 'M550,105 C600,100 620,60 678,60', 'ta');
+  ARR(s, 'M680,190 C620,190 600,140 552,130', 'ta', 'ln-agent');
+  ARR(s, 'M350,130 C300,140 280,190 222,190', 'ta', 'ln-agent');
+  s.appendChild(svgEl('text', { x: 450, y: 22, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'to-site (blue) · to-cloud (teal) · store-and-forward: the agent fetches / uploads whenever it is online'));
+})();
+(function () {
+  const s = document.getElementById('txSm'); MK(s, 'tb');
+  const st = [['uploading', 20], ['ready', 200], ['saved-on-server', 380], ['downloaded', 560], ['expired', 740]];
+  st.forEach(([t, x]) => BOX(s, x, 45, 150, 46, t, null, t === 'expired' ? 'ext' : t === 'ready' ? 'app' : ''));
+  ARR(s, 'M170,68 H198', 'tb'); ARR(s, 'M350,62 H378', 'tb'); ARR(s, 'M350,80 C420,120 500,120 560,92', 'tb');
+  ARR(s, 'M275,45 C400,0 700,0 815,43', 'tb', 'ln-boot');
+  s.appendChild(svgEl('text', { x: 545, y: 130, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, 'browser download (to-site: on the agent; to-cloud: in the cloud)'));
+  s.appendChild(svgEl('text', { x: 545, y: 14, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, 'after 30 days from any state'));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+// Dry run of the agent GUI flows against T4's mock build (agent/gui: npm run build:mock; node tests/serve.mjs build-mock 4173).
+import { chromium } from 'playwright';
+import * as ui from './ui.js';
+import { write } from './lib/report.js';
+const base = process.argv[2] ?? 'http://127.0.0.1:4173';
+const key = 'K7QF-2M3X-PL4D-6WZT-R3VB-6HJN';
+const br = await chromium.launch();
+const ctx = await br.newContext({ baseURL: base });
+await ctx.addInitScript(() => localStorage.setItem('opm.mock.waitSec', '3'));
+const page = await ctx.newPage();
+await page.goto('/_opm/app/updates');
+await page.waitForTimeout(1500);
+console.log('url', page.url());
+await br.close();
+await ui.agentLoginPage(base);
+const revId = '';
+console.log('updateId', await ui.agentApproveUi(base, key, 'ops@example.com', revId, 'dryrun-agent-approve'));
+const snap = '';
+console.log('rollback', await ui.agentRollbackUi(base, key, 'ops@example.com', snap, 'dryrun-agent-rollback'));
+await ui.close();
+console.log(write());

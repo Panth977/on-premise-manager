@@ -1,0 +1,46 @@
+{
+  "name": "@opm/agent-gui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OPM agent GUI (Svelte 5 SPA served by the Go agent at /_opm/, embedded with go:embed)",
+  "scripts": {
+    "dev": "node scripts/vendor-xterm.mjs && node scripts/vendor-codemirror.mjs && vite dev",
+    "dev:mock": "node scripts/vendor-xterm.mjs && node scripts/vendor-codemirror.mjs && VITE_MOCK=1 vite dev",
+    "build": "node scripts/vendor-xterm.mjs && node scripts/vendor-codemirror.mjs && svelte-kit sync && vite build",
+    "build:mock": "node scripts/vendor-xterm.mjs && node scripts/vendor-codemirror.mjs && VITE_MOCK=1 OPM_GUI_OUT=build-mock vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "serve": "node tests/serve.mjs",
+    "test:e2e": "npm run build:mock && playwright test",
+    "test:e2e:real": "OPM_E2E_REAL=1 playwright test --project=real",
+    "vendor": "node scripts/vendor-xterm.mjs && node scripts/vendor-codemirror.mjs"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
+    "@lezer/highlight": "^1.2.5",
+    "@opm/shared": "file:../../shared",
+    "@playwright/test": "^1.55.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.70.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@types/node": "^22.20.5",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  shared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: cd shared && npm ci && npm run build && npm test
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: agent/go.mod }
+      - name: Agent GUI (embedded into the binary)
+        run: |
+          (cd shared && npm ci && npm run build)
+          (cd ui && npm ci)
+          (cd agent/gui && npm ci && npm run check && npm run build)
+      - run: cd agent && go vet ./... && go test -short ./...
+
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: |
+          (cd shared && npm ci && npm run build)
+          (cd ui && npm ci)
+          (cd frontend && npm ci && npm run check)
+          (cd backend && npm ci && npm run typecheck && npm run test:adapters)

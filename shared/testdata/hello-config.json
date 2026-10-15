@@ -1,0 +1,419 @@
+{
+  "description": "Hello-world e2e deployment config (release 1, theme green). See SPEC-final.md §15. Service ids are fixed test ids; the e2e run uses the ids the cloud generates.",
+  "deploymentId": "DepHelloWorld0000001",
+  "banner": "Welcome to the hello-world deployment\n",
+  "config": {
+    "variables": [
+      {
+        "variableSlug": "theme",
+        "label": "Page theme",
+        "description": "Colour of the hello page",
+        "type": "enum",
+        "value": "green",
+        "required": true,
+        "options": [
+          "green",
+          "yellow",
+          "blue",
+          "red"
+        ],
+        "validation": null
+      },
+      {
+        "variableSlug": "greeting",
+        "label": "Greeting",
+        "description": "",
+        "type": "string",
+        "value": "Hello from OPM",
+        "required": false,
+        "options": null,
+        "validation": null
+      },
+      {
+        "variableSlug": "redis-host-port",
+        "label": "Redis host port",
+        "description": "Published on site db",
+        "type": "number",
+        "value": 16379,
+        "required": true,
+        "options": null,
+        "validation": {
+          "min": 1024,
+          "max": 65535,
+          "pattern": null
+        }
+      },
+      {
+        "variableSlug": "app-host",
+        "label": "App host",
+        "description": "Address of site app",
+        "type": "string",
+        "value": "127.0.0.1",
+        "required": true,
+        "options": null,
+        "validation": null
+      },
+      {
+        "variableSlug": "db-host",
+        "label": "DB host",
+        "description": "Address of site db as seen from containers",
+        "type": "string",
+        "value": "host.docker.internal",
+        "required": true,
+        "options": null,
+        "validation": null
+      }
+    ],
+    "secrets": [
+      {
+        "secretSlug": "api-token",
+        "label": "API token",
+        "description": "",
+        "required": true,
+        "generate": {
+          "charset": "alnum",
+          "length": 24
+        },
+        "value": "Zx8Kq2Lm9Np4Rs7Tv1Wy3Ab5",
+        "rotatedAt": "2026-10-07T10:00:00.000Z"
+      }
+    ],
+    "files": [
+      {
+        "fileSlug": "banner",
+        "label": "Banner text",
+        "description": "Shown under the title",
+        "mime": "text/plain",
+        "editor": "text",
+        "maxBytes": 4096,
+        "content": {
+          "sha256": "sha256:170d0b7ecf5138276579feee3f1d76f872c47676a374560bb8bf6467c9f3e805",
+          "sizeBytes": 38
+        },
+        "render": "expressions",
+        "location": {
+          "kind": "auto"
+        }
+      }
+    ],
+    "sites": [
+      {
+        "siteSlug": "db",
+        "label": "Database site",
+        "config": {
+          "host": "{{ var.db-host }}",
+          "agentPort": 7081,
+          "agentGuiAliasPort": 8091,
+          "depends": [],
+          "notFoundPageId": null,
+          "edge": {
+            "httpPort": 8082,
+            "httpsPort": null,
+            "maxBodyBytes": null,
+            "hosts": [
+              {
+                "hostname": "*",
+                "tls": {
+                  "mode": "none"
+                },
+                "redirectHttpToHttps": false,
+                "responseHeaders": {
+                  "set": {},
+                  "add": {},
+                  "remove": [],
+                  "always": []
+                }
+              }
+            ],
+            "routes": []
+          },
+          "volumes": [
+            {
+              "volumeSlug": "redis-data",
+              "label": "Redis data",
+              "description": "",
+              "backup": true,
+              "location": {
+                "kind": "auto"
+              },
+              "kind": "dir",
+              "seed": null
+            }
+          ],
+          "containers": [
+            {
+              "containerSlug": "redis",
+              "serviceSlug": "redis",
+              "version": "v1",
+              "enabled": true,
+              "env": [],
+              "ports": [
+                {
+                  "portName": "tcp",
+                  "hostPort": "{{ var.redis-host-port }}",
+                  "hostIp": "0.0.0.0",
+                  "edge": true
+                }
+              ],
+              "volumes": [
+                {
+                  "imageVolume": "data",
+                  "mountPath": null,
+                  "source": {
+                    "kind": "volume",
+                    "volumeSlug": "redis-data"
+                  },
+                  "readOnly": false
+                }
+              ],
+              "command": [
+                "redis-server",
+                "--appendonly",
+                "yes"
+              ],
+              "entrypoint": null,
+              "restart": "always",
+              "resources": {
+                "cpus": null,
+                "memoryMb": 256
+              },
+              "healthcheck": null,
+              "depends": []
+            }
+          ]
+        }
+      },
+      {
+        "siteSlug": "app",
+        "label": "Application site",
+        "config": {
+          "host": "{{ var.app-host }}",
+          "agentPort": 7080,
+          "agentGuiAliasPort": 8090,
+          "depends": [
+            {
+              "siteSlug": "db"
+            }
+          ],
+          "notFoundPageId": "NfpHello000000000001",
+          "edge": {
+            "httpPort": 8081,
+            "httpsPort": null,
+            "maxBodyBytes": null,
+            "hosts": [
+              {
+                "hostname": "*",
+                "tls": {
+                  "mode": "none"
+                },
+                "redirectHttpToHttps": false,
+                "responseHeaders": {
+                  "set": {},
+                  "add": {},
+                  "remove": [],
+                  "always": []
+                }
+              }
+            ],
+            "routes": [
+              {
+                "routeId": "api",
+                "hosts": [],
+                "match": {
+                  "kind": "prefix",
+                  "path": "/api",
+                  "stopRegex": false,
+                  "methods": null
+                },
+                "action": {
+                  "type": "proxy",
+                  "containerSlug": "hello-api",
+                  "portName": "http",
+                  "stripPrefix": true,
+                  "rewrite": null,
+                  "addPrefix": null,
+                  "setHeaders": {
+                    "X-Opm-Site": "{{ self.slug }}"
+                  },
+                  "removeHeaders": [],
+                  "websocket": false,
+                  "connectTimeoutSec": 60,
+                  "sendTimeoutSec": 60,
+                  "readTimeoutSec": 30,
+                  "requestBuffering": false,
+                  "responseBuffering": false,
+                  "maxBodyBytes": null
+                },
+                "order": 1,
+                "responseHeaders": null
+              },
+              {
+                "routeId": "old",
+                "hosts": [],
+                "match": {
+                  "kind": "prefix",
+                  "path": "/old",
+                  "stopRegex": false,
+                  "methods": null
+                },
+                "action": {
+                  "type": "redirect",
+                  "to": "/",
+                  "status": 308,
+                  "keepPath": false
+                },
+                "order": 2,
+                "responseHeaders": null
+              },
+              {
+                "routeId": "web",
+                "hosts": [],
+                "match": {
+                  "kind": "prefix",
+                  "path": "/",
+                  "stopRegex": false,
+                  "methods": null
+                },
+                "action": {
+                  "type": "proxy",
+                  "containerSlug": "hello-web",
+                  "portName": "http",
+                  "stripPrefix": false,
+                  "rewrite": null,
+                  "addPrefix": null,
+                  "setHeaders": {},
+                  "removeHeaders": [],
+                  "websocket": false,
+                  "connectTimeoutSec": 60,
+                  "sendTimeoutSec": 60,
+                  "readTimeoutSec": 30,
+                  "requestBuffering": false,
+                  "responseBuffering": false,
+                  "maxBodyBytes": null
+                },
+                "order": 3,
+                "responseHeaders": null
+              }
+            ]
+          },
+          "volumes": [
+            {
+              "volumeSlug": "hello-api-data",
+              "label": "API data",
+              "description": "",
+              "backup": true,
+              "location": {
+                "kind": "auto"
+              },
+              "kind": "dir",
+              "seed": null
+            }
+          ],
+          "containers": [
+            {
+              "containerSlug": "hello-api",
+              "serviceSlug": "hello-api",
+              "version": "v1",
+              "enabled": true,
+              "env": [
+                {
+                  "name": "REDIS_ADDR",
+                  "value": "{{ site.db.host }}:{{ site.db.port.redis.tcp }}",
+                  "secretRef": null
+                },
+                {
+                  "name": "API_TOKEN",
+                  "value": null,
+                  "secretRef": "api-token"
+                },
+                {
+                  "name": "GREETING",
+                  "value": "{{ var.greeting }}",
+                  "secretRef": null
+                }
+              ],
+              "ports": [
+                {
+                  "portName": "http",
+                  "hostPort": null,
+                  "hostIp": "0.0.0.0",
+                  "edge": true
+                }
+              ],
+              "volumes": [
+                {
+                  "imageVolume": "data",
+                  "mountPath": null,
+                  "source": {
+                    "kind": "volume",
+                    "volumeSlug": "hello-api-data"
+                  },
+                  "readOnly": false
+                }
+              ],
+              "command": null,
+              "entrypoint": null,
+              "restart": "always",
+              "resources": {
+                "cpus": null,
+                "memoryMb": 128
+              },
+              "healthcheck": null,
+              "depends": []
+            },
+            {
+              "containerSlug": "hello-web",
+              "serviceSlug": "hello-web",
+              "version": "v1",
+              "enabled": true,
+              "env": [
+                {
+                  "name": "THEME",
+                  "value": "{{ var.theme }}",
+                  "secretRef": null
+                },
+                {
+                  "name": "BANNER_FILE",
+                  "value": "{{ file.banner.path }}",
+                  "secretRef": null
+                }
+              ],
+              "ports": [
+                {
+                  "portName": "http",
+                  "hostPort": null,
+                  "hostIp": "0.0.0.0",
+                  "edge": true
+                }
+              ],
+              "volumes": [
+                {
+                  "imageVolume": null,
+                  "mountPath": "/etc/hello/banner.txt",
+                  "source": {
+                    "kind": "file",
+                    "fileSlug": "banner"
+                  },
+                  "readOnly": true
+                }
+              ],
+              "command": null,
+              "entrypoint": null,
+              "restart": "always",
+              "resources": {
+                "cpus": null,
+                "memoryMb": 64
+              },
+              "healthcheck": null,
+              "depends": [
+                {
+                  "containerSlug": "hello-api"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

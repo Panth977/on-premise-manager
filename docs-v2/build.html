@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prototype Build Plan</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .tl { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+  .tl button { text-align: left; font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+  .tl button.on { border-color: var(--accent); background: var(--accent-soft); }
+  .tl .hr { font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: block; }
+  .chk { list-style: none; padding: 0; max-width: 900px; }
+  .chk li { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .chk li input { margin-top: 4px; }
+  .chk li.done span { color: var(--muted); text-decoration: line-through; }
+  pre { white-space: pre; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Build</div>
+<h1>Prototype build plan</h1>
+<p class="lede">Build a working prototype in one day. It must run one full cycle end to end: import an image, create a deployment from a template, install agents on 2 servers, approve the first setup, change a value, publish, and roll back.</p>
+
+<h2 id="goal">Goal</h2>
+<div class="diagram">
+  <svg viewBox="0 0 960 170" role="img" aria-label="Prototype flow">
+    <defs><marker id="ga" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+    <g font-size="11.5" font-weight="600">
+      <rect x="10" y="20" width="130" height="50" rx="9" class="box app" /><text x="75" y="42" text-anchor="middle">cloud login</text><text x="75" y="58" text-anchor="middle" font-size="10" class="muted">registry · service</text>
+      <rect x="170" y="20" width="130" height="50" rx="9" class="box app" /><text x="235" y="42" text-anchor="middle">import image</text><text x="235" y="58" text-anchor="middle" font-size="10" class="muted">copy mode</text>
+      <rect x="330" y="20" width="130" height="50" rx="9" class="box app" /><text x="395" y="42" text-anchor="middle">template</text><text x="395" y="58" text-anchor="middle" font-size="10" class="muted">sites app + db</text>
+      <rect x="490" y="20" width="130" height="50" rx="9" class="box app" /><text x="555" y="42" text-anchor="middle">deployment</text><text x="555" y="58" text-anchor="middle" font-size="10" class="muted">acme-plant</text>
+      <rect x="650" y="20" width="130" height="50" rx="9" class="box agent" /><text x="715" y="42" text-anchor="middle">install agents</text><text x="715" y="58" text-anchor="middle" font-size="10" class="muted">2 VMs · enroll</text>
+      <rect x="810" y="20" width="140" height="50" rx="9" class="box agent" /><text x="880" y="42" text-anchor="middle">agent GUI</text><text x="880" y="58" text-anchor="middle" font-size="10" class="muted">"Who is working right now?"</text>
+      <rect x="810" y="100" width="140" height="50" rx="9" class="box agent" /><text x="880" y="122" text-anchor="middle">first proposal</text><text x="880" y="138" text-anchor="middle" font-size="10" class="muted">staged on both</text>
+      <rect x="650" y="100" width="130" height="50" rx="9" class="box agent" /><text x="715" y="122" text-anchor="middle">approve</text><text x="715" y="138" text-anchor="middle" font-size="10" class="muted">60 s + ACCEPT</text>
+      <rect x="490" y="100" width="130" height="50" rx="9" class="box agent" /><text x="555" y="122" text-anchor="middle">snapshot + apply</text><text x="555" y="138" text-anchor="middle" font-size="10" class="muted">depends order</text>
+      <rect x="330" y="100" width="130" height="50" rx="9" class="box" /><text x="395" y="122" text-anchor="middle">local env change</text><text x="395" y="138" text-anchor="middle" font-size="10" class="muted">new head</text>
+      <rect x="170" y="100" width="130" height="50" rx="9" class="box app" /><text x="235" y="122" text-anchor="middle">diff + publish</text><text x="235" y="138" text-anchor="middle" font-size="10" class="muted">cloud</text>
+      <rect x="10" y="100" width="130" height="50" rx="9" class="box" style="stroke:var(--warn)" /><text x="75" y="122" text-anchor="middle">roll back</text><text x="75" y="138" text-anchor="middle" font-size="10" class="muted">from backups</text>
+    </g>
+    <g class="ln ln-cloud" marker-end="url(#ga)">
+      <path d="M140,45 H168" /><path d="M300,45 H328" /><path d="M460,45 H488" /><path d="M620,45 H648" /><path d="M780,45 H808" />
+      <path d="M880,70 V98" /><path d="M810,125 H782" /><path d="M650,125 H622" /><path d="M490,125 H462" /><path d="M330,125 H302" /><path d="M170,125 H142" />
+    </g>
+  </svg>
+  <div class="cap">Status and activities must show in both GUIs at every step.</div>
+</div>
+
+<h2 id="repo">Repository layout</h2>
+<p>Three codebases. Each has one clear owner role.</p>
+<div class="grid g3">
+<div class="card"><h4>backend/ <span class="tag app">cloud backend</span></h4>
+<pre><code>backend/
+  package.json  tsconfig.json
+  firebase.json firestore.rules
+  storage.rules
+  src/
+    index.ts          # HTTP entry
+    router.ts         # /v1 routes
+    auth/human.ts     # ID token → account
+    auth/access.ts    # access rules
+    auth/agent.ts     # signed requests
+    routes/
+      registries.ts services.ts
+      images.ts notFoundPages.ts
+      templates.ts tags.ts
+      accounts.ts blobs.ts
+      deployments.ts setup.ts
+      draft.ts diff.ts publish.ts
+      activities.ts transfers.ts
+      status.ts
+    agent/
+      install.ts enroll.ts
+      poll.ts heartbeat.ts
+      head.ts proposals.ts
+      images.ts blobs.ts
+      activities.ts setup.ts
+      transfers.ts relay.ts
+    jobs/importImage.ts
+    lib/canonicalJson.ts
+    lib/mask.ts lib/errors.ts
+    schema/*.ts       # types (§2–§3)</code></pre></div>
+<div class="card"><h4>frontend/ <span class="tag app">cloud frontend</span></h4>
+<pre><code>frontend/
+  svelte.config.js
+  src/lib/api.ts      # fetch + ID token
+  src/lib/firebase.ts # Auth only
+  src/lib/schema.ts   # shared types
+  src/lib/editors/    # tables, JSON,
+                      # code editor
+  src/routes/
+    login/
+    app/
+      registries/
+      services/
+        [serviceSlug]/
+          image/[version]/
+            used/
+          used/
+      not-found-pages/[id]/
+      templates/[templateId]/
+        variables/ secrets/
+        files/ sites/[siteSlug]/
+      accounts/ tags/
+      deployments/[deploymentId]/
+        setup/ status/
+        activities/upload/
+        variables/ secrets/ files/
+        sites/[siteSlug]/
+          send/ receive/
+        diff/</code></pre></div>
+<div class="card"><h4>agent/ <span class="tag agent">on-prem agent</span></h4>
+<pre><code>agent/
+  go.mod
+  cmd/opm-agent/main.go
+  internal/
+    store/     # SQLite
+    cloud/     # poll, heartbeat
+    mesh/      # /_opm/peer/ (ping, cloud-view exchange, have lists, relay)
+    distrib/   # blob distribution: peer copy first, one fetcher per blob
+    stager/    # layers, files, dry run
+    expr/      # {{ … }} engine
+    docker/    # Engine API driver
+    edge/      # embedded Caddy (github.com/caddyserver/caddy/v2):
+               # SiteConfig.edge → Caddy JSON → caddy.Load,
+               # /_opm/ handler, not-found page, CertMagic
+               # storage /var/lib/opm/certs
+    guialias/  # agentGuiAliasPort listener (GUI only)
+    tunnel/    # browser internet tunnel (lease, queue)
+    update/    # lock, snapshot,
+               # apply, verify, commit,
+               # rollback
+    snapshot/  # .opmsnap
+    pipe/      # activity upload
+    session/   # /_opm/login: access key → opm_session
+               # cookie (6 h, no sliding renewal)
+    actor/     # "Who is working right now?" popup:
+               # actor token (= session expiry)
+    gui/       # serves agent/gui
+  install/install.sh
+  gui/         # Svelte SPA
+    src/routes/login, app/…</code></pre></div>
+</div>
+
+<h2 id="stack">Tech stack</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Part</th><th>Choice</th><th>Note</th></tr>
+<tr><td>Cloud backend</td><td>Cloud Functions 2nd gen, Node 22, TypeScript, one HTTP function with a router</td><td>Only writer of Firestore and Storage</td></tr>
+<tr><td>Data</td><td>Firestore, Cloud Storage</td><td>Security rules deny all client access</td></tr>
+<tr><td>Human login</td><td>Firebase Auth (email + password, optional Google SSO)</td><td>No signup; admin creates accounts</td></tr>
+<tr><td>Secrets</td><td>Stored like variables (plain values in Firestore and agent SQLite). No KMS, no Secret Manager in the prototype.</td><td>API masks values ("•••" + isSet). View shows a value for 60 s, any number of times; every reveal and every agent fetch is an activity. Encryption at rest is a later item.</td></tr>
+<tr><td>Cloud frontend</td><td>SvelteKit SPA on Firebase Hosting</td><td>Calls <code>api.opm.example/v1</code> with the ID token</td></tr>
+<tr><td>Agent</td><td>Go 1.23, static binary, systemd unit <code>opm-agent</code></td><td>Runs as root for the Docker socket</td></tr>
+<tr><td>Agent store</td><td>SQLite (pure Go driver)</td><td>Revisions, proposals, activities, actors, uptime</td></tr>
+<tr><td>Agent GUI</td><td>Svelte SPA embedded with <code>go:embed</code></td><td>Served at <code>/_opm/</code> on every edge host (80/443), on agentGuiAliasPort (8080) and on agentPort (7080)</td></tr>
+<tr><td>Edge (router)</td><td>Caddy v2 embedded as a Go library (<code>github.com/caddyserver/caddy/v2</code>, <code>caddy.Load</code> with JSON config), in the agent process</td><td>Proxy, strip / add prefix, redirects, many hosts, TLS by CertMagic. Not a child process, not a container. Custom builds with DNS provider modules via <code>xcaddy</code>-style imports for dns-01.</td></tr>
+<tr><td>Containers</td><td>Docker Engine API (Go client)</td><td>Labels opm.deployment, opm.site, opm.service, opm.rev, opm.spec_hash</td></tr>
+<tr><td>Crypto</td><td>Ed25519 (site keys, signatures), actor token JWT (EdDSA). Secret encryption at rest: later</td><td>Standard libraries only</td></tr>
+</table></div>
+
+<h2 id="timeline">Tomorrow: timeline</h2>
+<p>Click a block to see the tasks, the owner and the done-criteria.</p>
+<div class="tl" id="tl"></div>
+<div class="card" id="tlOut"></div>
+
+<h2 id="demo">End-to-end demo script</h2>
+<p>Tick each step when it works. The ticks stay in this browser.</p>
+<ol class="chk" id="demoList"></ol>
+<p><button class="btn" type="button" id="demoReset">Clear all ticks</button></p>
+
+<h2 id="stubs">What is stubbed in the prototype</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Feature</th><th>In the prototype</th><th>Full design</th></tr>
+<tr><td>Image import gateway mode</td><td>Copy mode only</td><td><a href="data-model.html">Image import modes</a></td></tr>
+<tr><td>Email allow-list / per-person keys for the agent GUI</td><td>Not built. <b>In:</b> login with the deployment access key (6 h session) + the actor popup.</td><td><a href="auth.html#login">Auth</a></td></tr>
+<tr><td>Edge TLS modes <code>acme</code> and <code>files</code></td><td>Stretch goal. <b>In:</b> proxy, strip prefix, redirect, multiple hosts, TLS <code>internal</code> and <code>none</code></td><td><a href="networking.html#tls">TLS and certificates</a></td></tr>
+<tr><td>Browser internet tunnel (<code>/_opm/app/internet</code>)</td><td>Stretch goal: only if the end-to-end demo works first</td><td><a href="networking.html#tunnel">Networking</a></td></tr>
+<tr><td>Independent fetch per agent</td><td><b>In:</b> each agent polls, downloads and reports on its own</td><td><a href="agent.html#distribution">Smart distribution</a></td></tr>
+<tr><td>Peer copy of blobs + cloud-view exchange</td><td><b>In:</b> copy from a peer that has the blob; latest fetch wins for the cloud view. The fetcher is simplified to "the first internet site in slug order" (no rendezvous hash yet)</td><td><a href="agent.html#distribution">Rendezvous fetcher with failover</a></td></tr>
+<tr><td>Relay of reports for sites without internet</td><td>Both VMs have internet; relay path not tested</td><td><a href="networking.html#relay">Networking</a></td></tr>
+<tr><td>30-day uptime view</td><td>Last 24 h only</td><td><a href="sync.html">Status</a></td></tr>
+<tr><td>Transfers (send / receive)</td><td>Optional, if time is left</td><td><a href="sync.html">Transfers</a></td></tr>
+<tr><td>Access rules</td><td>One admin role that can do everything</td><td><a href="auth.html">Access</a></td></tr>
+</table></div>
+
+<h2 id="test">Test plan</h2>
+<div class="grid g2">
+<div class="card"><h4>Setup</h4><ul><li>2 Linux VMs (Ubuntu 24.04, 2 vCPU, 4 GB) on one network: <code>app</code> = 10.0.1.10, <code>db</code> = 10.0.1.11</li><li>Docker Engine: nothing to do (the install script installs the pinned Docker 28.5.2 when it is missing; an existing Docker 20.10 or newer is used)</li><li>Ports 80/443 (edge), 8080 (GUI alias) and 7080 (mesh) open between the VMs and from your laptop</li><li>No other program on ports 80/443 of the VMs (the agent edge binds them)</li><li>Outbound 443 to the API domain</li></ul></div>
+<div class="card"><h4>Commands to check</h4>
+<pre><code>systemctl status opm-agent
+journalctl -u opm-agent -n 50
+docker ps --filter label=opm.deployment
+curl -s http://10.0.1.10/_opm/healthz
+curl -s http://10.0.1.11/_opm/healthz
+curl -s -o /dev/null -w "%{http_code}" \
+  http://10.0.1.10/no-such-path   # 404 page</code></pre></div>
+</div>
+<ol class="steps">
+  <li><b>Install</b>Run the install command on each VM. Check that both agents show in the cloud Status page.</li>
+  <li><b>First setup</b>Approve the first proposal. Check that <code>postgres</code> on db is ready before <code>api</code> on app starts.</li>
+  <li><b>Failure</b>Publish a proposal with a bad health check. Check that both sites roll back and the proposal shows <code>failed-rolled-back</code>.</li>
+  <li><b>Local change</b>Change an env value in the agent GUI. Check that the cloud Diff page shows the new head.</li>
+  <li><b>Stale proposal</b>Publish from an old draft after a local change. Check that the agents mark it <code>stale</code>.</li>
+  <li><b>Rollback</b>Roll back to the pre-update snapshot. Check the site volumes (restored by volumeSlug) and the head.</li>
+</ol>
+
+<h2 id="risks">Risks</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Risk</th><th>Effect</th><th>Action</th></tr>
+<tr><td>Image import is slow for large images</td><td>The demo waits</td><td>Import the demo images early in the day</td></tr>
+<tr><td>Docker Engine API version differences</td><td>Container create fails</td><td>Pin the API version in the Go client</td></tr>
+<tr><td>Mesh signature clock skew</td><td>Requests rejected (60 s window)</td><td>Enable NTP on both VMs</td></tr>
+<tr><td>Rollback of site volumes is not tested</td><td>Data loss in a failure case</td><td>Run test step 3 before the demo</td></tr>
+<tr><td>Scope grows during the day</td><td>No end-to-end run</td><td>Keep the stub list; finish the demo script first</td></tr>
+</table></div>
+
+<h2 id="questions">Open questions</h2>
+<ul>
+  <li><b>Actor identity on agents:</b> the "Who is working right now?" email is declared, not verified. Options later: an email allow-list per deployment, or a site PIN.</li>
+  <li><b>Windows hosts:</b> not supported.</li>
+  <li><b>Offline install bundle:</b> later.</li>
+  <li><b>Image signing:</b> later.</li>
+</ul>
+</main>
+</div>
+<script>
+const TL = [
+  { hr: '09:00–10:00', t: 'Scaffold', owner: 'All', tasks: ['Create the 3 repos from the layout above', 'Firebase project: Firestore, Storage, Auth, Functions', 'Shared schema types (§2–§3) in backend + frontend', 'Agent: main.go, config file, SQLite open'], done: 'Each codebase builds and starts. The API answers GET /v1/healthz.' },
+  { hr: '10:00–11:30', t: 'Catalog', owner: 'Backend + frontend', tasks: ['Registries (password write-only)', 'Services + images (register a version from a full image reference, copy import job)', 'Icon library (Lucide picker + uploads)', 'Not-found pages (create only)', 'Frontend list + create pages'], done: 'An image shows import.status = ready with a digest and layers.' },
+  { hr: '11:30–13:00', t: 'Templates + deployments', owner: 'Backend + frontend', tasks: ['Template editor: variables, secrets, files, sites, containers', 'Deployment from template (snapshot copy)', 'Draft PUT endpoints + validation'], done: 'Deployment acme-plant exists with sites app and db.' },
+  { hr: '13:00–14:00', t: 'Install + enroll', owner: 'Agent + backend', tasks: ['Install token (24 h, single use) + install script', 'Agent: site key, POST /v1/agent/enroll', 'Access key on the cloud Setup page (stored; View any time for 60 s, Regenerate; sites get only accessKeyHash)', 'Agent /_opm/login → opm_session cookie (6 h, no sliding renewal)', 'Agent GUI popup "Who is working right now?" + actor token (= session expiry)'], done: 'Both VMs show as enrolled and online in the cloud.' },
+  { hr: '14:00–15:30', t: 'Proposal + staging', owner: 'Agent + backend', tasks: ['Diff + publish (revision, proposal)', 'Poll, staging: layers, files, docker load, dry run', 'Expression engine (paths + filters)', 'Proposal status per site'], done: 'The first proposal shows staging = ready on both sites.' },
+  { hr: '15:30–17:00', t: 'Approve + apply', owner: 'Agent', tasks: ['Gate check, 60 s wait, ACCEPT dialog', 'Lock, snapshot, apply in depends order, verify, commit', 'Rollback on failure', 'Edge: Caddy JSON from SiteConfig.edge, caddy.Load in the apply step, reload failure → rollback', 'Edge routes: proxy + strip prefix + redirect, hosts 10.0.1.10 (internal TLS) and * (none)'], done: 'All containers run. https://10.0.1.10/ shows web, /api/… reaches api with the prefix stripped, /old redirects, an unknown host path on db gets the 404 page.' },
+  { hr: '17:00–18:00', t: 'Status + activities', owner: 'Agent + frontend', tasks: ['Heartbeat + cloud Status page', 'Activity log + upload pipe (upsert)', 'Agent status page for all sites'], done: 'Both GUIs show the same activities and container states.' },
+  { hr: '18:00–19:00', t: 'Local change + rollback', owner: 'All', tasks: ['Local env edit → local proposal', 'Head report → cloud Diff', 'Backups page: roll back to a snapshot'], done: 'The full demo script passes once.' },
+];
+const DEMO = [
+  'Log in to the cloud frontend as admin.',
+  'Create a registry (Docker Hub) and test the login.',
+  'Create services web, api, postgres. Register version v1 of each from its full image reference (copy mode).',
+  'Create a not-found page.',
+  'Create the template "Two-site web + database" with sites app (web, api) and db (postgres).',
+  'Create deployment acme-plant from the template.',
+  'Create install commands for app and db. Run them on the 2 VMs.',
+  'See both sites online on the cloud Status page.',
+  'Copy the access key from the cloud Setup page (View, then Copy). Open https://10.0.1.10/_opm/app, log in with the key, then answer the "Who is working right now?" popup with your email.',
+  'Publish the first proposal from the cloud Diff page.',
+  'See staging = ready on both sites in /_opm/app/updates.',
+  'Click Approve. Wait 60 s. Type ACCEPT.',
+  'See postgres ready before api starts. See all containers ready.',
+  'Open https://10.0.1.10/ (web, local CA), https://10.0.1.10/api/health (api, prefix stripped) and http://10.0.1.11/x (db: 404 page).',
+  'In the agent GUI Config → Edge, use Test a URL for /old/a and see 308 → /new/a. Open http://10.0.1.10:8080/_opm/app (the GUI alias).',
+  'See the same activities in the agent GUI and in the cloud.',
+  'Change an env value of api in the agent GUI. Approve the local proposal.',
+  'See the new head on the cloud Diff page.',
+  'Roll back to the pre-update snapshot in /_opm/app/backups.',
+];
+const tl = document.getElementById('tl'), out = document.getElementById('tlOut');
+function showTl(i) {
+  [...tl.children].forEach((b, j) => b.classList.toggle('on', i === j));
+  const x = TL[i];
+  out.innerHTML = `<h4>${x.hr} · ${x.t} <span class="tag">${x.owner}</span></h4><ul>${x.tasks.map((t) => `<li>${t}</li>`).join('')}</ul><p><b>Done when:</b> ${x.done}</p>`;
+}
+TL.forEach((x, i) => { const b = h('button', { type: 'button' }, `<span class="hr">${x.hr}</span>${x.t}`); b.onclick = () => showTl(i); tl.appendChild(b); });
+showTl(0);
+const KEY = 'opm2-demo-ticks';
+let ticks = {};
+try { ticks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { ticks = {}; }
+const dl = document.getElementById('demoList');
+function save() { try { localStorage.setItem(KEY, JSON.stringify(ticks)); } catch (e) {} }
+DEMO.forEach((t, i) => {
+  const li = h('li', {}, `<input type="checkbox" id="dm${i}" /><span><label for="dm${i}">${i + 1}. ${t}</label></span>`);
+  const cb = li.querySelector('input');
+  cb.checked = !!ticks[i];
+  li.classList.toggle('done', cb.checked);
+  cb.onchange = () => { ticks[i] = cb.checked; li.classList.toggle('done', cb.checked); save(); };
+  dl.appendChild(li);
+});
+document.getElementById('demoReset').onclick = () => { ticks = {}; save(); dl.querySelectorAll('input').forEach((c) => { c.checked = false; c.closest('li').classList.remove('done'); }); };
+</script>
+</body>
+</html>

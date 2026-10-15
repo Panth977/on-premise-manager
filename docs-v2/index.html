@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>On-Prem Manager</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Overview</div>
+<h1>On-Prem Manager (OPM)</h1>
+<div class="callout note" id="github-106"><b>New in 0.15: GitHub mirror + docker compose without the agent</b><p>Every template, deployment and site branch is mirrored into a GitHub repository (Admin → GitHub), and every git branch runs as <code>docker compose up</code> per site without the agent. Read <a href="github-mirror.md">github-mirror.md</a>.</p></div>
+<div class="callout note" id="branches-104"><b>New in agent 0.14: branches and commits</b><p>Templates, deployments and sites are branches; compare and cherry-pick between any two; no proposals; manual server changes are detected. Read <a href="branches-commits.md">branches-commits.md</a>.</p></div>
+<p class="lede">OPM installs and manages container applications on client servers. The operations team works in a cloud dashboard. On each client server, an agent runs the containers. Nothing changes on a server until a person on site approves it. OPM has no knowledge of any specific application: services, images and setups are data.</p>
+
+<div class="grid g3">
+  <div class="card"><div class="kpi">3</div><div class="muted small">codebases: cloud backend, cloud frontend, on-prem agent</div></div>
+  <div class="card"><div class="kpi">1</div><div class="muted small">config for all sites of a deployment, with one approval for all sites</div></div>
+  <div class="card"><div class="kpi">80/443 + 1</div><div class="muted small">the edge in each agent (embedded Caddy), one outbound domain (api.opm.example:443)</div></div>
+</div>
+
+<h2 id="codebases">The three codebases</h2>
+<p>Click a box to see what it does.</p>
+<div class="explorer">
+  <div class="diagram">
+    <svg id="sysmap" viewBox="0 0 960 520" role="img" aria-label="OPM system map">
+      <rect x="10" y="10" width="940" height="190" rx="14" class="zone zone-cloud" />
+      <text x="26" y="32" font-size="12" font-weight="600" class="muted">CLOUD · one Firebase project</text>
+      <g data-k="fe"><rect x="30" y="50" width="200" height="64" rx="9" class="box app" /><text x="130" y="76" text-anchor="middle" font-size="13" font-weight="650">cloud frontend</text><text x="130" y="94" text-anchor="middle" font-size="10.5" class="muted">SvelteKit · app.opm.example</text></g>
+      <g data-k="be"><rect x="300" y="50" width="220" height="64" rx="9" class="box app" /><text x="410" y="76" text-anchor="middle" font-size="13" font-weight="650">cloud backend</text><text x="410" y="94" text-anchor="middle" font-size="10.5" class="muted">Cloud Functions · api.opm.example/v1</text></g>
+      <g data-k="fs"><rect x="580" y="40" width="160" height="40" rx="8" class="box" /><text x="660" y="65" text-anchor="middle" font-size="12" font-weight="600">Firestore</text></g>
+      <g data-k="st"><rect x="760" y="40" width="170" height="40" rx="8" class="box" /><text x="845" y="65" text-anchor="middle" font-size="12" font-weight="600">Cloud Storage</text></g>
+      <g data-k="auth"><rect x="580" y="92" width="160" height="40" rx="8" class="box" /><text x="660" y="117" text-anchor="middle" font-size="12" font-weight="600">Firebase Auth</text></g>
+      <g data-k="sec"><rect x="760" y="92" width="170" height="40" rx="8" class="box" /><text x="845" y="117" text-anchor="middle" font-size="12" font-weight="600">Secrets · masked + audited</text></g>
+      <g data-k="hub"><rect x="760" y="146" width="170" height="40" rx="8" class="box ext" /><text x="845" y="171" text-anchor="middle" font-size="12" font-weight="600">Docker registries</text></g>
+      <path d="M230,82 H300" class="ln ln-cloud" /><text x="265" y="76" text-anchor="middle" class="lbl">HTTPS + ID token</text>
+      <path d="M520,72 H580" class="ln ln-cloud" /><path d="M520,82 C640,82 700,66 760,62" class="ln ln-cloud" />
+      <path d="M520,100 H580" class="ln ln-cloud" /><path d="M520,104 C640,104 700,112 760,112" class="ln ln-cloud" />
+      <path d="M520,110 C620,170 700,166 760,166" class="ln ln-boot" /><text x="640" y="172" text-anchor="middle" class="lbl">import only</text>
+
+      <line x1="10" x2="950" y1="230" y2="230" stroke="var(--bad)" stroke-dasharray="6 4" stroke-width="1.4" />
+      <rect x="290" y="218" width="380" height="24" rx="12" fill="var(--bad-soft)" stroke="var(--bad)" stroke-opacity=".4" /><text x="480" y="234" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--bad)">client firewall · outbound api.opm.example:443 only</text>
+
+      <rect x="10" y="256" width="940" height="254" rx="14" class="zone" />
+      <text x="26" y="278" font-size="12" font-weight="600" class="muted">DEPLOYMENT acme-plant · client premises</text>
+      <rect x="40" y="292" width="400" height="200" rx="12" class="zone zone-site" />
+      <text x="56" y="312" font-size="11.5" font-weight="600" class="muted">site app · 10.0.1.10</text>
+      <g data-k="agent"><rect x="60" y="324" width="160" height="150" rx="9" class="box agent" /><text x="140" y="348" text-anchor="middle" font-size="13" font-weight="650">agent</text><text x="140" y="366" text-anchor="middle" font-size="10.5" class="muted">opm-agent (Go)</text><text x="140" y="390" text-anchor="middle" font-size="10.5" class="muted">edge :80/:443 · :7080 · :8080</text><text x="140" y="406" text-anchor="middle" font-size="10.5" class="muted">SQLite · snapshots</text><text x="140" y="422" text-anchor="middle" font-size="10.5" class="muted">Docker Engine API</text></g>
+      <g data-k="ctr"><rect x="240" y="324" width="180" height="150" rx="9" class="box app" /><text x="330" y="348" text-anchor="middle" font-size="13" font-weight="650">containers</text><text x="330" y="372" text-anchor="middle" font-size="10.5" class="muted">web · api · redis</text><text x="330" y="390" text-anchor="middle" font-size="10.5" class="muted">network opm_acme-plant</text></g>
+      <rect x="520" y="292" width="400" height="200" rx="12" class="zone zone-site" />
+      <text x="536" y="312" font-size="11.5" font-weight="600" class="muted">site db · 10.0.1.11</text>
+      <g data-k="agent2"><rect x="540" y="324" width="160" height="150" rx="9" class="box agent" /><text x="620" y="348" text-anchor="middle" font-size="13" font-weight="650">agent</text><text x="620" y="366" text-anchor="middle" font-size="10.5" class="muted">same binary</text><text x="620" y="390" text-anchor="middle" font-size="10.5" class="muted">edge :80/:443 · :7080 · :8080</text></g>
+      <g data-k="ctr2"><rect x="720" y="324" width="180" height="150" rx="9" class="box cs" /><text x="810" y="348" text-anchor="middle" font-size="13" font-weight="650">containers</text><text x="810" y="372" text-anchor="middle" font-size="10.5" class="muted">postgres · worker</text></g>
+      <path d="M220,400 H240" class="ln ln-data" /><path d="M700,400 H720" class="ln ln-data" />
+      <g data-k="mesh"><path d="M220,450 C380,505 380,505 540,450" class="ln ln-agent" /><text x="380" y="494" text-anchor="middle" class="lbl">mesh /_opm/peer/ (signed)</text></g>
+      <path d="M140,324 C140,260 380,200 400,114" class="ln ln-cloud" /><text x="210" y="262" text-anchor="middle" class="lbl">poll · 443</text>
+      <path d="M620,324 C620,260 460,200 430,114" class="ln ln-relay" /><text x="600" y="262" text-anchor="middle" class="lbl">443 or relay</text>
+    </svg>
+    <div class="legend">
+      <span><i style="border-color:var(--accent)"></i>cloud API (443)</span>
+      <span><i style="border-color:var(--teal);border-top-style:dashed"></i>mesh between sites</span>
+      <span><i style="border-color:var(--violet)"></i>agent → containers</span>
+      <span><i style="border-color:var(--muted);border-top-style:dotted"></i>registry access (cloud only)</span>
+    </div>
+  </div>
+  <div class="panel" id="sysinfo"></div>
+</div>
+
+<h2 id="travel">How a change travels</h2>
+<p>A change made in the cloud reaches the sites only as a proposal. Step through it.</p>
+<div id="seqTravel"></div>
+
+<h2 id="rules">The 11 core rules</h2>
+<div class="grid g2">
+  <div class="card"><h4>1 · One config for all sites</h4><p>A deployment has one config: variables, secrets, files and sites. Every site keeps the same copy. One approval covers all sites.</p></div>
+  <div class="card"><h4>2 · The agent never sees registry passwords</h4><p>The cloud imports images from the registries. The agent gets image layers only from the cloud catalog.</p></div>
+  <div class="card"><h4>3 · Nothing runs until approved</h4><p>After install, the site config is empty. The first setup is a proposal like every other change.</p></div>
+  <div class="card"><h4>4 · Approve = all sites ready + 60 s + ACCEPT</h4><p>The Approve button shows only when every site is reachable and staged. After a click, wait 60 s, then type ACCEPT.</p></div>
+  <div class="card"><h4>5 · Snapshot first, roll back on failure</h4><p>Every update starts with a snapshot on every site. If any step fails, all sites roll back to it.</p></div>
+  <div class="card"><h4>6 · Local edits, except containers and images</h4><p>On site, you can change values, files, ports and more. Only the cloud can add or remove containers or change an image version.</p></div>
+  <div class="card"><h4>7 · The cloud never merges silently</h4><p>A proposal must use the current head as its parent. If the head moved, the proposal is stale. Rebase it on the Diff page.</p></div>
+  <div class="card"><h4>8 · Activities are append-only</h4><p>Each site keeps a hash-chained activity log. Uploads are upserts: an existing record never changes.</p></div>
+  <div class="card"><h4>9 · Site login with the access key, then "Who is working right now?"</h4><p>Sites do not use Firebase. The agent GUI login takes the deployment access key (the cloud Setup page shows it with View any time and can regenerate it; the sites get only its hash). The session ends 6 h after login. After login, on every page load, the GUI asks for the email of the person who works now and logs every action with it.</p></div>
+  <div class="card"><h4>10 · The edge is in the agent (embedded Caddy)</h4><p>The agent routes user traffic itself: Caddy v2 runs inside the agent process (not a child process, not a container) on 80/443, with proxy, strip prefix, redirects, many hostnames and automatic TLS. Containers do not publish 80/443. The mesh uses agentPort 7080; the GUI is also on agentGuiAliasPort 8080. Outbound traffic goes only to api.opm.example:443 (and the ACME server for public certificates).</p></div>
+  <div class="card"><h4>11 · Each agent fetches on its own, peers share</h4><p>Every agent with internet polls and downloads by itself. Sites exchange their cloud view every 10 s: the latest fetch wins. Blobs come from a peer first; one fetcher per blob gets the rest from the cloud.</p></div>
+  <div class="card"><h4>12 · No internet? Use a browser tab</h4><p>Route order for cloud calls: own internet → a peer → the browser tunnel. A person opens <code>/_opm/app/internet</code> and clicks Start. Only one tab per site; revoke the old tab first.</p></div>
+</div>
+
+<h2 id="glossary">Glossary</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Deployment</td><td>One on-prem installation for one client. It has 1 or more sites. Example: <code>acme-plant</code>.</td></tr>
+<tr><td>Container</td><td>One instance of a service image on a site. Identified by <code>containerSlug</code> (its name and DNS name on the site network). One service may run as several containers on one site, each with its own env, ports and volumes.</td></tr>
+<tr><td>Transfers</td><td>Agent 0.11.2: one Transfers page per site in both GUIs (Send left, Receive right). Store-and-forward both ways — nobody has to be on the other end: the agent queues sent files and uploads them when the cloud is reachable, and fetches cloud files whenever it is online. Send › Path picks any file on the server through a filesystem picker with a safety policy. See <a href="sync.html#transfers">Transfers</a>.</td></tr>
+<tr><td>Dev tools</td><td>Agent 0.11.0: service GUIs in the agent GUI — HTTP client, PostgreSQL, SQLite, Cassandra (CQL), Redis, MQTT — whose queries the agent runs on the site server. Connections are presets from the cloud (<code>SiteConfig.devTools</code>; credentials as a secret, a container env, an expression or — agent 0.13.1, §21 #103 — a typed Value kept in plain text in the config) or manual ones made on the site; every execution is logged (<code>devtools.query</code>, redacted). See <a href="agent-gui.html#devtools">Agent GUI → Dev tools</a>.</td></tr>
+<tr><td>Site</td><td>One server that runs one agent and a set of containers. Identified by <code>siteSlug</code> (for example <code>app</code>, <code>db</code>).</td></tr>
+<tr><td>Agent</td><td>The <code>opm-agent</code> binary on a site. It runs containers, the edge and the agent GUI.</td></tr>
+<tr><td>Service</td><td>A named kind of container, for example <code>postgres</code>. Its only identifier is its <code>serviceSlug</code>. It has images.</td></tr>
+<tr><td>Image</td><td>One version of a service (for example <code>v1</code>), imported from a full docker reference into the cloud catalog. Its content never changes. On a site it is named <code>&lt;serviceSlug&gt;:&lt;version&gt;</code>, for example <code>northwind-backend:v1</code>.</td></tr>
+<tr><td>Template</td><td>A reusable blueprint: variables, secrets, files and sites. A deployment copies a template or starts empty.</td></tr>
+<tr><td>Config</td><td>The deployment-wide document <code>{ variables, secrets, files, sites }</code>. The same on every site.</td></tr>
+<tr><td>Draft</td><td>The config that the cloud edits. It reaches the sites only through a proposal.</td></tr>
+<tr><td>Revision</td><td>An immutable version of the config. Revisions form one linear chain on the sites.</td></tr>
+<tr><td>Head</td><td>The revision that all sites run now.</td></tr>
+<tr><td>Proposal</td><td>A revision that waits for approval in the agent GUI (<code>/_opm/app/updates</code>).</td></tr>
+<tr><td>Staging</td><td>Automatic preparation on each site: validate, download layers and files, load images, dry run.</td></tr>
+<tr><td>Gate</td><td>The conditions that show the Approve button: parent = head, all sites reachable, all sites staged, no other update running.</td></tr>
+<tr><td>Coordinator</td><td>The agent that runs a deployment-wide operation (update, rollback) on all sites.</td></tr>
+<tr><td>Site volume</td><td>A data folder declared on a site (<code>volumeSlug</code>, label, description, Back up on / off). Containers mount it by name; several may share one. On the server: its location (auto = <code>&lt;agentHome&gt;/volumes/&lt;volumeSlug&gt;/</code>, or a custom <code>./…</code> / absolute path).</td></tr>
+<tr><td>agentHome</td><td>The agent data dir on a site (default <code>/var/lib/opm</code>). A location written <code>./x/y</code> is relative to it. Each site keeps ONE copy of every file, secret and volume there (or at a custom location); containers share those copies.</td></tr>
+<tr><td>Snapshot</td><td>A backup taken by the agent: config, image refs and the site volumes with Back up on (host paths are never backed up). Taken before every update, on demand, or imported.</td></tr>
+<tr><td>Activity</td><td>One audit record: who did what, on which site, when.</td></tr>
+<tr><td>Expression</td><td>A string with <code>{{ … }}</code> blocks, resolved by the agent on the site.</td></tr>
+<tr><td>Agent port</td><td><code>agentPort</code> (default 7080). The mesh at <code>/_opm/peer/</code> and a fallback agent GUI at <code>/_opm/</code>.</td></tr>
+<tr><td>GUI alias port</td><td><code>agentGuiAliasPort</code> (default 8080). Only the agent GUI, served by the agent itself (not by Caddy), so it works when 80/443 cannot be bound.</td></tr>
+<tr><td>Edge</td><td>The router inside the agent: embedded Caddy on 80/443. Hosts (each with a TLS mode), routes (proxy or redirect, first match wins), <code>/_opm/</code> reserved for the agent GUI.</td></tr>
+<tr><td>Route</td><td>One edge rule, chosen like an nginx <code>location</code> (exact, prefix, prefix with stop regex, regex): proxy to a container port (keep, strip or rewrite the path; request and response headers; streaming, body limit, timeouts, WebSocket), a redirect (301/302/303/307/308, with variables) or an internal rewrite.</td></tr>
+<tr><td>Browser tunnel</td><td>A browser tab on <code>/_opm/app/internet</code> that makes the cloud calls for an agent without internet.</td></tr>
+<tr><td>Not-found page</td><td>An HTML page the edge serves with 404 when no route matches, and with 503 when the proxy target is not ready.</td></tr>
+</table></div>
+
+<h2 id="pages">Page index</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Page</th><th>What it tells</th></tr>
+<tr><td><a href="data-model.html">Data model (schemas)</a></td><td>Every Firestore collection and type, field by field, with rules.</td></tr>
+<tr><td><a href="expressions.html">Expressions</a></td><td>The <code>{{ … }}</code> language: paths, filters, evaluation, errors.</td></tr>
+<tr><td><a href="cloud-frontend.html">Cloud frontend (routes)</a></td><td>Every route of the cloud dashboard, with wireframes, incl. <a href="cloud-frontend.html#agent-upgrades">Setup: agent upgrades</a> and the site <a href="cloud-frontend.html#devtools">Dev tools</a> presets.</td></tr>
+<tr><td><a href="agent-gui.html">Agent GUI (routes)</a></td><td>Every route of the agent GUI on a site, with wireframes, incl. the <a href="agent-gui.html#agent-page">Agent page</a> (version, upgrade, restart, agent.json, support bundle; CLI → GUI map) and <a href="agent-gui.html#devtools">Dev tools</a> (agent 0.11.0: SQL, Redis, MQTT, HTTP client).</td></tr>
+<tr><td><a href="agent.html">The agent (internals)</a></td><td>Modules, local store, container driver, the edge (embedded Caddy), browser tunnel, disk layout, install, <a href="agent.html#self-upgrade">self-upgrade and rollback</a>, <a href="agent.html#devtools">dev tools</a> (drivers, security, logging).</td></tr>
+<tr><td><a href="auth.html">Auth &amp; access</a></td><td>Human login, access rules, install token, the agent "Who is working right now?" popup, signed requests.</td></tr>
+<tr><td><a href="updates.html">Config, proposals &amp; updates</a></td><td>Revisions, staging, the gate, apply order, rollback, local changes.</td></tr>
+<tr><td><a href="backups.html">Backups &amp; rollback</a></td><td>Snapshots, retention, download, import, roll back.</td></tr>
+<tr><td><a href="sync.html">Activities, status &amp; transfers</a></td><td>Activity log, upload pipe, debug log, uptime, send / receive files.</td></tr>
+<tr><td><a href="networking.html">Networking and ports</a></td><td>Ports, port-80 rule, firewall list, browser tunnel, not-found pages, mesh, relay.</td></tr>
+<tr><td><a href="api.html">Cloud API reference</a></td><td>Every endpoint for humans and agents, with errors.</td></tr>
+<tr><td><a href="build.html">Prototype build plan</a></td><td>Repo layout, plan for tomorrow, demo script, test plan.</td></tr>
+</table></div>
+</main>
+</div>
+<script>
+const INFO = {
+  fe: { t: 'cloud frontend', b: '<p>SvelteKit SPA on Firebase Hosting at <code>app.opm.example</code>. Humans log in with Firebase Auth. No signup.</p><p>Root scope: deployments, templates, services, registries, not-found pages, tags, accounts. Deployment scope: setup, status, activities, variables, secrets, files, sites, diff.</p><p><a href="cloud-frontend.html">Routes →</a></p>' },
+  be: { t: 'cloud backend', b: '<p>Cloud Functions (Node 22, TypeScript) behind <code>api.opm.example/v1</code>. It is the only thing that reads or writes Firestore and Storage.</p><ul><li>Human API: Firebase ID token</li><li>Agent API: signed requests with the site key</li><li>Image import jobs from registries</li></ul><p><a href="api.html">API reference →</a></p>' },
+  fs: { t: 'Firestore', b: '<p>The data: registries, services, images, not-found pages, templates, tags, accounts, deployments (with revisions, proposals, agents, install tokens, activities, transfers, uptime).</p><p>Security rules deny all client access.</p><p><a href="data-model.html">Schemas →</a></p>' },
+  st: { t: 'Cloud Storage', b: '<p>Image layers (<code>blobs/</code>), file contents (<code>files/&lt;sha256&gt;</code>), transfers, agent binaries, logos. Agents get short-lived signed URLs.</p>' },
+  auth: { t: 'Firebase Auth', b: '<p>Login for humans only (operations and developer teams). Accounts are created by an admin. The agents do not use Firebase Auth.</p><p><a href="auth.html">Auth →</a></p>' },
+  sec: { t: 'Secrets: masked + audited', b: '<p>Secrets and registry passwords are stored like variables (plain values, same documents). The API returns "•••" + isSet. <b>View</b> shows a value for 60 s (any number of times) and writes <code>secret.revealed</code>. The access key, install commands, secrets, registry passwords and account passwords can all be viewed again and regenerated, and every view is logged. Every agent fetch of secret values writes <code>secret.fetched</code>. Encryption at rest is a later item.</p>' },
+  hub: { t: 'Docker registries', b: '<p>Docker Hub or any registry. Only the cloud backend talks to them, to import images (copy mode) or to fetch layers on first use (gateway mode).</p>' },
+  agent: { t: 'agent (site app)', b: '<p>One Go binary per site, as the systemd service <code>opm-agent</code>.</p><ul><li>Edge: embedded Caddy on 80/443 routes users to the containers (proxy, strip prefix, redirect, TLS)</li><li>GUI at <code>/_opm/</code> on every edge host, on :8080 (alias) and :7080; mesh on agentPort 7080</li><li>SQLite store, snapshots, activity log</li><li>Docker Engine API driver</li><li>Polls the cloud on 443</li></ul><p><a href="agent.html">Internals →</a></p>' },
+  agent2: { t: 'agent (site db)', b: '<p>The same binary. This site may have no internet: a peer with internet relays its cloud traffic.</p>' },
+  ctr: { t: 'containers (site app)', b: '<p>Containers from the site config: <code>web</code>, <code>api</code>, <code>redis</code>. One Docker network per deployment. Each container is reachable by its name (<code>containerSlug</code>); one service may run as several containers.</p>' },
+  ctr2: { t: 'containers (site db)', b: '<p><code>postgres</code> and <code>worker</code> (a job). Other sites reach them through <code>site.db.host</code> and host ports, written as expressions.</p>' },
+  mesh: { t: 'mesh', b: '<p>Agents talk to each other over agentPort at <code>/_opm/peer/</code>. Every request is signed with the site key. The mesh carries status, staging, the update steps, cloud views and blob copies.</p>' },
+};
+inspector(document.getElementById('sysmap'), document.getElementById('sysinfo'), INFO, 'agent');
+sequence(document.getElementById('seqTravel'), {
+  lanes: [
+    { id: 'op', label: 'Operator', sub: 'cloud frontend', cls: 'app' },
+    { id: 'be', label: 'Cloud backend', sub: 'api.opm.example', cls: 'app' },
+    { id: 'co', label: 'Agent (site app)', sub: 'coordinator', cls: 'agent' },
+    { id: 'pe', label: 'Agent (site db)', sub: 'peer', cls: 'agent' },
+    { id: 'si', label: 'Site person', sub: 'agent GUI' },
+  ],
+  steps: [
+    { from: 'op', to: 'op', label: 'edit draft', detail: 'The operator edits variables, secrets, files or sites. The cloud stores the draft only.' },
+    { from: 'op', to: 'be', label: 'Diff → Publish', detail: 'The Diff page compares the draft with the last reported head. Publish creates a revision with parent = head and a proposal.' },
+    { from: 'be', to: 'co', label: 'poll returns proposal', reply: true, detail: 'Each agent long-polls the cloud. A site without internet gets the proposal through a relay peer.' },
+    { from: 'co', to: 'pe', label: 'staging on every site', detail: 'Each site validates the config, downloads missing layers and files, loads images and does a dry run. No approval is necessary for staging.' },
+    { from: 'si', to: 'co', label: 'Approve (gate open)', detail: 'The button shows only when parent = head, all sites are reachable and all sites are staged. Wait 60 s, then type ACCEPT.' },
+    { from: 'co', to: 'pe', label: 'lock + snapshot', detail: 'The coordinator locks all sites. Each site takes a pre-update snapshot.' },
+    { from: 'co', to: 'pe', label: 'apply in depends order', detail: 'Sites in depends order; containers in the start order (referenced first: explicit, implicit containers.<slug>.* and suggested hostname mentions), each waiting only for its explicit + implicit depends, readiness checks in parallel. Each container must be "completed" within 300 s. Any failure: roll back all sites.' },
+    { from: 'co', to: 'co', label: 'commit: new head', detail: 'All sites set head = the new revision. The proposal is applied.' },
+    { from: 'co', to: 'be', label: 'report head + activities', detail: 'The agents report the new head. The upload pipe sends the activities. The Diff page now shows draft = head.' },
+  ],
+});
+</script>
+</body>
+</html>

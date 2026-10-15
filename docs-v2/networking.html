@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Networking and ports</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Network</div>
+<h1>Networking and ports</h1>
+<p class="lede">Each agent has an edge: an embedded Caddy server inside the agent process. The edge owns host ports 80 and 443 and routes user traffic to the containers of the site like nginx (exact / prefix / regex locations, rewrites, redirects, request and response headers, SSE, uploads, WebSockets, many hostnames, automatic TLS). An existing <code>nginx.conf</code> can be imported. Containers do not publish 80/443. The agent also listens on <code>agentPort</code> (default 7080) for the other sites, and on <code>agentGuiAliasPort</code> (default 8080) for the agent GUI only. Each site makes one kind of outbound connection: HTTPS to <code>api.opm.example</code>. A site with no internet can use a peer, or a browser tab.</p>
+
+<h2 id="picture">The network picture</h2>
+<p>Click a box or a line to see what it is.</p>
+<div class="explorer">
+  <div class="diagram"><svg id="netSvg" viewBox="0 0 900 470" role="img" aria-label="Network picture"></svg>
+  <div class="legend"><span><i style="border-color:var(--muted)"></i>users → edge :80 / :443</span><span><i style="border-color:var(--ok);border-top-style:dashed"></i>operators → agent GUI</span><span><i style="border-color:var(--teal);border-top-style:dashed"></i>agent mesh :7080 /_opm/peer/</span><span><i style="border-color:var(--violet)"></i>edge → container (site network)</span><span><i style="border-color:var(--accent)"></i>outbound HTTPS 443</span></div></div>
+  <div class="panel" id="netInfo"></div>
+</div>
+<div class="tbl-wrap"><table>
+<tr><th>Traffic</th><th>Path</th><th>Port</th></tr>
+<tr><td>Users → applications</td><td>the agent edge (embedded Caddy) → the route → the container on the site network (<code>http://&lt;containerSlug&gt;:&lt;port&gt;</code>)</td><td><code>edge.httpPort</code> 80 · <code>edge.httpsPort</code> 443</td></tr>
+<tr><td>Users → no matching route</td><td>the site not-found page (404); a proxy target that is not ready → the same page with 503</td><td>80 / 443</td></tr>
+<tr><td>People → agent GUI (way 1)</td><td><code>http(s)://&lt;any edge host&gt;/_opm/app</code> — <code>/_opm/</code> is reserved on every host</td><td>80 / 443 (edge)</td></tr>
+<tr><td>People → agent GUI (way 2)</td><td><code>http://&lt;host&gt;:8080/_opm/app</code> — served by the agent itself, not by Caddy; <code>/</code> redirects to <code>/_opm/app</code></td><td><code>agentGuiAliasPort</code> 8080 (null = off)</td></tr>
+<tr><td>People → agent GUI (way 3)</td><td><code>http://&lt;host&gt;:7080/_opm/app</code> (fallback; this port also carries the mesh)</td><td><code>agentPort</code> 7080</td></tr>
+<tr><td>Agent ↔ agent (mesh)</td><td><code>/_opm/peer/*</code>, signed requests (Ed25519). Never on the edge.</td><td><code>agentPort</code> 7080</td></tr>
+<tr><td>Mesh traffic types</td><td>ping (10 s) · cloud-view exchange (10 s) · have lists · blob copies · fetch requests · relay of reports · update steps (lock, snapshot, apply, verify, commit) · GUI data fetch</td><td><code>agentPort</code></td></tr>
+<tr><td>Container ↔ container, same site</td><td>Docker bridge network <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;</code>, DNS name = the <code>containerSlug</code> (network alias; also the docker name by default). In values: <code>{{ containers.&lt;containerSlug&gt;.host }}:{{ containers.&lt;containerSlug&gt;.port.&lt;portName&gt; }}</code></td><td>container ports (internal), not published</td></tr>
+<tr><td>Container → container, other site (non-HTTP)</td><td><code>{{ site.&lt;slug&gt;.host }}:{{ site.&lt;siteSlug&gt;.port.&lt;containerSlug&gt;.&lt;portName&gt; }}</code></td><td>the <code>hostPort</code> of that container (e.g. postgres 5432)</td></tr>
+<tr><td>Agent → cloud</td><td><code>https://api.opm.example/v1/…</code> (poll, heartbeat, images, blobs, activities, transfers)</td><td>outbound 443 only</td></tr>
+<tr><td>Agent → cloud, no internet</td><td>peer relay first, then the browser tunnel (<a href="#tunnel">below</a>)</td><td><code>agentPort</code> (mesh / GUI tab)</td></tr>
+<tr><td>Edge → ACME (only TLS mode acme)</td><td>Let's Encrypt API, plus the challenge from the internet to the site (<a href="#tls">TLS</a>)</td><td>outbound 443; inbound 80 (http-01) or 443 (tls-alpn-01)</td></tr>
+</table></div>
+<div class="callout note"><b>Host ports: only for non-HTTP</b><p>Use <code>Container.port[].hostPort</code> only for traffic that is not HTTP (for example postgres 5432 for the other site). HTTP goes through the edge. A container that publishes 80 or 443, or an edge port, is a validation error.</p></div>
+<div class="callout note"><b>One outbound domain</b><p>The agent connects only to <code>api.opm.example</code> (and to the ACME server when a host uses TLS mode acme). Image layers, file blobs and transfers come through 302 redirects to short signed URLs. The agent never connects to a Docker registry.</p></div>
+
+<h2 id="gui">Three ways to reach the agent GUI</h2>
+<div class="diagram"><svg id="guiSvg" viewBox="0 0 900 250" role="img" aria-label="Three ways to the agent GUI"></svg>
+  <div class="cap">Way 1 goes through Caddy. Ways 2 and 3 go to the agent's own HTTP server, so the GUI stays reachable when 80/443 cannot be bound (port in use, no root, broken edge config).</div></div>
+<div class="tbl-wrap"><table>
+<tr><th>#</th><th>URL</th><th>Server</th><th>Serves</th><th>Use when</th></tr>
+<tr><td>1</td><td><code>https://plant.acme.com/_opm/app</code></td><td>edge (Caddy, in process)</td><td><code>/_opm/</code> + all routes</td><td>normal use</td></tr>
+<tr><td>2</td><td><code>http://10.0.1.10:8080/_opm/app</code></td><td>agent HTTP server</td><td>only <code>/_opm/</code> (GUI + API); <code>/</code> → 302 <code>/_opm/app</code>; other paths → agent 404</td><td>the edge is down, or 80/443 cannot be bound</td></tr>
+<tr><td>3</td><td><code>http://10.0.1.10:7080/_opm/app</code></td><td>agent HTTP server</td><td><code>/_opm/</code> GUI + API + <code>/_opm/peer/</code></td><td>last fallback (port 8080 off or blocked)</td></tr>
+</table></div>
+<ul>
+  <li><code>agentGuiAliasPort</code>: 1024–65535 or null (off). It must differ from <code>agentPort</code>, <code>edge.httpPort</code>, <code>edge.httpsPort</code> and every container <code>hostPort</code> of the site.</li>
+  <li>It is a local-editable field: a change on the site makes a local proposal.</li>
+  <li>If the agent cannot bind a port (edge 80/443 or the alias port): alert <code>gui-alias-port-bind-failed</code> (alias) or <code>edge-port-bind-failed</code> (edge), and activity <code>agent.port-bind-failed</code> { port, purpose, error, owner }. <code>owner</code> names the program that holds the port (for example "nginx (pid 812)"). The activity is written once; the agent retries a busy edge port every 30 s. The agent keeps the other ports running. The agent GUI Status page and the cloud Setup page show "port 80 is used by nginx — stop it or change edge.httpPort".</li>
+</ul>
+
+<h2 id="port80">Port 80 is always up</h2>
+<p>The edge runs from the first start, right after the install. You do not have to wait for the first update.</p>
+<ul>
+  <li><b>No configuration yet</b> (no head, or this site is not in the head): the agent runs a built-in <b>default edge</b> on port 80 (agent.json <code>edgeHttpPort</code>, null = off). Host <code>*</code>, no TLS. <code>http://&lt;ip&gt;/</code> redirects to <code>/_opm/app</code>, <code>/_opm/</code> is the GUI, and every other path shows "No configuration applied yet — open /_opm/ to approve the first update".</li>
+  <li><b>A head with no routes</b>: <code>/_opm/</code> is still the GUI; other paths show the site's not-found page.</li>
+  <li><b>443</b> is bound only when a host of the edge uses TLS (internal, acme or files). The default edge never binds 443.</li>
+  <li><b>Updates never close port 80.</b> The agent opens each edge port once and gives Caddy a copy of that socket. Every config change (default edge → first update, every update) is a graceful swap on the same socket: no refused connection, open requests get 30 s to finish.</li>
+  <li><b>Firewall.</b> Open TCP 80 (and 443 when you use TLS, 8080 and 7080) in the server firewall (ufw / firewalld) AND in any cloud firewall in front of the server (DigitalOcean Cloud Firewall, AWS security group). The install script prints the exact ufw / firewalld commands and tests each URL from the server; a cloud firewall cannot be seen from inside the server.</li>
+</ul>
+
+<h2 id="edge">Edge routing</h2>
+<div class="diagram"><svg id="edgeSvg" viewBox="0 0 900 250" role="img" aria-label="Edge decision"></svg>
+  <div class="cap">The order of checks for every request on the edge ports.</div></div>
+<p>The edge chooses a route the same way nginx chooses a <code>location</code>. If you know nginx, you know the edge. You can import an existing <code>nginx.conf</code> (<a href="#nginx">below</a>).</p>
+<ol>
+  <li><b>Host.</b> The edge picks the entry of <code>edge.hosts</code> for the request host: exact name first, then a wildcard (<code>*.acme.com</code>, one label), then <code>"*"</code> (any host). No entry → 404 on HTTP. On HTTPS the TLS handshake fails (no certificate).</li>
+  <li><b>HTTP → HTTPS.</b> If <code>redirectHttpToHttps</code> is on for that host, an HTTP request gets 308 to the same URL on HTTPS. Routes are not checked.</li>
+  <li><b>Reserved.</b> <code>/_opm/</code> is the agent GUI and API on every host. An unknown <code>/_opm/</code> path gets the AGENT 404 page.</li>
+  <li><b>Route.</b> The edge looks only at the routes for this host and this method. Then it chooses one route (next section).</li>
+  <li><b>No route</b> → the site not-found page with 404. <b>Proxy target not ready</b> (health check) → the same page with 503.</li>
+</ol>
+
+<h3 id="edge-match">How a route is chosen</h3>
+<p>A route has a <b>match kind</b> and a <b>path</b>. The kinds are the nginx location kinds.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Match kind</th><th>nginx</th><th>Matches</th><th>Example</th></tr>
+<tr><td>Exact</td><td><code>location = /login</code></td><td>only this path</td><td><code>/login</code> yes · <code>/login/x</code> no</td></tr>
+<tr><td>Prefix</td><td><code>location /api</code></td><td>every path that STARTS WITH the text</td><td><code>/api</code>, <code>/api/x</code> and also <code>/apix</code>. Write <code>/api/</code> to stop at the folder.</td></tr>
+<tr><td>Prefix + stop regex</td><td><code>location ^~ /static/</code></td><td>like prefix; when it is the longest prefix, regex routes are skipped</td><td><code>/static/a.png</code> stays here, even if a regex route matches <code>.png</code></td></tr>
+<tr><td>Regex</td><td><code>location ~ \.(png|jpg)$</code></td><td>a regular expression on the path</td><td><code>/img/a.png</code></td></tr>
+<tr><td>Regex, any case</td><td><code>location ~* \.png$</code></td><td>the same, written <code>(?i)\.png$</code></td><td><code>/img/a.PnG</code></td></tr>
+</table></div>
+<p>The edge chooses in this order:</p>
+<ol class="steps">
+  <li>An <b>exact</b> route with the same path wins.</li>
+  <li>The edge finds the <b>longest prefix</b> that matches. Route order does not matter for prefixes.</li>
+  <li>If that longest prefix has <b>stop regex</b> (<code>^~</code>), it wins.</li>
+  <li>Else the <b>regex routes</b> are tried in their order. The first regex that matches wins.</li>
+  <li>Else the longest prefix wins.</li>
+  <li>Else: 404 not-found page.</li>
+</ol>
+<ul>
+  <li><b>Trailing slash.</b> nginx sends <code>/x</code> to <code>/x/</code> when only a route <code>/x/</code> exists. The edge does the same: 301 to <code>/x/</code> (the query is kept). This applies to proxy routes.</li>
+  <li><b>Order.</b> Only regex routes have an order. The routes table shows the <b>effective order</b>: exact, stop-regex prefixes, regexes, prefixes (longest first). Hover the group badge to see why. Only regex rows have ↑ ↓.</li>
+  <li><b>Path.</b> The edge matches the decoded path (<code>%20</code> is a space), without the query.</li>
+  <li><b>Regex.</b> Write regexes that Go (the agent) and JavaScript (the GUIs) read the same way. Lookahead, back-references and inline flags (except a leading <code>(?i)</code>) are refused with V_EDGE_REGEX.</li>
+  <li><b>Methods.</b> A route with methods <code>POST</code> is invisible for a <code>GET</code>. Then another route can answer.</li>
+</ul>
+<div class="tbl-wrap"><table>
+<tr><th>Routes</th><th>Request</th><th>Winner</th><th>Why</th></tr>
+<tr><td><code>= /login</code>, prefix <code>/login</code></td><td><code>/login</code></td><td>exact</td><td>exact always wins</td></tr>
+<tr><td>prefix <code>/login</code></td><td><code>/loginx</code></td><td>prefix <code>/login</code></td><td>plain text prefix (nginx)</td></tr>
+<tr><td>prefix <code>/x/ez-terminal/</code>, prefix <code>/x/ez-terminal/real-time/</code>, prefix <code>/</code></td><td><code>/x/ez-terminal/real-time/x</code></td><td><code>/x/ez-terminal/real-time/</code></td><td>longest prefix</td></tr>
+<tr><td>prefix <code>/apis/</code>, regex <code>^/apis/(docs|_docs_/[^/]+)$</code></td><td><code>/apis/docs</code></td><td>the regex</td><td>a regex beats a normal prefix</td></tr>
+<tr><td>prefix <code>^~ /static/</code>, regex <code>\.(png|jpg)$</code></td><td><code>/static/a.png</code></td><td><code>/static/</code></td><td>stop regex</td></tr>
+<tr><td>prefix <code>/x/ez-terminal/</code> (proxy)</td><td><code>/x/ez-terminal</code></td><td>301 → <code>/x/ez-terminal/</code></td><td>trailing slash</td></tr>
+</table></div>
+
+<h3 id="edge-rewrite">Path to the container, and rewrites</h3>
+<p>A proxy route sends the request to one container port. Choose what the container sees:</p>
+<div class="tbl-wrap"><table>
+<tr><th>Mode</th><th>nginx</th><th>Route</th><th>Request</th><th>Container gets</th></tr>
+<tr><td>Keep path</td><td><code>proxy_pass http://api:3000;</code></td><td><code>/swagger/</code></td><td><code>/swagger/ui</code></td><td><code>/swagger/ui</code></td></tr>
+<tr><td>Strip prefix</td><td><code>rewrite ^/x/ez-apis(/.*)$ $1 break;</code></td><td><code>/x/ez-apis/</code></td><td><code>/x/ez-apis/v1/devices?limit=5</code></td><td><code>/v1/devices?limit=5</code></td></tr>
+<tr><td>Strip + add prefix</td><td><code>proxy_pass http://api:3000/v0/;</code></td><td><code>/legacy/</code></td><td><code>/legacy/users</code></td><td><code>/v0/users</code></td></tr>
+<tr><td>Rewrite (regex)</td><td><code>rewrite ^/x/ez-terminal(/.*)$ $1 break;</code></td><td><code>/x/ez-terminal/real-time/</code></td><td><code>/x/ez-terminal/real-time/x</code></td><td><code>/real-time/x</code></td></tr>
+</table></div>
+<p>A <b>rewrite route</b> is different. It does not answer. It changes the path and the edge chooses a route again (nginx <code>rewrite … last</code>).</p>
+<div class="tbl-wrap"><table>
+<tr><th>Rewrite route</th><th>Request</th><th>Result</th></tr>
+<tr><td>prefix <code>/api/v0002/device/types</code> · regex <code>^</code> → <code>/x/nodered$request_uri</code></td><td><code>/api/v0002/device/types?x=1</code></td><td>new path <code>/x/nodered/api/v0002/device/types?x=1</code> → route <code>/x/nodered/</code> → node-red gets <code>/api/v0002/device/types?x=1</code></td></tr>
+</table></div>
+<ul>
+  <li>If the new path has a <code>?</code>, the part after it REPLACES the query. (nginx would add the old query again. With <code>$request_uri</code> it would be there twice.)</li>
+  <li>If the rewrite regex does not match, the answer is 404. More than 10 rewrites in one request → 500.</li>
+  <li>Test a URL shows every rewrite step and where it lands.</li>
+</ul>
+
+<h3 id="edge-redirect">Redirects and variables</h3>
+<p>A redirect route sends the browser to a new URL. Status 301 or 308 = permanent, 302, 303 or 307 = temporary. 307 and 308 keep the method and the body. New redirect routes use 301 (nginx <code>return 301</code>).</p>
+<p>Use variables in the target. The same variables work in rewrite replacements and in header values.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Variable</th><th>Value for <code>http://plant.acme.com/apis/docs?a=1</code></th></tr>
+<tr><td><code>$uri</code> · <code>{path}</code></td><td><code>/apis/docs</code> (after rewrites)</td></tr>
+<tr><td><code>$args</code> · <code>$query_string</code></td><td><code>a=1</code></td></tr>
+<tr><td><code>$is_args</code></td><td><code>?</code> (empty when there is no query)</td></tr>
+<tr><td><code>{query}</code></td><td><code>?a=1</code> (empty when there is no query)</td></tr>
+<tr><td><code>$request_uri</code></td><td><code>/apis/docs?a=1</code> (as the client sent it, before rewrites)</td></tr>
+<tr><td><code>$host</code> · <code>{host}</code> · <code>$scheme</code></td><td><code>plant.acme.com</code> · <code>http</code></td></tr>
+<tr><td><code>$remote_addr</code> · <code>$server_port</code></td><td>the client IP · the edge port (80)</td></tr>
+<tr><td><code>$http_user_agent</code></td><td>the request header <code>User-Agent</code></td></tr>
+<tr><td><code>$1</code> … <code>$9</code></td><td>the groups of the route regex (redirect) or of the rewrite regex; here <code>$1</code> = <code>docs</code></td></tr>
+</table></div>
+<p>Example from the client file: regex route <code>^/apis/(docs|_docs_/[^/]+)$</code> → redirect 301 to <code>$uri/$is_args$args</code>. <code>/apis/docs?a=1</code> → <code>301 Location: /apis/docs/?a=1</code>. An unknown <code>$name</code> stays as written.</p>
+<p><b>Keep path</b> (prefix routes only): the rest of the path after the prefix and the query are added to the target. Route <code>/old/</code> → 308 <code>https://new.example/</code> with keep path: <code>/old/a/b?c=1</code> → <code>https://new.example/a/b?c=1</code>.</p>
+
+<h3 id="edge-headers">Request headers and response headers</h3>
+<p>There are two groups. Do not mix them up.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Group</th><th>Goes to</th><th>nginx</th><th>Use for</th></tr>
+<tr><td><b>Request headers → container</b> (proxy routes)</td><td>the container</td><td><code>proxy_set_header</code></td><td>information for the app: <code>X-Script-Name</code>, <code>X-Forwarded-Prefix</code></td></tr>
+<tr><td><b>Response headers → browser</b> (hosts and routes)</td><td>the browser</td><td><code>add_header</code>, <code>proxy_hide_header</code></td><td>caching, security headers, CORS</td></tr>
+</table></div>
+<ul>
+  <li><b>Request defaults.</b> The edge keeps the client <code>Host</code>. It sets <code>X-Real-IP</code>, <code>X-Forwarded-For</code> (the client IP), <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Your rows override them. <b>Remove</b> deletes a header.</li>
+  <li><code>Connection</code>, <code>Upgrade</code> and other hop-by-hop headers are ignored (warning V_EDGE_HOP). The edge handles WebSockets and keep-alive by itself.</li>
+  <li><b>Response rows</b>: <b>Set</b> replaces the container's value. <b>Add</b> appends a value. <b>Remove</b> hides the container's header. <b>Always</b> also adds it on errors (nginx <code>always</code>). Without <i>always</i>, a header is added only on 200, 201, 204, 206, 301, 302, 303, 304, 307 and 308.</li>
+  <li><b>Inheritance (like nginx).</b> A host has a list. A route uses the host list, or its <b>own list</b>. An own list REPLACES the host list. It does not add to it. So the GUI starts an own list as a copy of the host list.</li>
+</ul>
+<div class="callout warn"><b>The S3 cache header: done wrong, done right</b>
+<p>Goal: files from the small S3-like store are cached for one hour. The host adds no-cache headers to every other page.</p>
+<p><b>Wrong:</b> <code>Cache-Control: public, max-age=3600, must-revalidate</code> under <i>Request headers → container</i>. The container gets the header. The browser does not. The page is still not cached. The editor shows warning <code>W_RESPONSE_HEADER_AS_REQUEST</code> with a <b>Move to response headers</b> button.</p>
+<p><b>Right:</b> route <code>/x/ez-terminal/s3/</code> → <i>Response headers → browser</i> → <b>Own list</b>: Set <code>Cache-Control</code> = <code>public, max-age=3600, must-revalidate</code>; Remove <code>Pragma</code>, <code>Expires</code>. This is the nginx</p>
+<pre>proxy_hide_header Cache-Control;
+proxy_hide_header Pragma;
+proxy_hide_header Expires;
+add_header Cache-Control "public, max-age=3600, must-revalidate";</pre>
+<p>The own list replaces the host's no-cache headers for this route only. Test a URL shows the header under "Response headers to the browser".</p></div>
+
+<h3 id="edge-streaming">SSE, uploads and timeouts</h3>
+<ul>
+  <li><b>SSE (server-sent events).</b> Turn <b>Response buffering</b> off (preset "SSE"). Every write goes to the browser at once. <code>text/event-stream</code> is always sent at once.</li>
+  <li><b>Uploads.</b> Turn <b>Request buffering</b> off (preset "Uploads"). The body streams to the container. With buffering on, the edge keeps at most 8 MiB in memory and streams the rest. The edge never writes temp files.</li>
+  <li><b>Body size limit.</b> Set it on the edge (<b>Max request body</b>; empty = unlimited) and override it per route (inherit / unlimited / size). A body over the limit gets 413 before the container sees it. nginx: <code>client_max_body_size</code>.</li>
+  <li><b>Timeouts.</b> <b>Connect</b> = time to open the connection (1–3600 s). <b>Read</b> = time to the response header, and the longest pause between two pieces of data from the container (1–86400 s). <b>Send</b> = the longest pause while the edge writes to the container. A stream that keeps sending is never cut. A stream that is silent for longer than Read is closed. Default 60 s each, like nginx.</li>
+  <li>Range requests (<code>206 Partial Content</code>) pass through, for example for video from the S3-like store.</li>
+</ul>
+
+<h3 id="edge-ws">WebSockets</h3>
+<p>New proxy routes allow WebSockets. Turn the switch off to refuse them: an upgrade request then gets 400. You do not need <code>Upgrade</code> or <code>Connection</code> headers. A WebSocket that is silent in both directions for longer than the Read timeout is closed, as in nginx.</p>
+
+<h3 id="edge-tls-files">TLS with your own certificate on 80 and 443</h3>
+<p>A host in TLS mode <code>files</code> answers HTTPS on <code>httpsPort</code> with your certificate and plain HTTP on <code>httpPort</code>. Leave <b>Redirect HTTP→HTTPS</b> off to keep both, as with nginx <code>listen 80;</code> + <code>listen 443 ssl;</code> in one server. Upload the certificate chain as a deployment file and the key as a secret.</p>
+
+<h3 id="edge-test">Test a URL</h3>
+<p>Every edge page has a <b>Test a URL</b> box. It runs the same resolver as the agent. It shows: the status, the route, the effective order with the winner, every rewrite step, regex groups, the redirect target or the container URL and path, the request headers sent to the container (default or route), the response headers sent to the browser (from the route or the host), timeouts, buffering, the body limit and WebSocket. Enter a body size to see a 413. Tick "WebSocket upgrade" to see a 400 on a route that refuses it. The route page has a smaller <b>Try a path</b> box for the route you edit.</p>
+
+<h3>Multiple hostnames</h3>
+<p>One site can answer many names, for example <code>plant.acme.com</code> (public, ACME), <code>10.0.1.10</code> (LAN, internal CA) and <code>"*"</code> (anything else, HTTP only). A route can apply to all hosts or to some hosts. Each name needs a DNS record (or a hosts-file entry) that points to the site host. OPM does not manage DNS.</p>
+
+<h2 id="nginx">Replacing nginx</h2>
+<p>The edge replaces an nginx reverse proxy in front of your containers. Move an existing <code>nginx.conf</code> like this:</p>
+<ol class="steps">
+  <li>Open the site <b>Edge</b> page (cloud or agent GUI). Click <b>Import from nginx.conf…</b>.</li>
+  <li>Paste the file or upload it. Click <b>Analyze</b>.</li>
+  <li>Read the <b>mapping table</b>. Every directive has a status: <b>ok</b> (mapped), <b>note</b> (mapped, read the difference), <b>default</b> (OPM does it by itself), <b>ignored</b> (no meaning for OPM), <b>unsupported</b> (do it by hand), <b>error</b> (needs your input).</li>
+  <li><code>proxy_pass http://ez-terminal:8080</code> becomes a route to the container named <code>ez-terminal</code>, port 8080. Name your containers like the upstreams, or pick the container on the route page later.</li>
+  <li>Bind each <code>ssl_certificate</code> to a deployment file and each <code>ssl_certificate_key</code> to a secret.</li>
+  <li>Choose <b>Replace</b> (the whole edge) or <b>Append</b> (add hosts and routes). Check the result and its warnings. Click <b>Apply</b>.</li>
+  <li>Save the template or draft (cloud), or create a local proposal (agent GUI). Test the URLs you know with Test a URL.</li>
+</ol>
+<p>The importer follows the nginx inheritance rules. A <code>proxy_set_header</code> or <code>add_header</code> list in a location REPLACES the server list, as in nginx. nginx defaults become explicit (body limit 1 MiB when the file sets none, buffering on, 60 s timeouts). <code>add_header</code> always becomes a response header, never a request header.</p>
+
+<h3 id="nginx-matrix">nginx compatibility matrix</h3>
+<p>"Tested" — <b>V</b>: shared decision vectors (59 cases, same results in TypeScript and Go) · <b>J</b>: Caddy config tests · <b>P</b>: real Caddy with test upstreams · <b>D</b>: real agent with Docker containers and the client file · <b>S</b>: importer test and snapshot. "(client)" = used in the client file.</p>
+<div class="tbl-wrap"><table>
+<tr><th>nginx</th><th>OPM</th><th>Difference</th><th>Tested</th></tr>
+<tr><td><code>worker_processes</code>, <code>events { worker_connections }</code> (client), <code>pid</code>, <code>user</code></td><td>ignored</td><td>Caddy runs inside the agent</td><td>S</td></tr>
+<tr><td><code>http { }</code>, <code>server { }</code> (client)</td><td>the site edge; one host per <code>server_name</code></td><td>several servers: their routes get a host filter</td><td>S</td></tr>
+<tr><td><code>listen 80</code>, <code>listen 443 ssl</code> (client)</td><td>HTTP port, HTTPS port</td><td>the address is ignored; unix sockets unsupported</td><td>S, V, P, D</td></tr>
+<tr><td><code>server_name</code> (client)</td><td>host name</td><td><code>_</code> → <code>*</code>; <code>.x.y</code> → <code>x.y</code> + <code>*.x.y</code>; regex names unsupported</td><td>S, V</td></tr>
+<tr><td><code>ssl_certificate</code>, <code>ssl_certificate_key</code> (client)</td><td>TLS files: a file + a secret</td><td>bind the paths on the import page</td><td>S, J, P, D</td></tr>
+<tr><td><code>ssl_protocols</code>, <code>ssl_ciphers</code>, <code>ssl_session_*</code>, <code>http2</code></td><td>ignored</td><td>Caddy TLS defaults; HTTP/2 on</td><td>S</td></tr>
+<tr><td><code>return 301 https://$host$request_uri</code> (server)</td><td>Redirect HTTP→HTTPS</td><td>always 308</td><td>S, V</td></tr>
+<tr><td><code>location /p</code> (client)</td><td>prefix route</td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>location = /p</code></td><td>exact route</td><td>—</td><td>V, S</td></tr>
+<tr><td><code>location ^~ /p</code></td><td>prefix + stop regex</td><td>—</td><td>V, S</td></tr>
+<tr><td><code>location ~ re</code> (client), <code>~* re</code></td><td>regex route (<code>(?i)</code> for <code>~*</code>)</td><td>regex syntax shared by Go and JavaScript</td><td>V, S, P, D</td></tr>
+<tr><td><code>location @name</code>, nested locations</td><td>unsupported</td><td>make separate routes</td><td>S</td></tr>
+<tr><td><code>/x</code> → <code>/x/</code> (client)</td><td>automatic 301</td><td>—</td><td>V, P, D</td></tr>
+<tr><td><code>return 301 $uri/$is_args$args</code> (client), <code>return 302</code> / <code>303</code> / <code>307</code> / <code>308 url</code></td><td>redirect route with variables</td><td>returns with a text body or 4xx/5xx unsupported</td><td>V, S, P, D</td></tr>
+<tr><td><code>rewrite ^ /x/nodered$request_uri last</code> (client)</td><td>rewrite route</td><td>a <code>?</code> replaces the query</td><td>V, S, P, D</td></tr>
+<tr><td><code>rewrite ^/x/a(/.*)$ $1 break</code> + <code>proxy_pass</code> (client)</td><td>strip prefix, or a proxy rewrite</td><td>a <code>?</code> replaces the query</td><td>V, S, P, D</td></tr>
+<tr><td><code>rewrite … permanent</code> / <code>redirect</code></td><td>redirect 301 / 302 (pattern <code>^</code> or <code>^(.*)$</code>)</td><td>other patterns: a regex route with a redirect</td><td>S</td></tr>
+<tr><td><code>proxy_pass http://name:port</code> (client)</td><td>proxy to container <code>name</code>, port <code>port</code></td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>proxy_pass http://name:port/uri</code></td><td>strip prefix + add prefix</td><td><code>/a/</code> → <code>/b</code>: nginx gives <code>/brest</code>, OPM <code>/b/rest</code></td><td>S</td></tr>
+<tr><td><code>proxy_pass</code> with variables or https, <code>upstream { }</code></td><td>unsupported</td><td>one container per route; HTTP inside the site</td><td>S</td></tr>
+<tr><td><code>proxy_set_header Host $host</code>, <code>X-Real-IP</code>, <code>X-Forwarded-Proto</code> (client)</td><td>default</td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for</code> (client)</td><td>default</td><td>the client IP only (a list sent by the client is replaced)</td><td>V, S, P, D</td></tr>
+<tr><td><code>proxy_set_header Upgrade</code> + <code>Connection "Upgrade"</code> (client)</td><td>WebSocket on</td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>proxy_set_header X-Script-Name /x/pg-admin</code> (client)</td><td>request header row</td><td>empty value → remove</td><td>V, S, P, D</td></tr>
+<tr><td>no <code>proxy_set_header Host</code></td><td>request header <code>Host</code> = the proxy_pass host</td><td>—</td><td>S</td></tr>
+<tr><td><code>proxy_http_version 1.1</code>, <code>proxy_pass_request_headers on</code> (client)</td><td>default</td><td>always HTTP/1.1 with keep-alive</td><td>S, J</td></tr>
+<tr><td><code>add_header</code> (client)</td><td>response header <b>Add</b> (host or route)</td><td>one value per name per list</td><td>V, S, P, D</td></tr>
+<tr><td><code>add_header … always</code></td><td>response header + <b>Always</b></td><td>also on the edge's own error pages</td><td>V, J, P</td></tr>
+<tr><td><code>proxy_hide_header</code> (client)</td><td>response header <b>Remove</b></td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>proxy_hide_header N</code> + <code>add_header N</code> (client, S3)</td><td>response header <b>Set</b></td><td>—</td><td>V, S, P, D</td></tr>
+<tr><td><code>client_max_body_size 100M</code> (client), <code>0</code></td><td>Max request body (edge or route; 0 = unlimited)</td><td>up to 1 TiB</td><td>V, S, J, P, D</td></tr>
+<tr><td><code>proxy_request_buffering on</code> (client) / <code>off</code></td><td>Request buffering</td><td>8 MiB in memory, then streamed; no temp files</td><td>V, S, J</td></tr>
+<tr><td><code>proxy_buffering off</code> (client) / <code>on</code></td><td>Response buffering</td><td>SSE is always sent at once</td><td>V, S, J, P, D</td></tr>
+<tr><td><code>proxy_max_temp_file_size 0</code> (client)</td><td>default</td><td>no temp files</td><td>S</td></tr>
+<tr><td><code>proxy_connect_timeout</code> / <code>proxy_send_timeout</code> / <code>proxy_read_timeout 60s</code> (client)</td><td>Connect / Send / Read timeout</td><td>—</td><td>V, S, J, P, D</td></tr>
+<tr><td><code>resolver 127.0.0.11</code> (client)</td><td>ignored</td><td>the agent finds containers itself</td><td>S</td></tr>
+<tr><td><code>proxy_buffers</code>, <code>client_body_buffer_size</code>, <code>keepalive_*</code>, logs, <code>sendfile</code></td><td>ignored</td><td>managed by Caddy</td><td>S</td></tr>
+<tr><td><code>proxy_redirect off</code></td><td>default</td><td>Location headers are never changed</td><td>S</td></tr>
+<tr><td><code>limit_except</code></td><td>route methods (by hand)</td><td>—</td><td>S</td></tr>
+<tr><td><code>if</code>, <code>map</code>, <code>include</code>, <code>try_files</code>, <code>root</code>, <code>index</code>, <code>error_page</code>, <code>auth_*</code>, <code>allow</code> / <code>deny</code>, <code>limit_req</code>, <code>proxy_cache</code>, <code>gzip</code>, <code>expires</code>, <code>stream</code></td><td>unsupported</td><td>do it in a container (static files, auth, cache, compression) or write fixed routes</td><td>S</td></tr>
+<tr><td>SSE, WebSockets, 100 MB upload, Range (client use)</td><td>streamed</td><td>bounded memory</td><td>V, P, D</td></tr>
+</table></div>
+
+<h2 id="tls">TLS and certificates</h2>
+<div class="tbl-wrap"><table>
+<tr><th>TLS mode</th><th>Certificate from</th><th>Needs</th><th>Use for</th></tr>
+<tr><td><code>none</code></td><td>—</td><td>nothing</td><td>HTTP only (the <code>"*"</code> catch-all, test sites)</td></tr>
+<tr><td><code>internal</code></td><td>the OPM local CA on the site (Caddy internal issuer; 12 h certificates, renewed by the agent)</td><td>clients install the local CA once (download on <code>/_opm/app/{siteSlug}/status</code>)</td><td>IP addresses, private names, air-gapped sites</td></tr>
+<tr><td><code>acme</code> · <code>http-01</code></td><td>Let's Encrypt</td><td>internet on the site AND the name reachable from the internet on port 80</td><td>public names</td></tr>
+<tr><td><code>acme</code> · <code>tls-alpn-01</code></td><td>Let's Encrypt</td><td>internet on the site AND the name reachable from the internet on port 443</td><td>public names when port 80 is closed</td></tr>
+<tr><td><code>acme</code> · <code>dns-01</code></td><td>Let's Encrypt</td><td>internet on the site AND the DNS provider API token (<code>dnsTokenSecretSlug</code>); no inbound port</td><td>wildcards (<code>*.acme.com</code>), sites behind a firewall</td></tr>
+<tr><td><code>files</code></td><td>the client's own certificate: <code>certFileSlug</code> (a deployment file, PEM chain) + <code>keySecretSlug</code> (a secret, PEM key)</td><td>the client renews it and you update the file</td><td>a corporate CA</td></tr>
+</table></div>
+<ul>
+  <li>Certificates and keys are kept by Caddy CertMagic in <code>/var/lib/opm/certs/</code>. ACME renews 30 days before expiry.</li>
+  <li>ACME cannot issue for an IP or <code>"*"</code> → validation error. A wildcard needs <code>dns-01</code>.</li>
+  <li>The GUI shows per host: issuer, valid until, last renewal, last error. ACME errors are alerts. Activities: <code>cert.issued</code>, <code>cert.renewed</code>, <code>cert.failed</code>.</li>
+  <li>A site that uses ACME http-01/tls-alpn-01 has no certificate until it has internet. Use <code>internal</code> for sites without internet.</li>
+</ul>
+
+<h2 id="firewall">Firewall rules for a deployment</h2>
+<p>The list comes from the site configs. Change the options to see how the rules change. Then copy the list for the client IT team.</p>
+<div class="controls">
+  <label><input type="checkbox" id="fHttps" checked /> edge HTTPS on (httpsPort 443)</label>
+  <label><input type="checkbox" id="fAcme" checked /> <code>plant.acme.com</code> uses ACME http-01</label>
+  <label><input type="checkbox" id="fAlias" checked /> agentGuiAliasPort 8080 on</label>
+  <label><input type="checkbox" id="fPg" checked /> <code>postgres</code> on <code>db</code> has hostPort 5432</label>
+  <label><input type="checkbox" id="fNet" /> site <code>db</code> has internet</label>
+  <label><input type="checkbox" id="fUsersDb" /> users also open site <code>db</code></label>
+  <button class="btn" type="button" id="fCopy">Copy as text</button>
+  <span class="small muted" id="fMsg"></span>
+</div>
+<div class="grid g2">
+  <div><div class="small muted">Sample config (acme-plant)</div><pre style="max-height:420px"><code id="fCfg"></code></pre></div>
+  <div><div class="tbl-wrap" style="margin-top:0"><table id="fTbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Port</th><th>Why</th></tr></thead><tbody></tbody></table></div></div>
+</div>
+
+<h2 id="tunnel">Browser internet tunnel</h2>
+<p>A site can have no internet, and no peer with internet. Then a person opens <code>/_opm/app/internet</code> in a browser that has internet. The tab carries the cloud calls of the agent. The route order for each cloud call is:</p>
+<ol><li>own internet → 2. a peer with internet (relay) → 3. the browser tunnel.</li></ol>
+<div class="diagram"><svg id="tunSvg" viewBox="0 0 900 230" role="img" aria-label="Browser tunnel"></svg>
+  <div class="cap">The tab polls the agent for requests, makes each request to the cloud, and posts the result back with the same <code>reqId</code>.</div></div>
+<div class="grid g2">
+  <div class="card"><h4>Rules</h4><ol>
+    <li>Only ONE active tab (lease) per site. <code>POST /_opm/api/tunnel/start</code> while another lease is active → <b>409 conflict</b> with the actor and start time of that lease.</li>
+    <li>To move to a new tab: click "Revoke the other tab" (confirm), then Start.</li>
+    <li><code>GET /_opm/api/tunnel/next</code> waits ≤ 25 s and returns ≤ 4 requests. No poll for 30 s → the lease expires.</li>
+    <li>Bodies over 4 MB: chunk upload, then complete with sha256.</li>
+    <li>The cloud allows CORS from any origin on <code>/v1/agent/*</code> and on the Storage bucket. The agent signature is the authorization, not the browser.</li>
+    <li>Activities: <code>internet.tunnel.started</code> · <code>stopped</code> · <code>revoked</code> · <code>expired</code>.</li>
+  </ol></div>
+  <div class="callout warn"><b>Security note</b><p>Every payload passes through the browser, also secrets (for example a proposal with secret values). The tab is same-origin with the agent GUI, and the actor popup is required. The agent still logs <code>secret.fetched</code> for each secret read. End-to-end encryption between agent and cloud is a later step.</p></div>
+</div>
+
+<h2 id="notfound">Not-found pages</h2>
+<div class="diagram"><svg id="nfSvg" viewBox="0 0 900 150" role="img" aria-label="Not-found page lifecycle"></svg></div>
+<ul>
+  <li>Create on <code>/app/not-found-pages</code>: a label and one self-contained HTML document (≤ 256 KB; put CSS, scripts and images inline).</li>
+  <li>There is no edit. To change a page, open it and use "Create a copy", then point the sites to the new page.</li>
+  <li>Preview on <code>/app/not-found-pages/{notFoundPageId}</code> in a sandboxed iframe.</li>
+  <li>A site uses it through <code>config.notFoundPageId</code>. The edge serves it for every request with no matching route (404) and when a proxy target is not ready (503). Never for <code>/_opm/</code> paths. The page content travels with the proposal, so the agent has it offline.</li>
+  <li>Delete is possible only if no template or deployment uses it.</li>
+</ul>
+
+<h2 id="relay">Distribution and relay for sites without internet</h2>
+<div class="diagram"><svg id="relaySvg" viewBox="0 0 900 200" role="img" aria-label="Relay"></svg></div>
+<ul>
+  <li>A site that cannot reach <code>api.opm.example</code> sends its signed cloud requests to a peer that can, with <code>POST /v1/agent/relay</code> through the mesh.</li>
+  <li>The peer forwards the request unchanged. The cloud checks the signature of the original site, so the relay cannot change it.</li>
+  <li>Reports (heartbeat, activities, staging status) of a site without internet go through the relay, unchanged. The relay peer is the first online site in slug order that has internet. <code>agents/{siteSlug}.relayVia</code> shows it.</li>
+  <li>Every site with internet polls, downloads and reports on its own. The relay is only for sites without internet.</li>
+  <li>Downloads (image layers, file blobs) use smart distribution, not the relay. A site gets a missing blob from a peer first. If no peer has it, ONE internet site fetches it from the cloud (the fetcher, chosen by rendezvous hashing over the blob sha256 and the site slug). The other sites copy it from the fetcher. So each blob crosses the internet once. See <a href="agent.html#distribution">Smart distribution</a>.</li>
+  <li>Cloud view: the sites exchange their cloud view every 10 s. The view with the newest <code>fetchedAt</code> wins.</li>
+  <li>Install on such a site: run the install command from the GUI of a site that already runs (<code>http://&lt;site&gt;:7080/_opm/install/&lt;siteSlug&gt;</code>).</li>
+</ul>
+
+<h2 id="proxy">Outbound HTTPS through a client proxy</h2>
+<div class="grid g2">
+  <div class="card"><h4>HTTP proxy</h4><p>Set <code>"proxy": "http://proxy.client.local:3128"</code> in <code>/etc/opm/agent.json</code>, or the environment <code>HTTPS_PROXY</code> / <code>NO_PROXY</code> of the systemd unit. Proxy authentication: <code>http://user:pass@host:port</code>.</p></div>
+  <div class="card"><h4>TLS inspection</h4><p>If the proxy re-signs TLS, put the client CA in <code>/etc/opm/extra-ca.pem</code>. Request signatures (§ auth) do not depend on TLS, so the cloud still detects any change of a request.</p></div>
+</div>
+<div class="callout warn"><b>Long-poll</b><p>The poll keeps one request open for up to 55 s. Some proxies close idle requests after 30 s. The agent then polls again at once; no data is lost, but ask the client to allow 60 s idle time for <code>api.opm.example</code>.</p></div>
+</main>
+</div>
+<script id="edge-lib">
+// ---------- edge (embedded Caddy) · shared model, resolver, editor (same code on every docs page that shows the edge) ----------
+const EDGE_PORTS = { web: { http: 80 }, api: { http: 3000 }, redis: { redis: 6379 }, postgres: { sql: 5432 }, worker: {} };
+function edgeSample(site) {
+  if (site === 'db') return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: '10.0.1.11', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }], routes: [] };
+  return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: 'plant.acme.com', tls: { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: true },
+    { hostname: '10.0.1.10', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }],
+  routes: [
+    { routeId: 'api', hosts: [], match: { pathPrefix: '/api', methods: null }, action: { type: 'proxy', containerSlug: 'api', portName: 'http', stripPrefix: true, addPrefix: null, setHeaders: { 'X-Forwarded-Prefix': '/api' }, removeHeaders: [], websocket: false, timeoutSec: 60 }, order: 1 },
+    { routeId: 'old', hosts: [], match: { pathPrefix: '/old', methods: null }, action: { type: 'redirect', to: '/new', status: 308, keepPath: true }, order: 2 },
+    { routeId: 'docs', hosts: ['plant.acme.com'], match: { pathPrefix: '/docs', methods: null }, action: { type: 'redirect', to: 'https://docs.acme.com{path}', status: 301, keepPath: false }, order: 3 },
+    { routeId: 'web', hosts: [], match: { pathPrefix: '/', methods: null }, action: { type: 'proxy', containerSlug: 'web', portName: 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: true, timeoutSec: 60 }, order: 4 }] };
+}
+const edgeEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const edgePrefixHit = (p, path) => p === '/' || path === p || path.startsWith(p.endsWith('/') ? p : p + '/');
+function edgeHostOf(edge, hn) {
+  hn = hn.toLowerCase();
+  let h = edge.hosts.find((x) => x.hostname.toLowerCase() === hn);
+  if (h) return [h, 'exact'];
+  h = edge.hosts.find((x) => x.hostname.startsWith('*.') && hn.endsWith(x.hostname.slice(1).toLowerCase()) && hn.split('.').length === x.hostname.split('.').length);
+  if (h) return [h, 'wildcard'];
+  h = edge.hosts.find((x) => x.hostname === '*');
+  return h ? [h, 'any host (*)'] : [null, ''];
+}
+// Resolve one request exactly like the agent edge does. opts: { method, notReady: { containerSlug: true } }
+function edgeResolve(edge, raw, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase(), steps = [];
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'http://' + raw); } catch (e) { return { status: 0, kind: 'bad', title: 'Not a URL', steps: ['Enter for example https://plant.acme.com/api/v1/x'] }; }
+  const scheme = u.protocol.slice(0, -1), hn = u.hostname.replace(/^\[|\]$/g, ''), q = u.search, path = u.pathname || '/';
+  if (scheme !== 'http' && scheme !== 'https') return { status: 0, kind: 'bad', title: 'Only http and https', steps: [] };
+  const port = u.port ? +u.port : scheme === 'https' ? 443 : 80;
+  const want = scheme === 'https' ? edge.httpsPort : edge.httpPort;
+  if (port !== want) return { status: 0, kind: 'bad', title: `Port ${port} is not an edge port`, steps: [`The edge listens on http ${edge.httpPort} and https ${edge.httpsPort == null ? 'off' : edge.httpsPort}.`, 'agentPort and agentGuiAliasPort serve only /_opm/ and do not use these rules.'] };
+  const [host, how] = edgeHostOf(edge, hn);
+  if (!host) return { status: scheme === 'https' ? 0 : 404, kind: 'bad', title: scheme === 'https' ? 'TLS handshake fails' : '404 · site not-found page', steps: [`No entry in edge.hosts matches <code>${edgeEsc(hn)}</code> and there is no "*" host.`, scheme === 'https' ? 'There is no certificate for this name.' : 'The edge answers with the site not-found page.'] };
+  steps.push(`Host <code>${edgeEsc(hn)}</code> → <code>${edgeEsc(host.hostname)}</code> (${how}) · TLS ${host.tls.mode}`);
+  if (scheme === 'https' && host.tls.mode === 'none') return { status: 0, kind: 'bad', title: 'TLS handshake fails', host, steps: steps.concat(['TLS mode is none for this host, so the edge has no certificate for HTTPS.']) };
+  if (scheme === 'http' && host.redirectHttpToHttps && host.tls.mode !== 'none' && edge.httpsPort != null) {
+    const loc = `https://${hn}${edge.httpsPort === 443 ? '' : ':' + edge.httpsPort}${path}${q}`;
+    return { status: 308, kind: 'redirect', title: '308 → HTTPS', host, location: loc, steps: steps.concat(['redirectHttpToHttps is on for this host. Routes are not checked on HTTP.']) };
+  }
+  if (path === '/_opm' || path.startsWith('/_opm/')) {
+    const known = path === '/_opm' || path === '/_opm/' || /^\/_opm\/(app|install)(\/|$)/.test(path) || path.startsWith('/_opm/api/') || path.startsWith('/_opm/assets/');
+    return { status: known ? 200 : 404, kind: 'agent', title: known ? '200 · agent GUI / API' : '404 · agent 404 page', host, steps: steps.concat(['<code>/_opm/</code> is reserved on every host. Routes are not checked.', known ? 'The agent answers (in process, not a container).' : 'Unknown /_opm/ path → the AGENT 404 page (never the site page). /_opm/peer/ is only on agentPort.']) };
+  }
+  const cand = edge.routes.filter((r) => !r.hosts.length || r.hosts.includes(host.hostname)).sort((a, b) => a.order - b.order || b.match.pathPrefix.length - a.match.pathPrefix.length);
+  steps.push(`Routes for this host, in order: ${cand.map((r) => `<code>${edgeEsc(r.routeId)}</code>`).join(' → ') || 'none'}`);
+  const r = cand.find((x) => edgePrefixHit(x.match.pathPrefix, path) && (!x.match.methods || !x.match.methods.length || x.match.methods.includes(method)));
+  if (!r) return { status: 404, kind: 'bad', title: '404 · site not-found page', host, steps: steps.concat(['No route matches. The edge serves the site not-found page (notFoundPageId; built-in page if null).']) };
+  const pre = r.match.pathPrefix, rest = pre === '/' ? path : path.slice(pre.replace(/\/$/, '').length);
+  steps.push(`First match: route <code>${edgeEsc(r.routeId)}</code> (prefix <code>${edgeEsc(pre)}</code>)`);
+  const a = r.action;
+  if (a.type === 'redirect') {
+    let loc = String(a.to).replace(/\{path\}/g, path).replace(/\{query\}/g, q).replace(/\{host\}/g, hn);
+    if (a.keepPath) loc = loc.replace(/\/$/, '') + (rest === '/' ? '' : rest) + q;
+    return { status: a.status, kind: 'redirect', title: `${a.status} redirect`, host, route: r, location: loc, steps: steps.concat([a.keepPath ? `keepPath: the rest of the path (<code>${edgeEsc(rest || '/')}</code>) and the query are added.` : 'keepPath is off: only the placeholders in "to" are used.']) };
+  }
+  if ((opts.notReady || {})[a.containerSlug]) return { status: 503, kind: 'bad', title: '503 · not-found page', host, route: r, steps: steps.concat([`Container <code>${edgeEsc(a.containerSlug)}</code> is not ready (health check). The edge serves the not-found page with status 503.`]) };
+  let up = a.stripPrefix ? (rest && rest.startsWith('/') ? rest : '/' + (rest || '')) : path;
+  if (a.addPrefix) up = a.addPrefix.replace(/\/$/, '') + up;
+  const cport = (EDGE_PORTS[a.containerSlug] || {})[a.portName];
+  const upstream = `http://${a.containerSlug}:${cport == null ? '?' : cport}${up}${q}`;
+  const hdr = Object.entries(a.setHeaders || {}).map(([k, v]) => `${k}: ${v}`);
+  return { status: 200, kind: 'proxy', title: 'proxy → container', host, route: r, upstream, steps: steps.concat([
+    a.stripPrefix ? `stripPrefix: <code>${edgeEsc(path)}</code> → <code>${edgeEsc(up)}</code>` : 'stripPrefix is off: the path goes unchanged.',
+    `Upstream (site network, DNS = container name): <code>${edgeEsc(upstream)}</code>`,
+    hdr.length ? `setHeaders: <code>${edgeEsc(hdr.join(' · '))}</code>` : 'Headers: X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host are always set.',
+    a.websocket ? 'WebSocket upgrade allowed.' : `Timeout ${a.timeoutSec} s.`]) };
+}
+function edgeExplainHTML(res) {
+  const cls = res.kind === 'proxy' ? 'ok' : res.kind === 'redirect' ? 'warn' : res.kind === 'agent' ? 'agent' : 'bad';
+  return `<div class="ee-res"><span class="tag ${cls}">${res.status || '—'}</span> <b>${res.title}</b>${res.location ? ` → <code>${edgeEsc(res.location)}</code>` : ''}<ol>${res.steps.map((s) => `<li>${s}</li>`).join('')}</ol></div>`;
+}
+// opts: { containers: [{ slug, hostPorts: number[] }], agentPort, agentGuiAliasPort, files: [], secrets: [] }
+function edgeValidate(edge, opts) {
+  opts = opts || {};
+  const E = [], W = [], slugRe = /^[a-z0-9][a-z0-9-]{0,62}$/;
+  const names = edge.hosts.map((h) => h.hostname.toLowerCase());
+  const isIp = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || s.includes(':');
+  if (edge.httpPort === edge.httpsPort) E.push('httpPort and httpsPort must differ.');
+  [['httpPort', edge.httpPort], ['httpsPort', edge.httpsPort]].forEach(([k, p]) => {
+    if (p == null) return;
+    if (!Number.isInteger(p) || p < 1 || p > 65535) E.push(`${k} ${p} must be 1–65535.`);
+    if (p === opts.agentPort) E.push(`${k} ${p} is the agentPort.`);
+    if (p === opts.agentGuiAliasPort) E.push(`${k} ${p} is the agentGuiAliasPort.`);
+  });
+  (opts.containers || []).forEach((c) => (c.hostPorts || []).forEach((p) => {
+    if (p === 80 || p === 443 || p === edge.httpPort || p === edge.httpsPort) E.push(`Container ${c.slug} publishes host port ${p}; ${p} belongs to the edge. Add a route instead.`);
+  }));
+  edge.hosts.forEach((h, i) => {
+    const n = h.hostname;
+    if (!n) E.push(`hosts[${i}]: hostname is empty.`);
+    if (names.indexOf(n.toLowerCase()) !== i) E.push(`Host ${n} is listed two times.`);
+    if (n !== '*' && !n.includes('{{') && !isIp(n) && !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(n)) E.push(`Host "${n}" is not a DNS name, a wildcard, an IP or "*".`);
+    if (h.tls.mode === 'acme') {
+      if (n === '*' || isIp(n)) E.push(`Host ${n}: ACME cannot issue a certificate for an IP or "*". Use internal.`);
+      if (!h.tls.email) E.push(`Host ${n}: ACME needs an email.`);
+      if (n.startsWith('*.') && h.tls.challenge !== 'dns-01') E.push(`Host ${n}: a wildcard certificate needs the dns-01 challenge.`);
+      if (h.tls.challenge === 'dns-01' && (!h.tls.dnsProvider || !h.tls.dnsTokenSecretSlug)) E.push(`Host ${n}: dns-01 needs dnsProvider and dnsTokenSecretSlug.`);
+      if (h.tls.challenge !== 'dns-01') { const need = h.tls.challenge === 'http-01' ? 80 : 443; W.push(`Host ${n}: ${h.tls.challenge} needs internet on this site AND ${n} reachable from the internet on port ${need}.`); if ((need === 80 ? edge.httpPort : edge.httpsPort) !== need) E.push(`Host ${n}: ${h.tls.challenge} needs the edge on port ${need}.`); }
+    }
+    if (h.tls.mode === 'files' && (!h.tls.certFileSlug || !h.tls.keySecretSlug)) E.push(`Host ${n}: files mode needs certFileSlug and keySecretSlug.`);
+    if (h.tls.mode === 'files' && opts.files && h.tls.certFileSlug && !opts.files.includes(h.tls.certFileSlug)) E.push(`Host ${n}: file ${h.tls.certFileSlug} does not exist.`);
+    if (h.tls.mode === 'files' && opts.secrets && h.tls.keySecretSlug && !opts.secrets.includes(h.tls.keySecretSlug)) E.push(`Host ${n}: secret ${h.tls.keySecretSlug} does not exist.`);
+    if (h.redirectHttpToHttps && (h.tls.mode === 'none' || edge.httpsPort == null)) E.push(`Host ${n}: redirectHttpToHttps needs TLS and an httpsPort.`);
+  });
+  const ids = edge.routes.map((r) => r.routeId);
+  const sorted = edge.routes.slice().sort((a, b) => a.order - b.order);
+  sorted.forEach((r, i) => {
+    if (!slugRe.test(r.routeId)) E.push(`Route id "${r.routeId}" is not a slug.`);
+    if (ids.indexOf(r.routeId) !== ids.lastIndexOf(r.routeId)) E.push(`Route id ${r.routeId} is used two times.`);
+    const p = r.match.pathPrefix;
+    if (!p || p[0] !== '/') E.push(`Route ${r.routeId}: pathPrefix must start with "/".`);
+    if (p === '/_opm' || (p && p.startsWith('/_opm/'))) E.push(`Route ${r.routeId}: /_opm/ is reserved for the agent.`);
+    r.hosts.forEach((x) => { if (!edge.hosts.some((h) => h.hostname === x)) E.push(`Route ${r.routeId}: host ${x} is not in edge.hosts.`); });
+    const a = r.action;
+    if (a.type === 'proxy') {
+      const ports = EDGE_PORTS[a.containerSlug];
+      if (opts.containers && !opts.containers.some((c) => c.slug === a.containerSlug)) E.push(`Route ${r.routeId}: container ${a.containerSlug} does not exist on this site.`);
+      else if (!ports || !(a.portName in ports)) E.push(`Route ${r.routeId}: port ${a.portName} does not exist on the image of ${a.containerSlug}.`);
+      if (!(a.timeoutSec >= 1 && a.timeoutSec <= 3600)) E.push(`Route ${r.routeId}: timeoutSec must be 1–3600.`);
+      if (a.addPrefix && a.addPrefix[0] !== '/') E.push(`Route ${r.routeId}: addPrefix must start with "/".`);
+    } else {
+      if (!a.to) E.push(`Route ${r.routeId}: redirect needs "to".`);
+      if (![301, 302, 303, 307, 308].includes(+a.status)) E.push(`Route ${r.routeId}: status must be 301, 302, 303, 307 or 308.`);
+    }
+    const shadow = sorted.slice(0, i).find((o) => edgePrefixHit(o.match.pathPrefix, p) && (!o.hosts.length || (r.hosts.length && r.hosts.every((x) => o.hosts.includes(x)))) && !o.match.methods);
+    if (shadow) W.push(`Route ${r.routeId} never matches: route ${shadow.routeId} (prefix ${shadow.match.pathPrefix}) is before it. Move it up.`);
+  });
+  return { E: [...new Set(E)], W: [...new Set(W)] };
+}
+function edgeCert(h) {
+  const m = h.tls.mode;
+  if (m === 'none') return '<span class="muted">— (HTTP only)</span>';
+  if (m === 'internal') return '<span class="tag ok">valid</span> <span class="small">OPM local CA · 12 h · renews itself</span>';
+  if (m === 'files') return `<span class="tag ok">valid</span> <span class="small">from file ${edgeEsc(h.tls.certFileSlug || '?')}</span>`;
+  return h.hostname === 'plant.acme.com' ? '<span class="tag ok">valid</span> <span class="small">Let\'s Encrypt R11 · until 2027-01-04</span>' : '<span class="tag warn">pending</span> <span class="small">first issue after apply</span>';
+}
+(function () {
+  if (document.getElementById('ee-style')) return;
+  const s = document.createElement('style'); s.id = 'ee-style';
+  s.textContent = `.ee{font-size:13px}.ee h5{margin:14px 0 6px;font-size:13px}.ee .ee-w{overflow-x:auto;-webkit-overflow-scrolling:touch}.ee table{width:100%;border-collapse:collapse;min-width:640px}.ee th,.ee td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top;font-size:12px}.ee th{color:var(--muted);font-weight:600}.ee input[type=text],.ee input[type=number],.ee select{font:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);max-width:100%}.ee input.w{width:150px}.ee input.n{width:64px}.ee .ee-b{font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer}.ee .ee-b.pri{background:var(--accent);color:#fff;border-color:transparent}.ee .ee-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.ee .ee-sub{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.ee .ee-res{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px;background:var(--surface-2);overflow-wrap:anywhere}.ee .ee-res ol{margin:6px 0 0 18px;padding:0}.ee .ee-msg li{margin:2px 0}.ee .ee-try{cursor:pointer;text-decoration:underline;margin-right:8px;font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}.ee code{overflow-wrap:anywhere}`;
+  document.head.appendChild(s);
+})();
+// Mount an interactive editor into el. edge is edited in place. opts: { local, onChange, containers, agentPort, agentGuiAliasPort, files, secrets, testUrl }
+function mountEdge(el, edge, opts) {
+  opts = opts || {};
+  const S = el.__ee || (el.__ee = { url: opts.testUrl || 'https://plant.acme.com/api/v1/x', method: 'GET', notReady: {}, newHost: '' });
+  const svcs = Object.keys(EDGE_PORTS).filter((k) => !opts.containers || opts.containers.some((c) => c.slug === k));
+  const opt = (vals, cur) => vals.map((v) => `<option ${String(v) === String(cur) ? 'selected' : ''}>${v}</option>`).join('');
+  const sorted = () => edge.routes.sort((a, b) => a.order - b.order);
+  const draw = () => {
+    sorted();
+    const v = edgeValidate(edge, opts);
+    const hostRows = edge.hosts.map((x, i) => {
+      const t = x.tls, m = t.mode;
+      const extra = m === 'acme' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.email" data-i="${i}" value="${edgeEsc(t.email)}" placeholder="email" aria-label="ACME email"/><select data-f="h.tls.challenge" data-i="${i}" aria-label="challenge">${opt(['http-01', 'tls-alpn-01', 'dns-01'], t.challenge)}</select>${t.challenge === 'dns-01' ? `<input type="text" class="w" data-f="h.tls.dnsProvider" data-i="${i}" value="${edgeEsc(t.dnsProvider)}" placeholder="dns provider (cloudflare)"/><input type="text" class="w" data-f="h.tls.dnsTokenSecretSlug" data-i="${i}" value="${edgeEsc(t.dnsTokenSecretSlug)}" placeholder="token secret slug"/>` : ''}</div>`
+        : m === 'files' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.certFileSlug" data-i="${i}" value="${edgeEsc(t.certFileSlug)}" placeholder="cert file slug"/><input type="text" class="w" data-f="h.tls.keySecretSlug" data-i="${i}" value="${edgeEsc(t.keySecretSlug)}" placeholder="key secret slug"/></div>`
+        : m === 'internal' ? '<span class="small muted">clients trust the OPM local CA (download in the agent GUI)</span>' : '<span class="small muted">HTTP only</span>';
+      return `<tr><td><input type="text" class="w" data-f="h.hostname" data-i="${i}" value="${edgeEsc(x.hostname)}" aria-label="hostname"/></td><td><select data-f="h.tls.mode" data-i="${i}" aria-label="TLS mode">${opt(['none', 'internal', 'acme', 'files'], m)}</select></td><td>${extra}</td><td><input type="checkbox" data-f="h.redirect" data-i="${i}" ${x.redirectHttpToHttps ? 'checked' : ''} aria-label="HTTP to HTTPS"/></td><td>${edgeCert(x)}</td><td><button type="button" class="ee-b" data-e="delHost" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const routeRows = edge.routes.map((r, i) => {
+      const a = r.action;
+      const act = a.type === 'proxy'
+        ? `<div class="ee-sub"><select data-f="r.svc" data-i="${i}" aria-label="container">${opt(svcs, a.containerSlug)}</select>:<select data-f="r.port" data-i="${i}" aria-label="port">${opt(Object.keys(EDGE_PORTS[a.containerSlug] || {}), a.portName)}</select><label><input type="checkbox" data-f="r.strip" data-i="${i}" ${a.stripPrefix ? 'checked' : ''}/> strip prefix</label><input type="text" class="n" style="width:90px" data-f="r.addPrefix" data-i="${i}" value="${edgeEsc(a.addPrefix)}" placeholder="add prefix"/><label><input type="checkbox" data-f="r.ws" data-i="${i}" ${a.websocket ? 'checked' : ''}/> websocket</label><input type="number" class="n" data-f="r.timeout" data-i="${i}" value="${a.timeoutSec}" aria-label="timeout s"/>s<input type="text" class="w" data-f="r.headers" data-i="${i}" value="${edgeEsc(Object.entries(a.setHeaders || {}).map(([k, x]) => k + '=' + x).join('; '))}" placeholder="set headers: K=V; K2=V2"/></div>`
+        : `<div class="ee-sub"><input type="text" class="w" style="width:200px" data-f="r.to" data-i="${i}" value="${edgeEsc(a.to)}" aria-label="redirect to"/><select data-f="r.status" data-i="${i}" aria-label="status">${opt([301, 302, 307, 308], a.status)}</select><label><input type="checkbox" data-f="r.keep" data-i="${i}" ${a.keepPath ? 'checked' : ''}/> keep path</label></div>`;
+      return `<tr><td>${r.order}</td><td style="white-space:nowrap"><button type="button" class="ee-b" data-e="up" data-i="${i}" ${i ? '' : 'disabled'} aria-label="move up">↑</button> <button type="button" class="ee-b" data-e="down" data-i="${i}" ${i < edge.routes.length - 1 ? '' : 'disabled'} aria-label="move down">↓</button></td><td><input type="text" class="n" style="width:70px" data-f="r.id" data-i="${i}" value="${edgeEsc(r.routeId)}" aria-label="route id"/></td><td><select data-f="r.hosts" data-i="${i}" aria-label="hosts">${['all hosts'].concat(edge.hosts.map((x) => x.hostname)).map((x) => `<option ${(r.hosts.length ? r.hosts[0] : 'all hosts') === x ? 'selected' : ''}>${edgeEsc(x)}</option>`).join('')}</select></td><td><input type="text" class="n" style="width:80px" data-f="r.prefix" data-i="${i}" value="${edgeEsc(r.match.pathPrefix)}" aria-label="path prefix"/></td><td><select data-f="r.type" data-i="${i}" aria-label="action">${opt(['proxy', 'redirect'], a.type)}</select></td><td>${act}</td><td><button type="button" class="ee-b" data-e="delRoute" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const res = edgeResolve(edge, S.url, { method: S.method, notReady: S.notReady });
+    el.innerHTML = `<div class="ee">
+      ${opts.local ? '<div class="small muted">Local edit on this site. Save → a <b>local proposal</b> (needs approval, then sent to the cloud).</div>' : ''}
+      <div class="ee-row"><b>Ports</b> http <input type="number" class="n" data-f="httpPort" value="${edge.httpPort}" aria-label="httpPort"/> https <input type="number" class="n" data-f="httpsPort" value="${edge.httpsPort == null ? '' : edge.httpsPort}" placeholder="off" aria-label="httpsPort"/><span class="small muted">served by the agent (embedded Caddy). Containers may not publish these ports.</span></div>
+      <h5>Hosts (${edge.hosts.length})</h5><div class="ee-w"><table><tr><th>Hostname</th><th>TLS mode</th><th>TLS details</th><th>HTTP→HTTPS</th><th>Certificate</th><th></th></tr>${hostRows}</table></div>
+      <div class="ee-row"><input type="text" class="w" id="edgeNewHost" value="${edgeEsc(S.newHost)}" placeholder="new hostname, e.g. ops.acme.com" aria-label="new hostname"/><button type="button" class="ee-b" data-e="addHost" id="edgeAddHost">+ Add host</button></div>
+      <h5>Routes (${edge.routes.length}) · first match wins, top to bottom</h5><div class="ee-w"><table><tr><th>#</th><th>Order</th><th>Route id</th><th>Hosts</th><th>Path prefix</th><th>Action</th><th>Action fields</th><th></th></tr>${routeRows}</table></div>
+      <div class="ee-row"><button type="button" class="ee-b" data-e="addRoute" data-v="proxy" id="edgeAddProxy">+ Proxy route</button><button type="button" class="ee-b" data-e="addRoute" data-v="redirect" id="edgeAddRedirect">+ Redirect route</button><span class="small muted">/_opm/ is reserved on every host. No match → not-found page (404). Target not ready → 503.</span></div>
+      <div class="ee-msg">${v.E.length ? `<div class="ee-res" style="border-color:var(--bad)"><b style="color:var(--bad)">${v.E.length} error(s) · cannot save</b><ul>${v.E.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : '<div class="ee-res"><span class="tag ok">valid</span> The agent turns this into Caddy JSON and reloads without dropped connections.</div>'}${v.W.length ? `<div class="ee-res" style="border-color:var(--warn)"><b style="color:var(--warn)">Warnings</b><ul>${v.W.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+      <h5>Test a URL</h5>
+      <div class="ee-row"><select id="edgeMethod" aria-label="method">${opt(['GET', 'POST', 'PUT', 'DELETE'], S.method)}</select><input type="text" id="edgeUrl" style="flex:1;min-width:200px" value="${edgeEsc(S.url)}" aria-label="URL to test"/><button type="button" class="ee-b pri" data-e="test" id="edgeTest">Test</button></div>
+      <div class="ee-row small">${svcs.map((s) => `<label><input type="checkbox" data-nr="${s}" ${S.notReady[s] ? 'checked' : ''}/> ${s} not ready</label>`).join(' ')}</div>
+      <div class="small">Try: ${['https://plant.acme.com/api/v1/x?id=7', 'http://plant.acme.com/api/v1/x', 'https://plant.acme.com/old/a?b=1', 'https://plant.acme.com/docs/setup', 'https://10.0.1.10/', 'https://10.0.1.10/_opm/app', 'http://10.0.1.10/_opm/nope', 'http://10.0.1.10/apix', 'https://other.example/'].map((x) => `<span class="ee-try" data-e="try" data-v="${x}">${x}</span>`).join('')}</div>
+      <div id="edgeOut">${edgeExplainHTML(res)}</div></div>`;
+  };
+  const changed = () => { if (opts.onChange) opts.onChange(edge); draw(); };
+  el.onclick = (ev) => {
+    const b = ev.target.closest('[data-e]'); if (!b || !el.contains(b)) return;
+    ev.stopPropagation();
+    const e = b.dataset.e, i = +b.dataset.i, R = edge.routes;
+    if (e === 'test') { S.url = el.querySelector('#edgeUrl').value; S.method = el.querySelector('#edgeMethod').value; return draw(); }
+    if (e === 'try') { S.url = b.dataset.v; return draw(); }
+    if (e === 'up' && i > 0) [R[i - 1].order, R[i].order] = [R[i].order, R[i - 1].order];
+    if (e === 'down' && i < R.length - 1) [R[i + 1].order, R[i].order] = [R[i].order, R[i + 1].order];
+    if (e === 'delRoute') R.splice(i, 1);
+    if (e === 'delHost') { const n = edge.hosts[i].hostname; edge.hosts.splice(i, 1); R.forEach((r) => (r.hosts = r.hosts.filter((x) => x !== n))); }
+    if (e === 'addHost') { const n = el.querySelector('#edgeNewHost').value.trim(); if (!n) return; const star = edge.hosts.findIndex((x) => x.hostname === '*'); edge.hosts.splice(star === -1 ? edge.hosts.length : star, 0, { hostname: n, tls: /^\d|\*$/.test(n) ? { mode: 'internal' } : { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: !/^\d|\*$/.test(n) }); S.newHost = ''; }
+    if (e === 'addRoute') { const n = R.length + 1; R.forEach((r) => (r.order += 1)); R.unshift({ routeId: 'route-' + n, hosts: [], match: { pathPrefix: '/new-' + n, methods: null }, action: b.dataset.v === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: true, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false }, order: 1 }); }
+    R.sort((a, b) => a.order - b.order).forEach((r, k) => (r.order = k + 1));
+    changed();
+  };
+  el.onkeydown = (ev) => { if (ev.target.id === 'edgeUrl' && ev.key === 'Enter') { S.url = ev.target.value; draw(); } if (ev.target.id === 'edgeNewHost' && ev.key === 'Enter') el.querySelector('#edgeAddHost').click(); };
+  el.oninput = (ev) => { if (ev.target.id === 'edgeNewHost') S.newHost = ev.target.value; if (ev.target.id === 'edgeUrl') S.url = ev.target.value; };
+  el.onchange = (ev) => {
+    const t = ev.target; ev.stopPropagation();
+    if (t.dataset.nr) { S.notReady[t.dataset.nr] = t.checked; return draw(); }
+    if (t.id === 'edgeMethod') { S.method = t.value; return draw(); }
+    const f = t.dataset.f; if (!f) return;
+    const i = +t.dataset.i, val = t.type === 'checkbox' ? t.checked : t.value;
+    if (f === 'httpPort') edge.httpPort = +val;
+    if (f === 'httpsPort') edge.httpsPort = val === '' ? null : +val;
+    if (f.startsWith('h.')) {
+      const x = edge.hosts[i];
+      if (f === 'h.hostname') { const old = x.hostname; x.hostname = String(val).trim(); edge.routes.forEach((r) => (r.hosts = r.hosts.map((y) => (y === old ? x.hostname : y)))); }
+      if (f === 'h.redirect') x.redirectHttpToHttps = val;
+      if (f === 'h.tls.mode') x.tls = val === 'acme' ? { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null } : val === 'files' ? { mode: 'files', certFileSlug: 'tls-cert', keySecretSlug: 'tls-key' } : { mode: val };
+      if (f.startsWith('h.tls.') && f !== 'h.tls.mode') x.tls[f.slice(6)] = val || null;
+    }
+    if (f.startsWith('r.')) {
+      const r = edge.routes[i], a = r.action;
+      if (f === 'r.id') r.routeId = val.trim();
+      if (f === 'r.prefix') r.match.pathPrefix = val.trim();
+      if (f === 'r.hosts') r.hosts = val === 'all hosts' ? [] : [val];
+      if (f === 'r.type') r.action = val === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false };
+      if (f === 'r.svc') { a.containerSlug = val; a.portName = Object.keys(EDGE_PORTS[val] || {})[0] || ''; }
+      if (f === 'r.port') a.portName = val;
+      if (f === 'r.strip') a.stripPrefix = val;
+      if (f === 'r.addPrefix') a.addPrefix = val.trim() || null;
+      if (f === 'r.ws') a.websocket = val;
+      if (f === 'r.timeout') a.timeoutSec = +val;
+      if (f === 'r.headers') a.setHeaders = Object.fromEntries(String(val).split(';').map((p) => p.split('=').map((y) => y.trim())).filter((p) => p[0]).map(([k, ...rest]) => [k, rest.join('=')]));
+      if (f === 'r.to') a.to = val.trim();
+      if (f === 'r.status') a.status = +val;
+      if (f === 'r.keep') a.keepPath = val;
+    }
+    changed();
+  };
+  draw();
+  return { redraw: draw };
+}
+// ---------- end edge ----------
+</script>
+<script>
+const MK = (svg, id) => { const d = svgEl('defs'); const m = svgEl('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }); m.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' })); d.appendChild(m); svg.appendChild(d); };
+const G = (svg, k, x, y, w, hh, t, sub, cls) => {
+  const g = svgEl('g', { 'data-k': k });
+  g.appendChild(svgEl('rect', { x, y, width: w, height: hh, rx: 9, class: 'box ' + (cls || '') }));
+  g.appendChild(svgEl('text', { x: x + w / 2, y: y + (sub ? hh / 2 - 3 : hh / 2 + 4), 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 650 }, t));
+  if (sub) g.appendChild(svgEl('text', { x: x + w / 2, y: y + hh / 2 + 13, 'text-anchor': 'middle', 'font-size': 10, class: 'muted' }, sub));
+  svg.appendChild(g); return g;
+};
+const L = (svg, d, cls, label, lx, ly, k) => {
+  const g = svgEl('g', k ? { 'data-k': k } : {});
+  g.appendChild(svgEl('path', { d, class: 'ln ' + cls, fill: 'none', stroke: 'transparent', 'stroke-width': 14 }));
+  g.appendChild(svgEl('path', { d, class: 'ln ' + cls }));
+  if (label) g.appendChild(svgEl('text', { x: lx, y: ly, 'text-anchor': 'middle', class: 'lbl' }, label));
+  svg.appendChild(g);
+};
+
+// picture
+(function () {
+  const s = document.getElementById('netSvg');
+  s.appendChild(svgEl('rect', { x: 250, y: 10, width: 400, height: 60, rx: 12, class: 'zone zone-cloud' }));
+  G(s, 'cloud', 330, 18, 240, 44, 'api.opm.example', 'cloud backend · one domain · 443', 'app');
+  s.appendChild(svgEl('line', { x1: 20, x2: 880, y1: 105, y2: 105, stroke: 'var(--bad)', 'stroke-dasharray': '6 4' }));
+  s.appendChild(svgEl('text', { x: 24, y: 98, 'font-size': 11, fill: 'var(--bad)' }, 'client firewall'));
+  [['app', 30, '10.0.1.10'], ['db', 470, '10.0.1.11']].forEach(([slug, x, ip]) => {
+    s.appendChild(svgEl('rect', { x, y: 125, width: 400, height: 250, rx: 12, class: 'zone zone-site' }));
+    s.appendChild(svgEl('text', { x: x + 14, y: 145, 'font-size': 12, 'font-weight': 600, class: 'muted' }, `site ${slug} · host ${ip}`));
+    G(s, 'edge-' + slug, x + 20, 155, 175, 56, 'edge :80 :443', slug === 'app' ? '4 routes · 3 hosts' : 'no routes → 404 page', 'agent');
+    G(s, 'agent-' + slug, x + 205, 155, 175, 56, 'agent :7080 :8080', 'mesh · GUI alias', 'agent');
+    s.appendChild(svgEl('rect', { x: x + 20, y: 225, width: 360, height: 135, rx: 10, fill: 'none', stroke: 'var(--border)', 'stroke-dasharray': '4 3' }));
+    s.appendChild(svgEl('text', { x: x + 30, y: 352, 'font-size': 10.5, class: 'muted mono' }, 'docker network opm_acme-plant'));
+    const cs = slug === 'app' ? [['web', 'web:80 (internal)'], ['api', 'api:3000 (internal)'], ['redis', ':6379']] : [['postgres', ':5432 → host 5432'], ['worker', 'job']];
+    cs.forEach(([n, p], i) => G(s, 'c-' + n, x + 30 + i * 118, 255, 110, 50, n, p, n === 'postgres' ? 'cs' : ''));
+  });
+  G(s, 'users', 120, 405, 200, 48, 'users & devices', 'plant.acme.com · 10.0.1.10', 'ext');
+  G(s, 'people', 560, 405, 200, 48, 'site operators', '/_opm/ on edge · :8080 · :7080', 'ext');
+  L(s, 'M200,405 C200,330 110,250 110,213', 'ln-users', ':80 / :443', 150, 395, 'users');
+  L(s, 'M90,211 C90,240 85,250 85,255', 'ln-data', '', 0, 0, 'route');
+  L(s, 'M120,211 C150,240 200,245 205,255', 'ln-data', '/api', 186, 238, 'route');
+  L(s, 'M660,405 C660,330 700,250 700,213', 'ln-admin', ':8080 /_opm/', 735, 330, 'people');
+  L(s, 'M322,155 C345,118 740,118 762,155', 'ln-agent', ':7080 /_opm/peer/', 542, 122, 'mesh');
+  L(s, 'M200,305 C260,335 520,335 560,305', 'ln-data', 'api → db:5432', 440, 342, 'cross');
+  L(s, 'M320,155 C320,120 380,90 420,62', 'ln-cloud', '443', 345, 112, 'out');
+  L(s, 'M760,155 C760,120 520,90 480,62', 'ln-cloud', '443', 690, 112, 'out');
+  const INFO = {
+    cloud: { t: 'api.opm.example', b: '<p>The only outbound destination. The agent uses: poll (long-poll ≤ 55 s), heartbeat, enroll, proposals, image manifests, blobs, activities, transfers, relay.</p>' },
+    'edge-app': { t: 'Edge (site app)', b: '<p>Embedded Caddy inside the agent process. Owns 80 and 443. Hosts: <code>plant.acme.com</code> (ACME), <code>10.0.1.10</code> (internal CA), <code>*</code> (HTTP only). Routes: <code>/api</code> → api (strip), <code>/old</code> → 308 <code>/new</code>, <code>/docs</code> → 301 docs.acme.com, <code>/</code> → web. <code>/_opm/</code> = agent GUI.</p>' },
+    'edge-db': { t: 'Edge (site db)', b: '<p>No routes. Every path except <code>/_opm/</code> gets the site not-found page (404). <code>/_opm/</code> = agent GUI.</p>' },
+    'agent-app': { t: 'Agent ports (site app)', b: '<p><code>agentPort</code> 7080: mesh <code>/_opm/peer/</code> and a fallback GUI. <code>agentGuiAliasPort</code> 8080: only the GUI and its API, from the agent own server (not Caddy). Both stay up when the edge config is broken.</p>' },
+    'agent-db': { t: 'Agent ports (site db)', b: '<p>Same as site app: 7080 for the mesh, 8080 for the GUI alias.</p>' },
+    users: { t: 'Users', b: '<p>Users open a hostname of the site on 80/443. The edge matches the host, then chooses a route like nginx (exact, longest prefix, regex), and proxies to the container or redirects.</p>' },
+    route: { t: 'Edge → container', b: '<p>The edge calls the container on the site network by its DNS name (the containerSlug) and container port, e.g. <code>http://api:3000</code>. The container publishes no host port.</p>' },
+    people: { t: 'Site operators', b: '<p>Three ways: <code>https://&lt;edge host&gt;/_opm/app</code>, <code>http://&lt;host&gt;:8080/_opm/app</code>, <code>http://&lt;host&gt;:7080/_opm/app</code>. Then the login with the deployment access key (6 h session) and the "Who is working right now?" popup. Every agent shows all sites.</p>' },
+    mesh: { t: 'Agent mesh', b: '<p>Agents call each other on <code>agentPort</code> under <code>/_opm/peer/</code>. Never through the edge. Every request is signed with the site key. Used for: status, approval gate, update steps, relay, file and layer copies, cloud views.</p>' },
+    cross: { t: 'Cross-site container traffic', b: '<p>Non-HTTP traffic uses a host port. The api container on <code>app</code> reaches postgres on <code>db</code> at <code>{{ site.db.host }}:{{ site.db.port.postgres.sql }}</code> = <code>10.0.1.11:5432</code>. Firewall rule app → db:5432.</p>' },
+    out: { t: 'Outbound HTTPS', b: '<p>TCP 443 to <code>api.opm.example</code> only (plus the ACME server for hosts in acme mode). A site without internet uses a relay peer, then the browser tunnel.</p>' },
+  };
+  ['web', 'api', 'redis', 'postgres', 'worker'].forEach((n) => (INFO['c-' + n] = { t: 'Container ' + n, b: `<p>Joins the site network as DNS name <code>${n}</code>. ${n === 'postgres' ? 'Publishes host port 5432 for the other site (non-HTTP).' : n === 'web' || n === 'api' ? 'Publishes no host port. The edge proxies to it.' : 'Publishes no host port.'}</p>` }));
+  inspector(s, document.getElementById('netInfo'), INFO, 'edge-app');
+})();
+
+// three ways to the GUI
+(function () {
+  const s = document.getElementById('guiSvg'); MK(s, 'ga');
+  G(s, 'p', 20, 100, 150, 50, 'browser', 'operator', 'ext');
+  G(s, 'w1', 250, 20, 220, 50, '1 · edge :80 / :443', 'Caddy · /_opm/ reserved', 'agent');
+  G(s, 'w2', 250, 100, 220, 50, '2 · :8080 agentGuiAliasPort', 'agent server · GUI only', 'agent');
+  G(s, 'w3', 250, 180, 220, 50, '3 · :7080 agentPort', 'agent server · GUI + mesh', 'agent');
+  G(s, 'gui', 580, 100, 150, 50, 'agent GUI + API', '/_opm/app · /_opm/api', 'app');
+  G(s, 'rt', 580, 20, 150, 50, 'routes → containers', 'every other path', 'cs');
+  G(s, 'peer', 580, 180, 150, 50, '/_opm/peer/', 'other sites', 'cs');
+  const A = (d, c) => s.appendChild(svgEl('path', { d, class: 'ln ' + c, 'marker-end': 'url(#ga)' }));
+  A('M170,115 C210,100 210,50 248,45', 'ln-admin'); A('M170,125 H248', 'ln-admin'); A('M170,135 C210,150 210,200 248,205', 'ln-admin');
+  A('M470,45 C520,50 540,110 578,118', 'ln-agent'); A('M470,125 H578', 'ln-agent'); A('M470,205 C520,200 540,140 578,132', 'ln-agent');
+  A('M470,38 H578', 'ln-data'); A('M470,212 C520,215 540,210 578,208', 'ln-agent');
+  s.appendChild(svgEl('text', { x: 800, y: 128, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, 'same GUI'));
+  s.appendChild(svgEl('text', { x: 800, y: 142, 'text-anchor': 'middle', 'font-size': 10.5, class: 'muted' }, 'on all 3 ways'));
+})();
+
+// edge decision diagram
+(function () {
+  const s = document.getElementById('edgeSvg'); MK(s, 'ea');
+  G(s, 'a', 10, 100, 110, 50, 'request', ':80 / :443');
+  G(s, 'b', 150, 100, 120, 50, 'host match?', 'exact > *.x > *', '');
+  G(s, 'b2', 150, 190, 120, 50, '404 / no TLS', 'no host', 'ext');
+  G(s, 'c', 300, 100, 120, 50, 'HTTP + redirect?', 'redirectHttpToHttps', '');
+  G(s, 'c2', 300, 10, 120, 50, '308 → https', null, 'ext');
+  G(s, 'd', 450, 100, 120, 50, '/_opm/ ?', 'reserved', 'agent');
+  G(s, 'd2', 450, 10, 120, 50, 'agent GUI / 404', 'agent page', 'agent');
+  G(s, 'e', 600, 100, 130, 50, 'choose route', 'exact › prefix › regex', 'cs');
+  G(s, 'e2', 600, 190, 130, 50, 'not-found page', '404', 'ext');
+  G(s, 'f', 760, 40, 130, 50, 'proxy', 'strip / rewrite path', 'app');
+  G(s, 'g', 760, 110, 130, 50, 'redirect', '301 302 303 307 308', 'app');
+  G(s, 'h', 760, 180, 130, 50, 'target not ready', '503 page', 'ext');
+  const A = (d) => s.appendChild(svgEl('path', { d, class: 'ln ln-cloud', 'marker-end': 'url(#ea)' }));
+  A('M120,125 H148'); A('M210,150 V188'); A('M270,125 H298'); A('M360,100 V62'); A('M420,125 H448'); A('M510,100 V62'); A('M570,125 H598'); A('M665,150 V188'); A('M730,115 C745,100 745,70 758,66'); A('M730,128 H758'); A('M730,140 C745,160 745,200 758,203');
+  [['no', 218, 172], ['yes', 368, 82], ['yes', 518, 82], ['no match', 672, 172]].forEach(([t, x, y]) => s.appendChild(svgEl('text', { x, y, 'font-size': 10.5, class: 'muted' }, t)));
+})();
+
+// firewall generator
+(function () {
+  const build = () => {
+    const https = document.getElementById('fHttps').checked, acme = document.getElementById('fAcme').checked, alias = document.getElementById('fAlias').checked, pg = document.getElementById('fPg').checked, net = document.getElementById('fNet').checked, udb = document.getElementById('fUsersDb').checked;
+    const appEdge = edgeSample('app'), dbEdge = edgeSample('db');
+    [appEdge, dbEdge].forEach((e) => { if (!https) { e.httpsPort = null; e.hosts.forEach((h) => { h.tls = { mode: 'none' }; h.redirectHttpToHttps = false; }); } });
+    if (https && !acme) appEdge.hosts[0].tls = { mode: 'internal' };
+    const cfg = {
+      sites: [
+        { siteSlug: 'app', config: { host: '10.0.1.10', agentPort: 7080, agentGuiAliasPort: alias ? 8080 : null, depends: [{ siteSlug: 'db' }], notFoundPageId: null, edge: appEdge,
+          containers: [{ containerSlug: 'web', port: [{ portName: 'http', hostPort: null }] }, { containerSlug: 'api', env: [{ name: 'DATABASE_URL', value: 'postgres://app:{{ secret.db-password | url }}@{{ site.db.host }}:{{ site.db.port.postgres.sql }}/app' }], port: [{ portName: 'http', hostPort: null }] }, { containerSlug: 'redis', port: [] }] } },
+        { siteSlug: 'db', config: { host: '10.0.1.11', agentPort: 7080, agentGuiAliasPort: alias ? 8080 : null, depends: [], notFoundPageId: 'N9bC1dE3fG5hI7jK9lM1', edge: dbEdge,
+          containers: [{ containerSlug: 'postgres', port: [{ portName: 'sql', hostPort: pg ? 5432 : null }] }, { containerSlug: 'worker', port: [] }] } },
+      ],
+    };
+    document.getElementById('fCfg').textContent = JSON.stringify(cfg, null, 2);
+    const R = [];
+    cfg.sites.forEach((s) => {
+      const h = `${s.siteSlug} (${s.config.host})`, e = s.config.edge;
+      if (s.siteSlug === 'app' || udb) {
+        R.push(['users (LAN)', h, `TCP ${e.httpPort}`, 'edge HTTP']);
+        if (e.httpsPort) R.push(['users (LAN)', h, `TCP ${e.httpsPort}`, 'edge HTTPS']);
+      }
+      e.hosts.filter((x) => x.tls.mode === 'acme').forEach((x) => {
+        R.push(['internet (Let\'s Encrypt)', h, `TCP ${x.tls.challenge === 'http-01' ? 80 : 443}`, `ACME ${x.tls.challenge} for ${x.hostname} (DNS ${x.hostname} → this site)`]);
+        R.push([h, 'acme-v02.api.letsencrypt.org', 'TCP 443 (out)', `ACME for ${x.hostname}`]);
+      });
+      R.push(['site operators', h, `TCP ${e.httpPort}${e.httpsPort ? ' / ' + e.httpsPort : ''}`, 'agent GUI way 1: /_opm/ on the edge']);
+      if (s.config.agentGuiAliasPort) R.push(['site operators', h, `TCP ${s.config.agentGuiAliasPort}`, 'agent GUI way 2: agentGuiAliasPort']);
+      R.push(['site operators (optional)', h, `TCP ${s.config.agentPort}`, 'agent GUI way 3: agentPort fallback']);
+    });
+    R.push(['app (10.0.1.10)', 'db (10.0.1.11)', 'TCP 7080', 'agent mesh /_opm/peer/ (both ways)']);
+    R.push(['db (10.0.1.11)', 'app (10.0.1.10)', 'TCP 7080', 'agent mesh /_opm/peer/ (both ways)']);
+    cfg.sites.forEach((s) => s.config.containers.forEach((c) => (c.env || []).forEach((ev) => {
+      const m = [...(ev.value || '').matchAll(/site\.([a-z0-9-]+)\.port\.([a-z0-9-]+)\.([a-z0-9-]+)/g)];
+      m.forEach(([, ts, svc, pn]) => {
+        const tsite = cfg.sites.find((x) => x.siteSlug === ts);
+        const tc = tsite.config.containers.find((x) => x.containerSlug === svc);
+        const p = tc && tc.port.find((x) => x.portName === pn);
+        if (p && p.hostPort) R.push([`${s.siteSlug} (${s.config.host})`, `${ts} (${tsite.config.host})`, `TCP ${p.hostPort}`, `${s.siteSlug}/${c.containerSlug} env ${ev.name} → ${ts}/${svc}:${pn}`]);
+        else R.push([`${s.siteSlug}`, `${ts}`, '—', `<span style="color:var(--bad)">${c.containerSlug}.${ev.name} uses ${ts}/${svc}:${pn} but it has no hostPort → staging fails</span>`]);
+      });
+    })));
+    R.push(['app (10.0.1.10)', 'api.opm.example', 'TCP 443 (out)', 'cloud API']);
+    if (net) R.push(['db (10.0.1.11)', 'api.opm.example', 'TCP 443 (out)', 'cloud API']);
+    else R.push(['db', 'app', '(mesh)', 'no internet: cloud traffic relayed by app (browser tunnel as last route)']);
+    document.querySelector('#fTbl tbody').innerHTML = R.map((r, i) => `<tr><td>${i + 1}</td><td>${r[0]}</td><td>${r[1]}</td><td><code>${r[2]}</code></td><td class="small">${r[3]}</td></tr>`).join('');
+    return R;
+  };
+  ['fHttps', 'fAcme', 'fAlias', 'fPg', 'fNet', 'fUsersDb'].forEach((id) => (document.getElementById(id).onchange = build));
+  document.getElementById('fCopy').onclick = async () => {
+    const R = build();
+    const txt = 'Firewall request — On-Prem Manager deployment acme-plant\n\n' + R.filter((r) => r[2] !== '—').map((r, i) => `${i + 1}. ${r[0]} → ${r[1]}  ${r[2]}  (${r[3].replace(/<[^>]+>/g, '')})`).join('\n');
+    try { await navigator.clipboard.writeText(txt); document.getElementById('fMsg').textContent = 'Copied.'; }
+    catch (e) { document.getElementById('fMsg').textContent = 'The browser blocked the clipboard. Select the table.'; }
+  };
+  build();
+})();
+
+// tunnel diagram
+(function () {
+  const s = document.getElementById('tunSvg'); MK(s, 'ta');
+  G(s, 'ag', 20, 80, 200, 60, 'agent (site db)', 'no internet · queue of signed requests', 'cs');
+  G(s, 'tab', 350, 80, 200, 60, 'browser tab', '/_opm/app/internet', 'agent');
+  G(s, 'cl', 690, 80, 190, 60, 'api.opm.example', 'checks the agent signature', 'app');
+  const A = (d, c) => s.appendChild(svgEl('path', { d, class: 'ln ' + c, 'marker-end': 'url(#ta)' }));
+  A('M222,98 H348', 'ln-agent'); A('M550,98 H688', 'ln-cloud'); A('M688,122 H552', 'ln-cloud'); A('M348,122 H222', 'ln-agent');
+  s.appendChild(svgEl('text', { x: 285, y: 90, 'text-anchor': 'middle', class: 'lbl' }, 'next → reqId'));
+  s.appendChild(svgEl('text', { x: 285, y: 140, 'text-anchor': 'middle', class: 'lbl' }, 'result(reqId)'));
+  s.appendChild(svgEl('text', { x: 620, y: 90, 'text-anchor': 'middle', class: 'lbl' }, 'fetch (CORS)'));
+  s.appendChild(svgEl('text', { x: 620, y: 140, 'text-anchor': 'middle', class: 'lbl' }, 'response'));
+  s.appendChild(svgEl('text', { x: 450, y: 195, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'route order: own internet → peer relay → browser tunnel · one active tab per site'));
+})();
+
+// not-found lifecycle
+(function () {
+  const s = document.getElementById('nfSvg'); MK(s, 'na');
+  const st = [['create', 'label + htmlCode'], ['preview', 'sandboxed iframe'], ['use', 'site.notFoundPageId'], ['copy → new page', 'no edit, ever'], ['delete', 'only if unused']];
+  st.forEach(([t, sub], i) => G(s, 'n' + i, 20 + i * 178, 50, 150, 52, t, sub, i === 3 ? 'agent' : i === 4 ? 'ext' : 'app'));
+  for (let i = 0; i < 4; i++) s.appendChild(svgEl('path', { d: `M${170 + i * 178},76 H${196 + i * 178}`, class: 'ln ln-cloud', 'marker-end': 'url(#na)' }));
+})();
+
+// relay
+(function () {
+  const s = document.getElementById('relaySvg'); MK(s, 'ra');
+  G(s, 'db', 20, 75, 200, 56, 'site db', 'no internet', 'cs');
+  G(s, 'app', 350, 75, 200, 56, 'site app (relay)', 'has internet · caches layers', 'agent');
+  G(s, 'cl', 690, 75, 190, 56, 'api.opm.example', 'checks db signature', 'app');
+  const A = (d, c) => s.appendChild(svgEl('path', { d, class: 'ln ' + c, 'marker-end': 'url(#ra)' }));
+  A('M220,95 H348', 'ln-agent'); A('M550,95 H688', 'ln-cloud'); A('M688,115 H552', 'ln-cloud'); A('M348,115 H222', 'ln-agent');
+  s.appendChild(svgEl('text', { x: 284, y: 86, 'text-anchor': 'middle', class: 'lbl' }, 'signed request'));
+  s.appendChild(svgEl('text', { x: 620, y: 86, 'text-anchor': 'middle', class: 'lbl' }, '/v1/agent/relay'));
+  s.appendChild(svgEl('text', { x: 450, y: 170, 'text-anchor': 'middle', 'font-size': 11, class: 'muted' }, 'the relay forwards the bytes unchanged; it cannot sign for db'));
+})();
+</script>
+</body>
+</html>

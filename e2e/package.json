@@ -1,0 +1,15 @@
+{
+  "name": "opm-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "tsx src/run.ts",
+    "shot": "tsx src/shot.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "playwright": "*",
+    "tsx": "*",
+    "typescript": "*"
+  }
+}

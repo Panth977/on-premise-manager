@@ -1,0 +1,417 @@
+/*
+ * OPM agent GUI · base + shared classes. Same look as the cloud console (frontend/src/lib/styles/app.css): tokens come
+ * from ONE file, lib/styles/tokens.css (a copy of the cloud tokens). Agent-only classes (.field, .switch, .tabs, .logbox,
+ * .lb, legacy tone names .ok / .warn / .bad / .info) are kept and drawn with the same tokens.
+ */
+/* tokens + shared base classes of BOTH GUIs (ui/, SPEC §21 #102), then the agent-only tokens (fonts, z-scale, log / ANSI palette) */
+@import '../../../ui/src/styles/tokens.css';
+@import './lib/styles/tokens.css';
+@import '../../../ui/src/styles/base.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: var(--lh);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+}
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+h1 {
+  font-size: var(--fs-2xl);
+}
+h2 {
+  font-size: var(--fs-lg);
+}
+h3,
+h4 {
+  font-size: var(--fs-md);
+}
+p {
+  margin: 0 0 8px;
+}
+code,
+kbd,
+pre,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+pre code,
+.code code {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--sp-4) 0;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+::selection {
+  background: var(--accent-soft-2);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+
+/* ───────── tables (cloud .table; .table-wrap here sits inside a .card) */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-wrap.boxed {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-md);
+}
+.table th,
+.table td {
+  padding: 9px 12px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+.table th {
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  background: var(--surface-2);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tbody tr.clickable {
+  cursor: pointer;
+}
+.table tbody tr.clickable:hover td,
+.table tbody tr.selected td {
+  background: var(--surface-hover);
+}
+.table tr.dim td {
+  opacity: 0.55;
+}
+.table tr.warn td {
+  background: color-mix(in srgb, var(--amber-soft) 55%, transparent);
+}
+.table tr.err td {
+  background: color-mix(in srgb, var(--red-soft) 55%, transparent);
+}
+.table td.actions,
+.table th.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.table td.actions .btn + .btn {
+  margin-left: 4px;
+}
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.table.compact td,
+.table.compact th {
+  padding: 6px 10px;
+}
+
+/* ───────── skeleton */
+.skel {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--skeleton);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* ───────── progress (cloud ui/ProgressBar look) */
+.progress {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--gray-soft);
+  overflow: hidden;
+  min-width: 60px;
+}
+.progress > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-full);
+  transition: width 0.3s var(--ease);
+}
+.progress.ok > i {
+  background: var(--green);
+}
+.progress.bad > i {
+  background: var(--red);
+}
+
+/* ───────── tabs (cloud ui/Tabs look) */
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs button,
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-md);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  text-decoration: none;
+  border-radius: 6px 6px 0 0;
+}
+.tabs button:hover,
+.tabs a:hover {
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-hover);
+}
+.tabs [aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.tabs .count {
+  font-size: 11px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--gray-soft);
+  color: var(--text-2);
+  display: inline-grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────── code / logs */
+.code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+}
+.logbox {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--log-bg);
+  color: var(--log-text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  overflow: auto;
+  max-height: 460px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+/* §21 #93: search hits inside ANSI-rendered log lines (the mark sits inside the styled span) */
+.logbox mark,
+.ansi-line mark {
+  background: #fbbf24;
+  color: #18181b;
+  border-radius: 2px;
+}
+.kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 18px;
+  font-size: var(--fs-md);
+  margin: 0;
+}
+.kv dt {
+  color: var(--text-2);
+}
+.kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .spin {
+    animation-duration: 1.5s !important;
+  }
+}
+
+/* phones: tables scroll inside their wrapper instead of squeezing every column */
+@media (max-width: 700px) {
+  .table-wrap > .table {
+    min-width: 640px;
+  }
+}
+
+/* ───────── sidebar navigation (same classes as the cloud: .nav-grp / .nav-item / .nav-cnt) */
+.nav-grp {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  padding: 14px 10px 4px;
+  font-weight: 600;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 32px;
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-md);
+  text-decoration: none;
+  transition: background var(--dur-fast);
+  min-width: 0;
+}
+.nav-item:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  text-decoration: none;
+}
+.nav-item[aria-current='page'],
+.nav-item.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.nav-cnt {
+  font-size: 11px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--gray-soft);
+  color: var(--text-2);
+  flex: none;
+  font-weight: 500;
+  margin-left: auto;
+}
+.nav-cnt.amber {
+  background: var(--amber-soft);
+  color: var(--amber-text);
+}
+.nav-cnt.red {
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+.nav-cnt.accent {
+  background: var(--accent);
+  color: #fff;
+}
+.nav-cnt.blue {
+  background: var(--blue);
+  color: #fff;
+}
+

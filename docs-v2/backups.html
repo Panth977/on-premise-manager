@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backups & Rollback</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .snaps { display: flex; flex-direction: column; gap: 6px; }
+  .snaps button { text-align: left; font: inherit; font-size: 13.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .snaps button.on { border-color: var(--accent); background: var(--accent-soft); }
+  .snaps .mono { font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Safety</div>
+<h1>Backups &amp; rollback</h1>
+<p class="lede">The agent takes a snapshot before every update. You can also take one by hand, download it, import it on another day, and roll back to it. A rollback uses the same gate as an update: all sites, a 60-second wait, and the word ACCEPT.</p>
+
+<h2 id="schema">The snapshot record</h2>
+<p>The full type is on the <a href="data-model.html">Data model</a> page. Short form:</p>
+<pre><code>interface Snapshot {
+  snapshotId: string;            // ULID
+  createdAt: Ts;
+  reason: 'pre-update' | 'manual' | 'scheduled' | 'imported';
+  revId: RevId; seq: number;     // the head at the time of the snapshot
+  sites: { [siteSlug: string]: {
+    config: Config;
+    images: { serviceSlug: Slug; version: string; digest: Sha256; configDigest: Sha256 }[];   // loaded as <serviceSlug>:<version>
+    volumes: { volumeSlug: string /* the declared site volume (pre-D snapshots: name) */; containers: Slug[] /* containerSlugs that mount it */; sizeBytes: number; sha256: Sha256; path: string /* sites/&lt;site&gt;/volumes/&lt;volumeSlug&gt;.tar.zst */ }[];
+    sizeBytes: number;
+  } };
+  createdBy: string;             // email, or "system"
+  note: string;
+}</code></pre>
+
+<h2 id="volumes">Site volumes: what gets backed up</h2>
+<p>Data folders are <b>declared on the site</b> (template or deployment → site → <b>Volumes</b>; agent GUI → Config › Volumes). Each one is a <a href="data-model.html#t-SiteVolume">SiteVolume</a> <code>{ volumeSlug, label, description, backup, location, kind, seed }</code> and lives on the site server at its location: auto = <code>&lt;agentHome&gt;/volumes/&lt;volumeSlug&gt;/</code> (agentHome = the agent data dir, default <code>/var/lib/opm</code>), or a custom path (<code>./…</code> = relative to agentHome, or absolute). A volume is backed up WHEREVER its location is. A container mounts a volume by picking it in its Volumes section; several containers may share one. So the agent knows exactly what to back up: the declared volumes with <b>Back up</b> on.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Mount source</th><th>Backed up?</th></tr>
+<tr><td>Declared site volume, Back up <b>on</b> (default)</td><td>Yes — once per volume, even when several containers share it</td></tr>
+<tr><td>Declared site volume, Back up <b>off</b></td><td>No (for caches or data you can rebuild)</td></tr>
+<tr><td>Host path (advanced)</td><td>Never — the GUIs say so</td></tr>
+<tr><td>File, secret, "Not mounted"</td><td>Never (files and secrets come from the config; rendered files are rendered again on restore)</td></tr>
+<tr><td>Orphan folder (a volume removed from the config)</td><td>Never; the folder stays on disk and is never deleted automatically</td></tr>
+</table></div>
+<p>The agent GUI <b>Backups</b> page shows, per site, the agent home and a volumes table (from <code>GET /_opm/api/sites/{siteSlug}/volumes</code>): name, label, the absolute folder on the server, size on disk, Back up on / off, used by (container → mount path), last snapshot that contains it. Orphan folders are listed greyed ("not declared — kept on disk, never backed up") and host-path mounts are listed with "never backed up".</p>
+
+<h3 id="single-file">Single-file volumes</h3>
+<p>A volume is a folder by default. Choose <b>Single file</b> when the container needs one data file at a file path, for example <code>/app/runtime.json</code>. The agent creates an empty file at the location before the container starts. A single-file volume is backed up and restored like a folder (one file).</p>
+<ul>
+  <li>Mount it at a file path. A path that ends with <code>/</code> is an error (V_VOLUME_KIND).</li>
+  <li>On an image volume, the kind must match what the image keeps there — every image volume has a kind, <b>Folder</b> or <b>File</b>, set on the image page (<a href="data-model.html#t-ImageVolume">ImageVolume.kind</a>):
+    <ul>
+      <li>single-file volume on a <b>File</b> image volume (e.g. <code>flow</code> → <code>/data/flows.json</code>): valid, no warning;</li>
+      <li>single-file volume on a <b>Folder</b> image volume: warning <code>V_VOLUME_KIND_IMAGE</code> — pick a folder volume, or set the image volume to File on the image page if the path is a file;</li>
+      <li>folder volume on a <b>File</b> image volume: error <code>V_VOLUME_KIND_MISMATCH</code> — pick a single-file volume, or set the image volume to Folder.</li>
+    </ul>
+    The container page shows one-click fixes next to the message: <b>+ New single-file volume…</b> / <b>+ New folder volume…</b> (the volume drawer with that kind) and <b>Set image volume X to Folder / File on the image page</b>.</li>
+  <li>Mounted read-write, a single-file volume shows the info <code>V_FILE_VOLUME_RENAME</code> once per mount (see below). Read-only mounts do not.</li>
+  <li>The kind is fixed after the volume is created. For another kind, make a new volume.</li>
+</ul>
+<div class="callout warn"><b>Node-RED and other apps that save with "write a temp file, then rename"</b><p>Apps that save by writing a temp file and renaming it (e.g. Node-RED flows.json) need a folder volume — a single-file Docker mount breaks on rename. Use a folder volume with its own content instead. (Tested: the rename fails with "Device or resource busy".)</p></div>
+<div class="callout"><b>Recommended for Node-RED</b><ol>
+  <li>Volumes page: add a <b>Folder</b> volume <code>nodered-data</code>, open its <b>Content</b> and create (or upload) <code>flows.json</code> and <code>settings.js</code> right there.</li>
+  <li>Container page of node-red: mount <code>nodered-data</code> at <code>/data</code> (the image volume <code>/data</code>, or <b>+ Extra mount</b> <code>/data</code>), read-write. Leave the File image volumes <code>flow</code> / <code>settings</code> on <b>Not mounted</b>.</li>
+  <li>Turn on <b>Persist to cloud</b> for <code>nodered-data</code> when flows change on the site and you want to see, edit and send them from the cloud (see below).</li>
+</ol><p>Never mount a Config file inside <code>/data</code>: Files are static and read-only and are never mounted on a writable volume (error <code>V_FILE_IN_WRITABLE_VOLUME</code>).</p></div>
+
+<h3 id="seed">Volume content (starter content)</h3>
+<p>A volume can start with content: its <b>own file tree</b>, edited in the cloud console (template or deployment → site → <b>Volumes</b> → a volume → <b>Content</b>). Files (the Files page) are never volume content — they are static, read-only files mounted as single files.</p>
+<ul>
+  <li><b>File tree:</b> new file, new folder, rename, move (drag and drop, or <b>Move to…</b>), duplicate, delete, upload files or whole folders from your computer.</li>
+  <li><b>Editor:</b> code editor with highlighting by extension (JSON, JavaScript, TypeScript, YAML, conf / ini, shell, HTML, CSS, Markdown …). Binary files and text files over 2 MiB show their size and a download link.</li>
+  <li><b>Per file:</b> mode (<code>0644</code>, <code>0755</code> for scripts …) and <b>Render {{ }}</b> — on: the file is a template, rendered once per site when it is written (like a File with expressions); off (default): written byte for byte.</li>
+  <li><b>Limits:</b> a file ≤ 50 MiB; ≤ 1000 files, ≤ 1000 empty folders, ≤ 200 MiB in total.</li>
+  <li>Single-file volumes have one file of content instead of a tree. A <code>.tar.gz</code> archive (folders, ≤ 200 MiB, never rendered) is still accepted.</li>
+  <li>The bytes are stored in the cloud by their sha256; the configuration holds only the list (path, sha256, size, mode), so the <b>Diff</b> before publishing lists every changed file with a text diff.</li>
+</ul>
+<ul>
+  <li>The agent writes the content <b>only once</b>: when the volume is new or empty, during the update, before the containers start.</li>
+  <li>After that the volume is marked "seeded". The site owns the data. Changes on the site (for example a new Node-RED flow) are kept.</li>
+  <li>A later change of the content does not touch existing data. The review says "starter content — written only into new / empty volumes". To change live data, use <b>Persist to cloud</b> (below) or the volume manager.</li>
+  <li>Revisions that use volume content or Persist to cloud need agent <b>0.12.0</b> or newer on the site; the publish dialog warns per site.</li>
+</ul>
+
+<h3 id="reset">Reset to starter content</h3>
+<p>To start a volume again from its starter content, open the agent GUI of that site → <b>Backups</b> → volumes table → <b>Reset to starter content…</b>. The button is there only for volumes with starter content, and only on the site's own agent GUI.</p>
+<ol class="steps">
+  <li>Click <b>Reset to starter content…</b>. Wait 60 seconds (you can cancel).</li>
+  <li>Type <code>ACCEPT</code> and confirm.</li>
+  <li>The agent takes a snapshot of this volume first (note "before reset of &lt;volume&gt;").</li>
+  <li>It stops the containers that use the volume, empties the volume, writes the starter content and starts the containers again.</li>
+  <li>The result shows the number of entries written and the snapshot. To undo, roll back to that snapshot.</li>
+</ol>
+<p>Activities: <code>snapshot.created</code>, <code>volume.reset-to-seed</code>, <code>volume.seeded</code>.</p>
+
+<h3 id="persist">Persist to cloud</h3>
+<p>For volumes whose content changes on the site and that you want to keep, review and edit in the cloud — Node-RED flows, client integration code — instead of a git repository. Turn it on in the volume's <b>Content</b> page (folder volumes only) and publish.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Setting</th><th>Default</th><th>Meaning</th></tr>
+<tr><td>Exclude</td><td><code>node_modules/ .npm/ .cache/ *.log</code></td><td>Never sent to the cloud and never changed by an apply. <code>name/</code> = folders, <code>*.log</code> = any file name, a pattern with "/" counts from the volume root, <code>**</code> = any folders.</td></tr>
+<tr><td>Size cap</td><td>50 MiB (1–200 MiB)</td><td>A snapshot over the cap is refused (the error lists the biggest files — exclude them). Files over 24 MiB, links and special files are skipped and listed.</td></tr>
+<tr><td>Automatic</td><td>on</td><td>The agent checks the volume every minute and takes a snapshot 2 minutes after the last change (at most every 15 minutes).</td></tr>
+</table></div>
+<ol class="steps">
+  <li><b>Site → cloud.</b> Every snapshot becomes a new version in the cloud (history: who / what / when, files added, changed, removed). Snapshots happen automatically, on <b>Snapshot now</b> (cloud or agent GUI), before and after every apply. If the cloud cannot be reached, they wait on the site and upload later.</li>
+  <li><b>Edit in the cloud.</b> Deployment → site → volume → <b>Cloud copy</b>: the same editor on the latest version. <b>Save as new version</b>. Any version can be restored (it becomes the latest) or copied into the starter content.</li>
+  <li><b>Cloud → site.</b> <b>Send to site…</b> (choose the version, "restart the containers that use it"). Nothing changes on the site yet: the agent GUI shows <b>Cloud ahead</b>; a person on the site opens Docker › Volumes → <b>Apply cloud version</b>, waits 60 s (⏩) and applies. The site does not need to be online when you send.</li>
+  <li><b>Conflicts.</b> If the volume changed on the site since the snapshot your edit started from, the agent shows <b>Conflict</b> and asks: <b>Overwrite</b> (the cloud version wins), <b>Keep live</b> (nothing is written; the live content is uploaded so you can see it) or <b>Per file</b> (changes on one side are merged; for files changed on both sides you choose, with a diff). It never overwrites silently. Before writing it takes a Backups snapshot of the volume.</li>
+</ol>
+<p>Agent GUI states: In sync · Live changed · Cloud ahead · Conflict · No snapshot yet · Waiting to upload · Error. Activities: <code>volume-content.snapshot</code>, <code>…snapshot-uploaded</code>, <code>…version-created</code>, <code>…sent</code>, <code>…conflict</code>, <code>…applied</code>, <code>…kept-live</code>.</p>
+
+<h2 id="inside">What is inside a snapshot</h2>
+<div class="diagram">
+  <svg viewBox="0 0 900 270" role="img" aria-label="Snapshot contents">
+    <rect x="10" y="10" width="880" height="250" rx="14" class="zone" />
+    <text x="26" y="34" font-size="12" font-weight="600" class="muted">/var/lib/opm/snapshots/01J9Z4…/ (on every site)</text>
+    <g font-size="12">
+      <rect x="30" y="56" width="250" height="180" rx="10" class="box agent" />
+      <text x="155" y="80" text-anchor="middle" font-weight="650">manifest.json</text>
+      <text x="50" y="108" class="muted" font-size="11">· snapshotId, reason, revId, seq</text>
+      <text x="50" y="128" class="muted" font-size="11">· full config of the head</text>
+      <text x="50" y="148" class="muted" font-size="11">· image refs of ALL containers</text>
+      <text x="50" y="168" class="muted" font-size="11">  (serviceSlug, version, digest)</text>
+      <text x="50" y="188" class="muted" font-size="11">· sha256 + size of every archive</text>
+      <rect x="310" y="56" width="270" height="180" rx="10" class="box" />
+      <text x="445" y="80" text-anchor="middle" font-weight="650">volumes/</text>
+      <text x="330" y="108" class="mono muted" font-size="11">postgres-data.tar.zst</text>
+      <text x="330" y="128" class="mono muted" font-size="11">api-uploads.tar.zst</text>
+      <text x="330" y="156" class="muted" font-size="11">only declared volumes with Back up on</text>
+      <text x="330" y="174" class="muted" font-size="11">pre-update: those the update touches</text>
+      <text x="330" y="192" class="muted" font-size="11">manual / scheduled: all of them</text>
+      <rect x="610" y="56" width="260" height="180" rx="10" class="box" />
+      <text x="740" y="80" text-anchor="middle" font-weight="650">images (kept, not copied)</text>
+      <text x="630" y="108" class="muted" font-size="11">The local image store keeps every</text>
+      <text x="630" y="126" class="muted" font-size="11">image a kept snapshot refers to.</text>
+      <text x="630" y="144" class="muted" font-size="11">Prune never removes them.</text>
+      <text x="630" y="172" class="muted" font-size="11">A download can include the image</text>
+      <text x="630" y="190" class="muted" font-size="11">layers ("include images").</text>
+    </g>
+  </svg>
+</div>
+
+<h2 id="when">When snapshots are made</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Reason</th><th>When</th><th>Volumes</th><th>Kept</th></tr>
+<tr><td><code>pre-update</code></td><td>Step 2 of every update (cloud or local proposal) and of every rollback. The changing containers stop first, in reverse dependency order.</td><td>Back-up-on volumes (of the current head) mounted by containers that the update recreates or removes, plus back-up-on volumes of the head that the new config mounts in a container that is created or recreated</td><td>Last 10</td></tr>
+<tr><td><code>scheduled</code></td><td>Once a day at 02:00 site time (prototype default).</td><td>Exactly the declared volumes with Back up on (a folder that does not exist yet is skipped)</td><td>Last 7</td></tr>
+<tr><td><code>manual</code></td><td><code>/_opm/app/backups</code> → "Take snapshot now" (with a note).</td><td>Exactly the declared volumes with Back up on</td><td>All, until a person deletes them</td></tr>
+<tr><td><code>imported</code></td><td>Upload of an <code>.opmsnap</code> file.</td><td>As in the file</td><td>All, until a person deletes them</td></tr>
+</table></div>
+<div class="callout warn"><b>Free-space rule</b><p>Before every snapshot, the agent estimates the size from the volume sizes. If the free disk space is less than 1.2 × the estimate, the snapshot fails. For a pre-update snapshot, the update then stops before any change.</p></div>
+
+<h2 id="rollback">Roll back to a snapshot</h2>
+<ol class="steps">
+  <li><b>Pick</b>Open <code>/_opm/app/backups</code> and select a snapshot. The page shows what changes (see the planner below).</li>
+  <li><b>Gate</b>The "Roll back" button shows only when every site is reachable over the mesh and no update runs.</li>
+  <li><b>Confirm</b>Click Roll back. Wait 60 s. Type <code>ACCEPT</code>. The dialog says that data written after the snapshot is lost, and it shows the declared actor (the email from the "Who is working right now?" popup), which goes into the activity.</li>
+  <li><b>Snapshot first</b>The agent takes a pre-update snapshot of the current state, so you can undo the rollback.</li>
+  <li><b>Restore</b>On every site: the snapshot config, the snapshot images, the snapshot volumes. Volumes are restored by <code>volumeSlug</code> into their location (default <code>&lt;agentHome&gt;/volumes/&lt;volumeSlug&gt;/</code>), whatever container mounts them now (a volume moved to another container keeps working). Volumes that are not in the snapshot are left as they are. Restart in depends order. Verify every container.</li>
+  <li><b>New revision</b>A new revision becomes head: <code>origin: "agent"</code>, <code>summary: "rollback to 01J9Z4… (seq 3)"</code>. History is never rewritten.</li>
+</ol>
+
+<h3>Rollback planner</h3>
+<p>Pick a snapshot. The planner shows what the rollback changes. Current head: seq 6, now 2026-10-07 11:40.</p>
+<div class="grid g2">
+  <div class="snaps" id="snapList"></div>
+  <div class="card" id="planOut"></div>
+</div>
+
+<h2 id="download">Download: the .opmsnap file</h2>
+<p>One file holds the snapshot of every site. It is a tar archive.</p>
+<div class="tbl-wrap"><table>
+<tr><th>Path in the archive</th><th>Content</th></tr>
+<tr><td><code>manifest.json</code></td><td>The Snapshot record, plus the sha256 and size of every other part.</td></tr>
+<tr><td><code>sites/&lt;siteSlug&gt;/config.json</code></td><td>The config of that site at the snapshot.</td></tr>
+<tr><td><code>sites/&lt;siteSlug&gt;/volumes/&lt;volumeSlug&gt;.tar.zst</code></td><td>One archive per backed-up site volume (a volume shared by several containers is archived once). Host paths, back-up-off volumes, files, secrets and rendered files are not archived. Older snapshots name the volume <code>name</code>; it is read as the volumeSlug.</td></tr>
+<tr><td><code>images/blobs/sha256/&lt;hex&gt;</code></td><td>Only with "include images": the image layers and manifests.</td></tr>
+<tr><td><code>signature.sig</code></td><td>Ed25519 signature of <code>manifest.json</code> by the site that made the download.</td></tr>
+</table></div>
+
+<h2 id="import">Import</h2>
+<ol class="steps">
+  <li><b>Upload</b><code>/_opm/app/backups</code> → "Import snapshot" → choose the <code>.opmsnap</code> file.</li>
+  <li><b>Check the signature</b>The signature must belong to a site of this deployment.</li>
+  <li><b>Check every part</b>The sha256 and size of every part must match the manifest. One error rejects the whole file.</li>
+  <li><b>Check the images</b>Every image digest must be on the sites, in the file, or in the cloud catalog.</li>
+  <li><b>List it</b>The snapshot shows with reason <code>imported</code>. You can roll back to it with the normal gate.</li>
+</ol>
+</main>
+</div>
+<script>
+const HEAD_VOLS = [['postgres-data', true], ['api-uploads', true], ['redis-cache', false]];   // declared volumes of the head: [volumeSlug, backup]
+const HEAD = { seq: 6, images: { web: '3.2.0', api: '2.4.0', postgres: '16.4', redis: '7.4', worker: '2.4.0' }, vars: { 'api-replicas': '2', 'log-level': 'info' } };
+const SNAPS = [
+  { id: '01JA2K…QX', at: '2026-10-07 09:12', reason: 'pre-update', seq: 5, by: 'operator@acme.example', images: { web: '3.2.0', api: '2.3.1', postgres: '16.4', redis: '7.4', worker: '2.3.1' }, vars: { 'api-replicas': '2', 'log-level': 'info' }, vols: [['api-uploads', 'api', '1.1 GB']] },
+  { id: '01JA0P…7M', at: '2026-10-07 02:00', reason: 'scheduled', seq: 5, by: 'system', images: { web: '3.2.0', api: '2.3.1', postgres: '16.4', redis: '7.4', worker: '2.3.1' }, vars: { 'api-replicas': '2', 'log-level': 'info' }, vols: [['postgres-data', 'postgres', '6.4 GB'], ['api-uploads', 'api, worker', '1.1 GB']] },
+  { id: '01J9Z4…D2', at: '2026-10-05 16:45', reason: 'manual', seq: 3, by: 'operator@acme.example', images: { web: '3.1.0', api: '2.2.0', postgres: '16.4', redis: '7.4', worker: '2.2.0' }, vars: { 'api-replicas': '1', 'log-level': 'debug' }, vols: [['postgres-data', 'postgres', '6.1 GB'], ['api-uploads', 'api, worker', '0.9 GB']] },
+  { id: '01J8RM…K0', at: '2026-09-28 10:03', reason: 'imported', seq: 2, by: 'operator@acme.example', images: { web: '3.1.0', api: '2.1.0', postgres: '16.3', redis: '7.4', worker: '2.1.0' }, vars: { 'api-replicas': '1', 'log-level': 'info' }, vols: [['postgres-data', 'postgres', '5.2 GB']] },
+];
+const list = document.getElementById('snapList');
+function plan(i) {
+  const s = SNAPS[i];
+  [...list.children].forEach((b, j) => b.classList.toggle('on', j === i));
+  const imgs = Object.keys(HEAD.images).filter((k) => HEAD.images[k] !== s.images[k]).map((k) => `<li><code>${k}</code>: ${HEAD.images[k]} → <b>${s.images[k]}</b></li>`).join('') || '<li class="muted">No image changes</li>';
+  const vars = Object.keys(HEAD.vars).filter((k) => HEAD.vars[k] !== s.vars[k]).map((k) => `<li><code>var.${k}</code>: ${HEAD.vars[k]} → <b>${s.vars[k]}</b></li>`).join('') || '<li class="muted">No variable changes</li>';
+  const vols = s.vols.map((v) => `<li><code>${v[0]}</code> restored (${v[2]}; mounted by ${v[1]})</li>`).join('');
+  const kept = HEAD_VOLS.filter((hv) => !s.vols.some((v) => v[0] === hv[0]));
+  document.getElementById('planOut').innerHTML = `<h4>Roll back to ${s.id} · seq ${s.seq}</h4>
+    <p class="small muted">${s.reason} · ${s.at} · by ${s.by}</p>
+    <b>Images</b><ul>${imgs}</ul><b>Config</b><ul>${vars}</ul><b>Volumes</b><ul>${vols}${kept.map((k) => `<li class="muted"><code>${k[0]}</code> not in this snapshot (${k[1] ? 'back up on' : 'back up off'}): kept as it is now</li>`).join('')}</ul>
+    <div class="callout bad" style="margin:8px 0 0"><b>Data loss window</b><p>Data written to the restored volumes between ${s.at} and now is lost. A pre-update snapshot of the current state is taken first, so you can undo this rollback.</p></div>
+    <p class="small">Result: a new revision seq 7, summary "rollback to ${s.id} (seq ${s.seq})".</p>`;
+}
+SNAPS.forEach((s, i) => {
+  const b = h('button', { type: 'button' }, `<span class="mono">${s.id}</span><span class="tag ${s.reason === 'manual' ? 'app' : s.reason === 'imported' ? 'warn' : ''}">${s.reason}</span><span class="small muted">${s.at} · seq ${s.seq}</span>`);
+  b.onclick = () => plan(i);
+  list.appendChild(b);
+});
+plan(0);
+</script>
+</body>
+</html>

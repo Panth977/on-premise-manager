@@ -1,0 +1,45 @@
+{
+  "description": "Lines written by the REAL mosquitto_passwd (docker run eclipse-mosquitto:<tag> mosquitto_passwd -H <hash> -b -c <file> u <password>), captured 2026-10-09. For each: parse the salt (and iterations) from the line; shared/src/hash.ts mosquittoHash(password, salt, format, iterations) and Go expr.MosquittoHash must reproduce the line after 'u:'. Mosquitto 2.0.x writes a 12-byte salt and 101 iterations, 2.1.x a 64-byte salt and 1000 iterations; both brokers verify 12-byte salts (2.0 ONLY 12), so the mosquitto_passwd filter writes 12 bytes. Live check: agent/internal/expr TestDockerMosquittoPasswd (OPM_DOCKER_TESTS / Docker present).",
+  "lines": [
+    {
+      "tool": "eclipse-mosquitto:2.0.18 (mosquitto 2.0.18) mosquitto_passwd -H sha512-pbkdf2",
+      "password": "s3cr3t:pässwörd",
+      "line": "u:$7$101$RMtw8cYl133Fef5f$6zo+X4eWScOFetbJZWEKdl7eECWsb9W9JJCK6Vmo709qczAkVE/x/8WdRZ1byRX9UixLx183r3qhSv+LfXSxYA=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2.0.18 (mosquitto 2.0.18) mosquitto_passwd -H sha512-pbkdf2",
+      "password": "northwind-Mqtt#2026",
+      "line": "u:$7$101$QLC6+bnaCkx0iUqZ$4PYcyo82bw3lgrsBgRf8J/ce24yGqZL8dxaOeElrxFlOILIsRO2N0m+N8Dy/Y3nAG/xt2r6mXMzenIsZMJQF3g=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2.0.18 (mosquitto 2.0.18) mosquitto_passwd -H sha512",
+      "password": "s3cr3t:pässwörd",
+      "line": "u:$6$1GCC42UuCcKoJYcG$XwxFgjOKTg6qQEQ4llzA1wyrGKR4BzHzlRTqZrFpuzllyJSnNF8CQproRJDNDIzPpxaOAqaoJauV1ll8rZLf3w=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2.0.18 (mosquitto 2.0.18) mosquitto_passwd -H sha512",
+      "password": "northwind-Mqtt#2026",
+      "line": "u:$6$Y/xg3PdzkrgAHpv3$WVmiKCoEz8jZSV7pPKPUuq7qTESh0Zlop2EthruZ2kCGpxHa9lvEeZX9XwbpybxNfrwL98dpeoEHqTMtBLxQjw=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2 (mosquitto 2.1.2) mosquitto_passwd -H sha512-pbkdf2",
+      "password": "s3cr3t:pässwörd",
+      "line": "u:$7$1000$ojHLLaFPoAZFqJFFMKvTKUYryLNu7VkNckbHNhxPmeNQ3cQ1UzzpDDDyCsi0Bn1tMyOzSaY1w86hwwksUuLlgw==$z2VqucG2J5MnWqHBnK/JCO6gb4NEcf7MHyUpsIRZHOGBcd4fGqcBN6gcnxAanSv+z6JFyrBbdUKTxkdnS5Sx8A=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2 (mosquitto 2.1.2) mosquitto_passwd -H sha512-pbkdf2",
+      "password": "northwind-Mqtt#2026",
+      "line": "u:$7$1000$3m6eG+CYMYHUc64NnhmiYSd7tdQx3jE+7xv8khGvtcvpM8JQ+u3HYsGPAdKsRvMKe0LhkceCdzVQW+OwC4ZqvQ==$p1M7IlRa1VWwCdhuRLZDK44Z/qpjq5/+CV+9kk+ID/8gRTGtYGKeYqFmJrIseOuPwU/+UMKmWttgx1cJ/UpQVw=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2 (mosquitto 2.1.2) mosquitto_passwd -H sha512",
+      "password": "s3cr3t:pässwörd",
+      "line": "u:$6$z/zXkaU8SRB39/VCVdbIGf83KHxEmgPyluLhFhcIF/QseMsFWv6LCBqEWHIcrG0tzVltwV8NJvfjpUQkmCd3RQ==$rJmE5My3RZGq+Vti8XbLoewoE6EQnPnNvQ59gBhVFDkUVem6iGR1hcA5nB7pHjJNmgXMRGKhKvY6hmiufkzoDw=="
+    },
+    {
+      "tool": "eclipse-mosquitto:2 (mosquitto 2.1.2) mosquitto_passwd -H sha512",
+      "password": "northwind-Mqtt#2026",
+      "line": "u:$6$Ud9hDe5jztkLtDulxs8KLI76GB/hodawbC9iXzw9n0lwPBUvIXfNQcK9kjSgnf4mnnMBqFFhMWGn/Xv5wmKrow==$L+jDJjpeX1Xv7bie2TYxep0Y04F0gavzYCqT1VcdhMRNlu41v6q0xjydp/XUvl9oMiw3cztS025kxGVvBwu7eQ=="
+    }
+  ]
+}

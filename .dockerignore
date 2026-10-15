@@ -1,0 +1,21 @@
+# opm-cloud image build context (selfhost/Dockerfile). NEVER send credentials into a build.
+.secrets
+**/.env
+**/.env.*
+**/node_modules
+**/test-results*
+**/playwright-report*
+**/build-mock*
+**/.tmp
+**/.tmp-local
+backend/dist
+backend/functions/lib
+frontend/build
+frontend/.svelte-kit
+agent/dist
+agent/gui/build*
+e2e/run
+docs-v2/video
+selfhost/data
+**/*.log
+.git

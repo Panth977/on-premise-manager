@@ -1,0 +1,3497 @@
+{
+  "description": "Shared expression test vectors. TS: shared/src/expr.test.ts · Go: agent/internal/expr/expr_test.go. Positions are code-point indexes. Messages are not compared. Section 'containers': resolveContainer() (env + mount paths of one container in dependency order, E_CYCLE). Field 'file' = FileDef content with render 'expressions' (multi-line; secrets allowed). Context 'auto-host': self.host / site.edge.host null = auto host not known yet (E_NULL at the path). Context 'site-peers' (§21 #88): containers.<containerSlug>.host = the DNS name (network alias) on the site network, containers.<containerSlug>.port.<portName> = the container's INTERNAL port; container.* stays SELF. Section §21 #99: field 'devtool' (dev-tool presets: roots var, secret, site, self, deployment, containers; secrets allowed) is the only field where containers.<containerSlug>.env.<NAME> (another container's FINAL env value; ctx containers[slug].env, error = re-raised at the reference) is allowed — every other field → E_NOT_ALLOWED.",
+  "contexts": {
+    "app-api": {
+      "deployment": {
+        "id": "acme-plant"
+      },
+      "self": {
+        "slug": "app",
+        "host": "10.0.1.10"
+      },
+      "container": {
+        "slug": "api",
+        "env": {
+          "NODE_ENV": {
+            "value": "worker",
+            "secret": false
+          },
+          "DB_PASS": {
+            "value": "p@ss",
+            "secret": true
+          },
+          "UNSET": {
+            "value": null,
+            "secret": false
+          }
+        }
+      },
+      "var": {
+        "db-name": "plant",
+        "api-port": "8080",
+        "api-workers": 4,
+        "ratio": 0.25,
+        "big": 1e+21,
+        "small": 1e-7,
+        "neg": -3.7,
+        "env-name": "PROD",
+        "region": null,
+        "empty": "",
+        "admins": [
+          "a@acme.com",
+          "b@acme.com"
+        ],
+        "mixed": [
+          "x",
+          1,
+          true
+        ],
+        "nested": [
+          [
+            "a"
+          ]
+        ],
+        "features": {
+          "metrics": true,
+          "b": [
+            1,
+            2
+          ],
+          "a": "z"
+        },
+        "tls-on": true,
+        "public-host": "plant.acme.com",
+        "padded": "  hi  ",
+        "unicode": "Grüße ✓",
+        "port-str": " 9000 ",
+        "port-bad": "90x",
+        "port-float": "8080.9",
+        "zero": 0,
+        "huge-port": 70000,
+        "2fa": "yes",
+        "with_underscore": "u"
+      },
+      "secret": {
+        "db-password": "p@ss/w:rd",
+        "session-key": "k9!Zq",
+        "unset": null
+      },
+      "file": {
+        "api-config": {
+          "path": "/etc/api/config.json"
+        },
+        "tls-cert": {
+          "path": null
+        }
+      },
+      "site": {
+        "app": {
+          "host": "10.0.1.10",
+          "port": {
+            "web": {
+              "http": 8081
+            },
+            "api": {
+              "http": null
+            }
+          }
+        },
+        "db": {
+          "host": "10.0.1.11",
+          "port": {
+            "postgres": {
+              "sql": 5432
+            },
+            "redis": {
+              "tcp": null
+            }
+          }
+        }
+      }
+    },
+    "edge-app": {
+      "deployment": {
+        "id": "acme-plant"
+      },
+      "self": {
+        "slug": "app",
+        "host": "10.0.1.10"
+      },
+      "container": null,
+      "var": {
+        "public-host": "plant.acme.com",
+        "api-port": "8080"
+      },
+      "secret": {
+        "db-password": "x"
+      },
+      "file": {},
+      "site": {}
+    },
+    "auto-host": {
+      "deployment": {
+        "id": "acme-plant"
+      },
+      "self": {
+        "slug": "app",
+        "host": null
+      },
+      "container": {
+        "slug": "api",
+        "env": {
+          "NODE_ENV": {
+            "value": "worker",
+            "secret": false
+          },
+          "DB_PASS": {
+            "value": "p@ss",
+            "secret": true
+          },
+          "UNSET": {
+            "value": null,
+            "secret": false
+          }
+        }
+      },
+      "var": {
+        "db-name": "plant",
+        "api-port": "8080",
+        "api-workers": 4,
+        "ratio": 0.25,
+        "big": 1e+21,
+        "small": 1e-7,
+        "neg": -3.7,
+        "env-name": "PROD",
+        "region": null,
+        "empty": "",
+        "admins": [
+          "a@acme.com",
+          "b@acme.com"
+        ],
+        "mixed": [
+          "x",
+          1,
+          true
+        ],
+        "nested": [
+          [
+            "a"
+          ]
+        ],
+        "features": {
+          "metrics": true,
+          "b": [
+            1,
+            2
+          ],
+          "a": "z"
+        },
+        "tls-on": true,
+        "public-host": "plant.acme.com",
+        "padded": "  hi  ",
+        "unicode": "Grüße ✓",
+        "port-str": " 9000 ",
+        "port-bad": "90x",
+        "port-float": "8080.9",
+        "zero": 0,
+        "huge-port": 70000,
+        "2fa": "yes",
+        "with_underscore": "u"
+      },
+      "secret": {
+        "db-password": "p@ss/w:rd",
+        "session-key": "k9!Zq",
+        "unset": null
+      },
+      "file": {
+        "api-config": {
+          "path": "/etc/api/config.json"
+        },
+        "tls-cert": {
+          "path": null
+        }
+      },
+      "site": {
+        "app": {
+          "host": "10.0.1.10",
+          "port": {
+            "web": {
+              "http": 8081
+            },
+            "api": {
+              "http": null
+            }
+          }
+        },
+        "db": {
+          "host": "10.0.1.11",
+          "port": {
+            "postgres": {
+              "sql": 5432
+            },
+            "redis": {
+              "tcp": null
+            }
+          }
+        },
+        "edge": {
+          "host": null,
+          "port": {}
+        }
+      }
+    },
+    "site-peers": {
+      "deployment": {
+        "id": "acme-plant"
+      },
+      "self": {
+        "slug": "app",
+        "host": "10.0.1.10"
+      },
+      "container": {
+        "slug": "api",
+        "env": {
+          "NODE_ENV": {
+            "value": "worker",
+            "secret": false
+          },
+          "DB_PASS": {
+            "value": "p@ss",
+            "secret": true
+          },
+          "UNSET": {
+            "value": null,
+            "secret": false
+          }
+        }
+      },
+      "var": {
+        "db-name": "plant",
+        "api-port": "8080",
+        "api-workers": 4,
+        "ratio": 0.25,
+        "big": 1e+21,
+        "small": 1e-7,
+        "neg": -3.7,
+        "env-name": "PROD",
+        "region": null,
+        "empty": "",
+        "admins": [
+          "a@acme.com",
+          "b@acme.com"
+        ],
+        "mixed": [
+          "x",
+          1,
+          true
+        ],
+        "nested": [
+          [
+            "a"
+          ]
+        ],
+        "features": {
+          "metrics": true,
+          "b": [
+            1,
+            2
+          ],
+          "a": "z"
+        },
+        "tls-on": true,
+        "public-host": "plant.acme.com",
+        "padded": "  hi  ",
+        "unicode": "Grüße ✓",
+        "port-str": " 9000 ",
+        "port-bad": "90x",
+        "port-float": "8080.9",
+        "zero": 0,
+        "huge-port": 70000,
+        "2fa": "yes",
+        "with_underscore": "u"
+      },
+      "secret": {
+        "db-password": "p@ss/w:rd",
+        "session-key": "k9!Zq",
+        "unset": null
+      },
+      "file": {
+        "api-config": {
+          "path": "/etc/api/config.json"
+        },
+        "tls-cert": {
+          "path": null
+        }
+      },
+      "site": {
+        "app": {
+          "host": "10.0.1.10",
+          "port": {
+            "web": {
+              "http": 8081
+            },
+            "api": {
+              "http": null
+            }
+          }
+        },
+        "db": {
+          "host": "10.0.1.11",
+          "port": {
+            "postgres": {
+              "sql": 5432
+            },
+            "redis": {
+              "tcp": null
+            }
+          }
+        }
+      },
+      "containers": {
+        "api": {
+          "host": "api",
+          "enabled": true,
+          "port": {
+            "http": 8080
+          }
+        },
+        "mqtt": {
+          "host": "mqtt",
+          "enabled": true,
+          "port": {
+            "mqtt": 1883,
+            "ws": 9001
+          }
+        },
+        "old-worker": {
+          "host": "old-worker",
+          "enabled": false,
+          "port": {
+            "metrics": 9100
+          }
+        },
+        "broken": {
+          "host": "broken",
+          "enabled": true,
+          "port": {
+            "http": null
+          }
+        },
+        "postgress": {
+          "host": "postgress",
+          "enabled": true,
+          "port": {
+            "service": 5432
+          },
+          "env": {
+            "POSTGRES_USER": {
+              "value": "plant",
+              "secret": false
+            },
+            "POSTGRES_PASSWORD": {
+              "value": "s3cr3t pw",
+              "secret": true
+            },
+            "POSTGRES_DB": {
+              "value": null,
+              "secret": false
+            },
+            "PGDATA": {
+              "value": "/var/lib/postgresql/data",
+              "secret": false
+            },
+            "BROKEN": {
+              "value": null,
+              "secret": false,
+              "error": {
+                "code": "E_CYCLE",
+                "message": "cycle: container.env.BROKEN → container.env.BROKEN"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mqtt-site": {
+      "deployment": {
+        "id": "JzOFFecGJv7AdGWtCjjf"
+      },
+      "self": {
+        "slug": "site-01",
+        "host": null
+      },
+      "container": null,
+      "var": {
+        "empty": "",
+        "pw-num": 1234,
+        "list": [
+          "a"
+        ]
+      },
+      "secret": {
+        "mqtt-password": "s3cr3t:pässwörd",
+        "unset": null
+      },
+      "file": {},
+      "site": {}
+    }
+  },
+  "cases": [
+    {
+      "name": "plain text",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "http://api:8080/health",
+      "output": "http://api:8080/health",
+      "masked": "http://api:8080/health",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "empty string",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "",
+      "output": "",
+      "masked": "",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "database url",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "postgres://app:{{ secret.db-password | url }}@{{ site.db.host }}:{{ site.db.port.postgres.sql }}/{{ var.db-name }}",
+      "output": "postgres://app:p%40ss%2Fw%3Ard@10.0.1.11:5432/plant",
+      "masked": "postgres://app:••••@10.0.1.11:5432/plant",
+      "secret": true,
+      "refs": [
+        "secret.db-password",
+        "site.db.host",
+        "site.db.port.postgres.sql",
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "number var",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.api-workers }}",
+      "output": "4",
+      "masked": "4",
+      "secret": false,
+      "refs": [
+        "var.api-workers"
+      ]
+    },
+    {
+      "name": "fraction var",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{var.ratio}}",
+      "output": "0.25",
+      "masked": "0.25",
+      "secret": false,
+      "refs": [
+        "var.ratio"
+      ]
+    },
+    {
+      "name": "big number formatting",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.big }}",
+      "output": "1e+21",
+      "masked": "1e+21",
+      "secret": false,
+      "refs": [
+        "var.big"
+      ]
+    },
+    {
+      "name": "small number formatting",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.small }}",
+      "output": "1e-7",
+      "masked": "1e-7",
+      "secret": false,
+      "refs": [
+        "var.small"
+      ]
+    },
+    {
+      "name": "boolean var",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "tls={{ var.tls-on }}",
+      "output": "tls=true",
+      "masked": "tls=true",
+      "secret": false,
+      "refs": [
+        "var.tls-on"
+      ]
+    },
+    {
+      "name": "null with default",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default(\"eu\") }}",
+      "output": "eu",
+      "masked": "eu",
+      "secret": false,
+      "refs": [
+        "var.region"
+      ]
+    },
+    {
+      "name": "empty with default",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.empty | default(\"x\") }}",
+      "output": "x",
+      "masked": "x",
+      "secret": false,
+      "refs": [
+        "var.empty"
+      ]
+    },
+    {
+      "name": "default number arg",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default(5) }}",
+      "output": "5",
+      "masked": "5",
+      "secret": false,
+      "refs": [
+        "var.region"
+      ]
+    },
+    {
+      "name": "default not used",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | default(\"x\") }}",
+      "output": "plant",
+      "masked": "plant",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "null without default",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "a{{ var.region }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 1
+      }
+    },
+    {
+      "name": "join list",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | join(\",\") }}",
+      "output": "a@acme.com,b@acme.com",
+      "masked": "a@acme.com,b@acme.com",
+      "secret": false,
+      "refs": [
+        "var.admins"
+      ]
+    },
+    {
+      "name": "join default sep",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | join }}",
+      "output": "a@acme.com,b@acme.com",
+      "masked": "a@acme.com,b@acme.com",
+      "secret": false,
+      "refs": [
+        "var.admins"
+      ]
+    },
+    {
+      "name": "join empty parens",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | join() }}",
+      "output": "a@acme.com,b@acme.com",
+      "masked": "a@acme.com,b@acme.com",
+      "secret": false,
+      "refs": [
+        "var.admins"
+      ]
+    },
+    {
+      "name": "join mixed scalars",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.mixed | join(\" \") }}",
+      "output": "x 1 true",
+      "masked": "x 1 true",
+      "secret": false,
+      "refs": [
+        "var.mixed"
+      ]
+    },
+    {
+      "name": "join nested",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.nested | join }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "join on string",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | join }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 17
+      }
+    },
+    {
+      "name": "list without join",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "json object canonical",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.features | json }}",
+      "output": "{\"a\":\"z\",\"b\":[1,2],\"metrics\":true}",
+      "masked": "{\"a\":\"z\",\"b\":[1,2],\"metrics\":true}",
+      "secret": false,
+      "refs": [
+        "var.features"
+      ]
+    },
+    {
+      "name": "json list",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | json }}",
+      "output": "[\"a@acme.com\",\"b@acme.com\"]",
+      "masked": "[\"a@acme.com\",\"b@acme.com\"]",
+      "secret": false,
+      "refs": [
+        "var.admins"
+      ]
+    },
+    {
+      "name": "json null",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | json }}",
+      "output": "null",
+      "masked": "null",
+      "secret": false,
+      "refs": [
+        "var.region"
+      ]
+    },
+    {
+      "name": "json string",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | json }}",
+      "output": "\"plant\"",
+      "masked": "\"plant\"",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "object without json",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.features }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "build a name",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ deployment.id }}-{{ self.slug | upper }}",
+      "output": "acme-plant-APP",
+      "masked": "acme-plant-APP",
+      "secret": false,
+      "refs": [
+        "deployment.id",
+        "self.slug"
+      ]
+    },
+    {
+      "name": "lower",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.env-name | lower }}",
+      "output": "prod",
+      "masked": "prod",
+      "secret": false,
+      "refs": [
+        "var.env-name"
+      ]
+    },
+    {
+      "name": "upper number",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.api-workers | upper }}",
+      "output": "4",
+      "masked": "4",
+      "secret": false,
+      "refs": [
+        "var.api-workers"
+      ]
+    },
+    {
+      "name": "upper null",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | upper }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "upper boolean",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.tls-on | upper }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "trim",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "[{{ var.padded | trim }}]",
+      "output": "[hi]",
+      "masked": "[hi]",
+      "secret": false,
+      "refs": [
+        "var.padded"
+      ]
+    },
+    {
+      "name": "trim number",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.api-workers | trim }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 21
+      }
+    },
+    {
+      "name": "base64 literal",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"app:x\" | base64 }}",
+      "output": "YXBwOng=",
+      "masked": "YXBwOng=",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "base64 unicode",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.unicode | base64 }}",
+      "output": "R3LDvMOfZSDinJM=",
+      "masked": "R3LDvMOfZSDinJM=",
+      "secret": false,
+      "refs": [
+        "var.unicode"
+      ]
+    },
+    {
+      "name": "url secret",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ secret.db-password | url }}",
+      "output": "p%40ss%2Fw%3Ard",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.db-password"
+      ]
+    },
+    {
+      "name": "url unicode and reserved",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"a b!'()*~._-ü\" | url }}",
+      "output": "a%20b%21%27%28%29%2A~._-%C3%BC",
+      "masked": "a%20b%21%27%28%29%2A~._-%C3%BC",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "int of string",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.api-port | int }}",
+      "output": "8080",
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.api-port"
+      ]
+    },
+    {
+      "name": "int padded",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.port-str | int }}",
+      "output": "9000",
+      "masked": "9000",
+      "secret": false,
+      "refs": [
+        "var.port-str"
+      ]
+    },
+    {
+      "name": "int truncates",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.port-float | int }}",
+      "output": "8080",
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.port-float"
+      ]
+    },
+    {
+      "name": "int negative number",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.neg | int }}",
+      "output": "-3",
+      "masked": "-3",
+      "secret": false,
+      "refs": [
+        "var.neg"
+      ]
+    },
+    {
+      "name": "int bad",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.port-bad | int }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 18
+      }
+    },
+    {
+      "name": "filter chain",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default(\" Eu \") | trim | upper }}",
+      "output": "EU",
+      "masked": "EU",
+      "secret": false,
+      "refs": [
+        "var.region"
+      ]
+    },
+    {
+      "name": "file path",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ file.api-config.path }}",
+      "output": "/etc/api/config.json",
+      "masked": "/etc/api/config.json",
+      "secret": false,
+      "refs": [
+        "file.api-config.path"
+      ]
+    },
+    {
+      "name": "file not mounted",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ file.tls-cert.path }}",
+      "error": {
+        "code": "E_FILE_NOT_MOUNTED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "file unknown",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ file.nope.path }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "file bad shape",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ file.api-config.size }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "site port no hostport",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ site.db.port.redis.tcp }}",
+      "error": {
+        "code": "E_NO_HOSTPORT",
+        "pos": 3
+      }
+    },
+    {
+      "name": "site unknown",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ site.cache.host }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "site port unknown service",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ site.db.port.mysql.sql }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "site port unknown port",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ site.db.port.postgres.http }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "site bad shape",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ site.db.port.postgres }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.serviceId was removed (one identifier: container.slug)",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.slug }}/{{ container.serviceId }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 24
+      }
+    },
+    {
+      "name": "self host",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ self.host }}",
+      "output": "10.0.1.10",
+      "masked": "10.0.1.10",
+      "secret": false,
+      "refs": [
+        "self.host"
+      ]
+    },
+    {
+      "name": "unknown var",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.dbname }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "var digit segment",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.2fa }}",
+      "output": "yes",
+      "masked": "yes",
+      "secret": false,
+      "refs": [
+        "var.2fa"
+      ]
+    },
+    {
+      "name": "var underscore",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.with_underscore }}",
+      "output": "u",
+      "masked": "u",
+      "secret": false,
+      "refs": [
+        "var.with_underscore"
+      ]
+    },
+    {
+      "name": "secret without value",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ secret.unset }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 0
+      }
+    },
+    {
+      "name": "secret masked",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "key={{ secret.session-key }};",
+      "output": "key=k9!Zq;",
+      "masked": "key=••••;",
+      "secret": true,
+      "refs": [
+        "secret.session-key"
+      ]
+    },
+    {
+      "name": "unknown root",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ foo.bar }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "root only",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 6
+      }
+    },
+    {
+      "name": "trailing dot",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var. }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 6
+      }
+    },
+    {
+      "name": "unknown filter",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | capitalize }}",
+      "error": {
+        "code": "E_UNKNOWN_FILTER",
+        "pos": 17
+      }
+    },
+    {
+      "name": "missing filter",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 17
+      }
+    },
+    {
+      "name": "empty block",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "x{{ }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 4
+      }
+    },
+    {
+      "name": "unclosed block",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "unclosed after open",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "abc{{",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 5
+      }
+    },
+    {
+      "name": "unterminated string",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"abc }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 3
+      }
+    },
+    {
+      "name": "bad escape",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"a\\nb\" }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 5
+      }
+    },
+    {
+      "name": "good escapes",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"q\\\"b\\\\s\" }}",
+      "output": "q\"b\\s",
+      "masked": "q\"b\\s",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "escape braces",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"{{\" }} not a block }}",
+      "output": "{{ not a block }}",
+      "masked": "{{ not a block }}",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "string with braces",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"}}\" }}",
+      "output": "}}",
+      "masked": "}}",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "lone closing braces",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "a }} b { c",
+      "output": "a }} b { c",
+      "masked": "a }} b { c",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "number literal",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ -12.50 }}",
+      "output": "-12.5",
+      "masked": "-12.5",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "boolean literal",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ false }}",
+      "output": "false",
+      "masked": "false",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "number then junk",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ 12abc }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 5
+      }
+    },
+    {
+      "name": "path argument",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default(var.db-name) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 24
+      }
+    },
+    {
+      "name": "default arity",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 16
+      }
+    },
+    {
+      "name": "join two args",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | join(\",\", \";\") }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 16
+      }
+    },
+    {
+      "name": "join number arg",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | join(1) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 16
+      }
+    },
+    {
+      "name": "upper with arg",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | upper(1) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 17
+      }
+    },
+    {
+      "name": "missing close paren",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default(\"x\" }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 28
+      }
+    },
+    {
+      "name": "space before paren",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | default (\"x\") }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 16
+      }
+    },
+    {
+      "name": "newline in block",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name\n}}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "newline in text",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "line1\n{{ var.db-name }}\nline3",
+      "output": "line1\nplant\nline3",
+      "masked": "line1\nplant\nline3",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "tabs as whitespace",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{\tvar.db-name\t|\tupper\t}}",
+      "output": "PLANT",
+      "masked": "PLANT",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "no whitespace",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{var.db-name|upper}}",
+      "output": "PLANT",
+      "masked": "PLANT",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "unicode positions",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "✓✓{{ var.nope }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 5
+      }
+    },
+    {
+      "name": "two blocks second fails",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name }}-{{ var.region }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 18
+      }
+    },
+    {
+      "name": "image env no secret",
+      "field": "imageEnv",
+      "ctx": "app-api",
+      "input": "{{ secret.db-password }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "image env site ok",
+      "field": "imageEnv",
+      "ctx": "app-api",
+      "input": "{{ site.db.host }}",
+      "output": "10.0.1.11",
+      "masked": "10.0.1.11",
+      "secret": false,
+      "refs": [
+        "site.db.host"
+      ]
+    },
+    {
+      "name": "host from var",
+      "field": "host",
+      "ctx": "app-api",
+      "input": "{{ var.public-host }}",
+      "output": "plant.acme.com",
+      "masked": "plant.acme.com",
+      "secret": false,
+      "refs": [
+        "var.public-host"
+      ]
+    },
+    {
+      "name": "host no secret",
+      "field": "host",
+      "ctx": "app-api",
+      "input": "{{ secret.db-password }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "host no site",
+      "field": "host",
+      "ctx": "app-api",
+      "input": "{{ site.db.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "host no self",
+      "field": "host",
+      "ctx": "app-api",
+      "input": "{{ self.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "hostPort whole block",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.api-port }}",
+      "output": "8080",
+      "number": 8080,
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.api-port"
+      ]
+    },
+    {
+      "name": "hostPort spaces around",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "  {{ var.api-port }} ",
+      "output": "8080",
+      "number": 8080,
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.api-port"
+      ]
+    },
+    {
+      "name": "hostPort padded string var",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.port-str }}",
+      "output": "9000",
+      "number": 9000,
+      "masked": "9000",
+      "secret": false,
+      "refs": [
+        "var.port-str"
+      ]
+    },
+    {
+      "name": "hostPort with int filter",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.port-float | int }}",
+      "output": "8080",
+      "number": 8080,
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.port-float"
+      ]
+    },
+    {
+      "name": "hostPort float string",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.port-float }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort extra text",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "port-{{ var.api-port }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort two blocks",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.api-port }}{{ var.api-port }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort zero",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.zero }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort too big",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.huge-port }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort not a number",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ var.db-name }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "hostPort no site",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ site.db.port.postgres.sql }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "hostPort deployment",
+      "field": "hostPort",
+      "ctx": "app-api",
+      "input": "{{ deployment.id }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "imagePort",
+      "field": "imagePort",
+      "ctx": "app-api",
+      "input": "{{ var.api-port | int }}",
+      "output": "8080",
+      "number": 8080,
+      "masked": "8080",
+      "secret": false,
+      "refs": [
+        "var.api-port"
+      ]
+    },
+    {
+      "name": "imagePort plain text",
+      "field": "imagePort",
+      "ctx": "app-api",
+      "input": "8080",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "edge redirect",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "https://{{ self.host }}:8443{path}",
+      "output": "https://10.0.1.10:8443{path}",
+      "masked": "https://10.0.1.10:8443{path}",
+      "secret": false,
+      "refs": [
+        "self.host"
+      ]
+    },
+    {
+      "name": "edge hostname var",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ var.public-host }}",
+      "output": "plant.acme.com",
+      "masked": "plant.acme.com",
+      "secret": false,
+      "refs": [
+        "var.public-host"
+      ]
+    },
+    {
+      "name": "edge no secret",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ secret.db-password }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "edge no site",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ site.db.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "edge no container",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ container.slug }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "edge self slug",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ self.slug }}.local",
+      "output": "app.local",
+      "masked": "app.local",
+      "secret": false,
+      "refs": [
+        "self.slug"
+      ]
+    },
+    {
+      "name": "self bad name",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ self.ip }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "deployment bad name",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ deployment.label }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "not allowed before shape",
+      "field": "host",
+      "ctx": "app-api",
+      "input": "{{ secret.a.b.c }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "true with dots is a path",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ true.x }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "uppercase root",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ Var.db-name }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "triple brace",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{{ var.db-name }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 2
+      }
+    },
+    {
+      "name": "quad close",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name }}}}",
+      "output": "plant}}",
+      "masked": "plant}}",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "minus alone",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ - }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.env in env",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.env.NODE_ENV }}",
+      "output": "worker",
+      "masked": "worker",
+      "secret": false,
+      "refs": [
+        "container.env.NODE_ENV"
+      ]
+    },
+    {
+      "name": "container.env in mountPath (user example)",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/app/helper/config/env/{{ container.env.NODE_ENV }}.ts",
+      "output": "/app/helper/config/env/worker.ts",
+      "masked": "/app/helper/config/env/worker.ts",
+      "secret": false,
+      "refs": [
+        "container.env.NODE_ENV"
+      ]
+    },
+    {
+      "name": "container.env secret in env is secret",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "x{{ container.env.DB_PASS }}",
+      "output": "xp@ss",
+      "masked": "x••••",
+      "secret": true,
+      "refs": [
+        "container.env.DB_PASS"
+      ]
+    },
+    {
+      "name": "container.env secret in mountPath",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/d/{{ container.env.DB_PASS }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 6
+      }
+    },
+    {
+      "name": "container.env secret in imageEnv",
+      "field": "imageEnv",
+      "ctx": "app-api",
+      "input": "{{ container.env.DB_PASS }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.env unknown name",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.env.MISSING }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.env null value",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.env.UNSET }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 0
+      }
+    },
+    {
+      "name": "container.env null value with default",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.env.UNSET | default(\"dev\") }}",
+      "output": "dev",
+      "masked": "dev",
+      "secret": false,
+      "refs": [
+        "container.env.UNSET"
+      ]
+    },
+    {
+      "name": "container.env without name",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.env }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "mountPath secret root",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/data/{{ secret.db-password }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 9
+      }
+    },
+    {
+      "name": "mountPath file root",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/data/{{ file.api-config.path }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 9
+      }
+    },
+    {
+      "name": "mountPath site root",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/data/{{ site.db.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 9
+      }
+    },
+    {
+      "name": "mountPath self + container",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/srv/{{ self.slug }}/{{ container.slug }}",
+      "output": "/srv/app/api",
+      "masked": "/srv/app/api",
+      "secret": false,
+      "refs": [
+        "self.slug",
+        "container.slug"
+      ]
+    },
+    {
+      "name": "mountPath var + filter",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/data/{{ var.env-name | lower }}",
+      "output": "/data/prod",
+      "masked": "/data/prod",
+      "secret": false,
+      "refs": [
+        "var.env-name"
+      ]
+    },
+    {
+      "name": "container.env in edge ctx without container",
+      "field": "imageEnv",
+      "ctx": "edge-app",
+      "input": "{{ container.env.X }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.slug",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ container.slug }}",
+      "output": "api",
+      "masked": "api",
+      "secret": false,
+      "refs": [
+        "container.slug"
+      ]
+    },
+    {
+      "name": "file: container.* is not allowed (files render once per site)",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "{\n  \"db\": \"{{ var.db-name }}\",\n  \"pass\": \"{{ secret.db-password }}\",\n  \"mode\": \"{{ container.env.NODE_ENV }}\"\n}\n",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 83
+      }
+    },
+    {
+      "name": "file: container.env is not allowed (use a variable)",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "p={{ container.env.DB_PASS }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 5
+      }
+    },
+    {
+      "name": "file: literal {{ escape via a string literal",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "tpl: {{ \"{{\" }} name }}\n",
+      "output": "tpl: {{ name }}\n",
+      "masked": "tpl: {{ name }}\n",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "file: a block cannot span lines",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "a\n{{ var.db-name\n}}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 16
+      }
+    },
+    {
+      "name": "file: null var needs default",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "x\nregion={{ var.region }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 9
+      }
+    },
+    {
+      "name": "file: site port of another site",
+      "field": "file",
+      "ctx": "app-api",
+      "input": "{{ site.db.host }}:{{ site.db.port.postgres.sql }}",
+      "output": "10.0.1.11:5432",
+      "masked": "10.0.1.11:5432",
+      "secret": false,
+      "refs": [
+        "site.db.host",
+        "site.db.port.postgres.sql"
+      ]
+    },
+    {
+      "name": "auto host: unknown site host is E_NULL at the path",
+      "field": "env",
+      "ctx": "auto-host",
+      "input": "http://{{ site.edge.host }}/",
+      "error": {
+        "code": "E_NULL",
+        "pos": 10
+      }
+    },
+    {
+      "name": "auto host: self.host unknown is E_NULL",
+      "field": "edge",
+      "ctx": "auto-host",
+      "input": "{{ self.host }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 3
+      }
+    },
+    {
+      "name": "auto host: other sites with a host still resolve",
+      "field": "env",
+      "ctx": "auto-host",
+      "input": "{{ site.db.host }}",
+      "output": "10.0.1.11",
+      "masked": "10.0.1.11",
+      "secret": false,
+      "refs": [
+        "site.db.host"
+      ]
+    },
+    {
+      "name": "containers: mqtt url (user example)",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "mqtt://{{ containers.mqtt.host }}:{{ containers.mqtt.port.mqtt }}",
+      "output": "mqtt://mqtt:1883",
+      "masked": "mqtt://mqtt:1883",
+      "secret": false,
+      "refs": [
+        "containers.mqtt.host",
+        "containers.mqtt.port.mqtt"
+      ]
+    },
+    {
+      "name": "containers: self via the plural root",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "http://{{ containers.api.host }}:{{ containers.api.port.http }}/health",
+      "output": "http://api:8080/health",
+      "masked": "http://api:8080/health",
+      "secret": false,
+      "refs": [
+        "containers.api.host",
+        "containers.api.port.http"
+      ]
+    },
+    {
+      "name": "containers: imageEnv allowed",
+      "field": "imageEnv",
+      "ctx": "site-peers",
+      "input": "ws://{{ containers.mqtt.host }}:{{ containers.mqtt.port.ws }}",
+      "output": "ws://mqtt:9001",
+      "masked": "ws://mqtt:9001",
+      "secret": false,
+      "refs": [
+        "containers.mqtt.host",
+        "containers.mqtt.port.ws"
+      ]
+    },
+    {
+      "name": "containers: file (site-level fact)",
+      "field": "file",
+      "ctx": "site-peers",
+      "input": "listener {{ containers.mqtt.port.mqtt }}\nhost {{ containers.mqtt.host }}\n",
+      "output": "listener 1883\nhost mqtt\n",
+      "masked": "listener 1883\nhost mqtt\n",
+      "secret": false,
+      "refs": [
+        "containers.mqtt.port.mqtt",
+        "containers.mqtt.host"
+      ]
+    },
+    {
+      "name": "containers: a disabled container still resolves (validate warns)",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.old-worker.host }}:{{ containers.old-worker.port.metrics }}",
+      "output": "old-worker:9100",
+      "masked": "old-worker:9100",
+      "secret": false,
+      "refs": [
+        "containers.old-worker.host",
+        "containers.old-worker.port.metrics"
+      ]
+    },
+    {
+      "name": "containers: port number through a filter",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.port.mqtt | json }}",
+      "output": "1883",
+      "masked": "1883",
+      "secret": false,
+      "refs": [
+        "containers.mqtt.port.mqtt"
+      ]
+    },
+    {
+      "name": "container.* stays SELF next to containers.*",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ container.slug }}->{{ containers.mqtt.host }}",
+      "output": "api->mqtt",
+      "masked": "api->mqtt",
+      "secret": false,
+      "refs": [
+        "container.slug",
+        "containers.mqtt.host"
+      ]
+    },
+    {
+      "name": "containers: unknown container",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "x={{ containers.nope.host }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 5
+      }
+    },
+    {
+      "name": "containers: unknown port",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.port.http }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers: port does not resolve",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "p={{ containers.broken.port.http }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 5
+      }
+    },
+    {
+      "name": "containers: not allowed in edge",
+      "field": "edge",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers: not allowed in mountPath",
+      "field": "mountPath",
+      "ctx": "site-peers",
+      "input": "/data/{{ containers.mqtt.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 9
+      }
+    },
+    {
+      "name": "containers: not allowed in host",
+      "field": "host",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers: shape (no field)",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers: shape (port without name)",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.port }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.<other> is not the plural root",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ container.mqtt.host }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: containers.<c>.env.<NAME> (user's case: preset username)",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.POSTGRES_USER }}",
+      "output": "plant",
+      "masked": "plant",
+      "secret": false,
+      "refs": [
+        "containers.postgress.env.POSTGRES_USER"
+      ]
+    },
+    {
+      "name": "devtool: secret-valued env of another container is a secret",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.POSTGRES_PASSWORD }}",
+      "output": "s3cr3t pw",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "containers.postgress.env.POSTGRES_PASSWORD"
+      ]
+    },
+    {
+      "name": "devtool: env + host + port in one value",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "postgres://{{ containers.postgress.env.POSTGRES_USER }}:{{ containers.postgress.env.POSTGRES_PASSWORD | url }}@{{ containers.postgress.host }}:{{ containers.postgress.port.service }}/x",
+      "output": "postgres://plant:s3cr3t%20pw@postgress:5432/x",
+      "masked": "postgres://plant:••••@postgress:5432/x",
+      "secret": true,
+      "refs": [
+        "containers.postgress.env.POSTGRES_USER",
+        "containers.postgress.env.POSTGRES_PASSWORD",
+        "containers.postgress.host",
+        "containers.postgress.port.service"
+      ]
+    },
+    {
+      "name": "devtool: env without a value + default",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.POSTGRES_DB | default(\"postgres\") }}",
+      "output": "postgres",
+      "masked": "postgres",
+      "secret": false,
+      "refs": [
+        "containers.postgress.env.POSTGRES_DB"
+      ]
+    },
+    {
+      "name": "devtool: secret.* allowed",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ secret.db-password }}",
+      "output": "p@ss/w:rd",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.db-password"
+      ]
+    },
+    {
+      "name": "devtool: var + self + deployment",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ var.db-name }}@{{ self.slug }}/{{ deployment.id }}",
+      "output": "plant@app/acme-plant",
+      "masked": "plant@app/acme-plant",
+      "secret": false,
+      "refs": [
+        "var.db-name",
+        "self.slug",
+        "deployment.id"
+      ]
+    },
+    {
+      "name": "devtool: env without a value → E_NULL at the block",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "db={{ containers.postgress.env.POSTGRES_DB }}",
+      "error": {
+        "code": "E_NULL",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: unknown env name",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.NOPE }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: container without env data",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.mqtt.env.MQTT_USER }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: unknown container",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "x {{ containers.nope.env.A }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 5
+      }
+    },
+    {
+      "name": "devtool: a failed env value re-raises its code at the reference",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "u={{ containers.postgress.env.BROKEN }}",
+      "error": {
+        "code": "E_CYCLE",
+        "pos": 5
+      }
+    },
+    {
+      "name": "devtool: shape containers.<c>.env (no name)",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: shape containers.<c>.env.<a>.<b>",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.A.B }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: container.* not allowed",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ container.slug }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "devtool: file.* not allowed",
+      "field": "devtool",
+      "ctx": "site-peers",
+      "input": "{{ file.api-config.path }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers.<c>.env not allowed in env (no cross-container cycles)",
+      "field": "env",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.POSTGRES_USER }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "containers.<c>.env not allowed in imageEnv",
+      "field": "imageEnv",
+      "ctx": "site-peers",
+      "input": "x{{ containers.postgress.env.POSTGRES_USER }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 4
+      }
+    },
+    {
+      "name": "containers.<c>.env not allowed in file",
+      "field": "file",
+      "ctx": "site-peers",
+      "input": "user: {{ containers.postgress.env.POSTGRES_USER }}\n",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 9
+      }
+    },
+    {
+      "name": "containers.<c>.env not allowed in edge (root first)",
+      "field": "edge",
+      "ctx": "site-peers",
+      "input": "{{ containers.postgress.env.POSTGRES_USER }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "#103 sha256 of a literal",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"hello\" | sha256 }}",
+      "output": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      "masked": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "#103 sha256 of the empty string",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "{{ \"\" | sha256 }}",
+      "output": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "masked": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "#103 sha512 of a number",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.api-workers | sha512 }}",
+      "output": "a321d8b405e3ef2604959847b36d171eebebc4a8941dc70a4784935a4fca5d5813de84dfa049f06549aa61b20848c1633ce81b675286ea8fb53db240d831c568",
+      "masked": "a321d8b405e3ef2604959847b36d171eebebc4a8941dc70a4784935a4fca5d5813de84dfa049f06549aa61b20848c1633ce81b675286ea8fb53db240d831c568",
+      "secret": false,
+      "refs": [
+        "var.api-workers"
+      ]
+    },
+    {
+      "name": "#103 sha256 of unicode (UTF-8 bytes)",
+      "field": "imageEnv",
+      "ctx": "app-api",
+      "input": "{{ var.unicode | sha256 }}",
+      "output": "087c35de16ad400745205d66394e4a98ce8385bc8aba58e0a2fc1f4b4c0e1fdb",
+      "masked": "087c35de16ad400745205d66394e4a98ce8385bc8aba58e0a2fc1f4b4c0e1fdb",
+      "secret": false,
+      "refs": [
+        "var.unicode"
+      ]
+    },
+    {
+      "name": "#103 sha256 of a secret stays secret",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "h={{ secret.db-password | sha256 }}",
+      "output": "h=441c4318ddf99021ff40575f4412ffc28a7e86feab4dbd84a44d897e8b45ebd1",
+      "masked": "h=••••",
+      "secret": true,
+      "refs": [
+        "secret.db-password"
+      ]
+    },
+    {
+      "name": "#103 sha256 after upper",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | upper | sha256 }}",
+      "output": "8084dc3803348aac9d7482add9296de53986586a23919b69a9921effbec4f2d1",
+      "masked": "8084dc3803348aac9d7482add9296de53986586a23919b69a9921effbec4f2d1",
+      "secret": false,
+      "refs": [
+        "var.db-name"
+      ]
+    },
+    {
+      "name": "#103 sha256 of a list is E_TYPE",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.admins | sha256 }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "#103 sha512 of null is E_TYPE",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ var.region | sha512 }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd: user line in a file (secret, masked)",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "northwind:{{ secret.mqtt-password | mosquitto_passwd }}",
+      "output": "northwind:$7$101$Os46+ESvZhOhPXM1$6vwDexMLpyuuZC3SQHp9dYnRlz/xJKqduoc9bBWd5axstw5PJOykQOS6H9SLhgJYPHivMZHUsQ5VGfq2+IRL+A==",
+      "masked": "northwind:••••",
+      "secret": true,
+      "refs": [
+        "secret.mqtt-password"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd: same password, same site → same line (env field)",
+      "field": "env",
+      "ctx": "mqtt-site",
+      "input": "northwind:{{ secret.mqtt-password | mosquitto_passwd }}",
+      "output": "northwind:$7$101$Os46+ESvZhOhPXM1$6vwDexMLpyuuZC3SQHp9dYnRlz/xJKqduoc9bBWd5axstw5PJOykQOS6H9SLhgJYPHivMZHUsQ5VGfq2+IRL+A==",
+      "masked": "northwind:••••",
+      "secret": true,
+      "refs": [
+        "secret.mqtt-password"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd: same password, other site / deployment → other salt",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ \"s3cr3t:pässwörd\" | mosquitto_passwd }}",
+      "output": "$7$101$FdGrN5HVLLHcwbPt$mRpVMZ70uNYYYFbwo1cVuiw3Gdl/G+/+gi4UNzXVmuRt8IGklvqK2un4X/NULqYnuYJOusz3evLsLPVt3KmILQ==",
+      "masked": "$7$101$FdGrN5HVLLHcwbPt$mRpVMZ70uNYYYFbwo1cVuiw3Gdl/G+/+gi4UNzXVmuRt8IGklvqK2un4X/NULqYnuYJOusz3evLsLPVt3KmILQ==",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "#103 mosquitto_passwd(7) = default",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "{{ secret.mqtt-password | mosquitto_passwd(7) }}",
+      "output": "$7$101$Os46+ESvZhOhPXM1$6vwDexMLpyuuZC3SQHp9dYnRlz/xJKqduoc9bBWd5axstw5PJOykQOS6H9SLhgJYPHivMZHUsQ5VGfq2+IRL+A==",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.mqtt-password"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd(7, 1000)",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "{{ secret.mqtt-password | mosquitto_passwd(7, 1000) }}",
+      "output": "$7$1000$Os46+ESvZhOhPXM1$X0iyCmBiubVK1GR48iyEdBbUK8Ekw5ALIlSQOLCvQux3pYWEBw+mWGgJjXkgfqlK4axIJV2vzuZwdfkLXSclaQ==",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.mqtt-password"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd(6) Mosquitto 1.x",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "{{ secret.mqtt-password | mosquitto_passwd(6) }}",
+      "output": "$6$Os46+ESvZhOhPXM1$pTq3sDRdksnQ+vT2M2wp/vp5vEkJO2saJBNYEdw1IDke7fWFWeEaU36a/3gR0M0wiP4vhoSZOkhe8Ut+m1Og0w==",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.mqtt-password"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd of a number",
+      "field": "devtool",
+      "ctx": "mqtt-site",
+      "input": "{{ var.pw-num | mosquitto_passwd }}",
+      "output": "$7$101$wUy0HggHRjeOzogJ$comwEabbpuv3UE0w+NB8egCJh0ti3IJX5M/Rihx3R3OB9TOuXr8uLPngX/2uDBidqOww2KJ5L4bMNJUSU97/Xw==",
+      "masked": "$7$101$wUy0HggHRjeOzogJ$comwEabbpuv3UE0w+NB8egCJh0ti3IJX5M/Rihx3R3OB9TOuXr8uLPngX/2uDBidqOww2KJ5L4bMNJUSU97/Xw==",
+      "secret": false,
+      "refs": [
+        "var.pw-num"
+      ]
+    },
+    {
+      "name": "#103 mosquitto_passwd of a plain literal is not secret",
+      "field": "devtool",
+      "ctx": "mqtt-site",
+      "input": "{{ \"hunter2\" | mosquitto_passwd }}",
+      "output": "$7$101$x/YGATsiwvlguRoM$BdLY1Ez4cDziTiiJxF5ycavcgNeZDeNyi1ykyZ2uyx7h+ibXeZl/G7LvZmJsYEGPzg2LHP3sXsmGl65b/c0sYg==",
+      "masked": "$7$101$x/YGATsiwvlguRoM$BdLY1Ez4cDziTiiJxF5ycavcgNeZDeNyi1ykyZ2uyx7h+ibXeZl/G7LvZmJsYEGPzg2LHP3sXsmGl65b/c0sYg==",
+      "secret": false,
+      "refs": []
+    },
+    {
+      "name": "#103 mosquitto_passwd of an empty value is E_TYPE",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "u:{{ var.empty | mosquitto_passwd }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 17
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd of null is E_TYPE",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "u:{{ secret.unset | mosquitto_passwd }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 20
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd of a list is E_TYPE",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "u:{{ var.list | mosquitto_passwd }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 16
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd not allowed in imageEnv",
+      "field": "imageEnv",
+      "ctx": "app-api",
+      "input": "{{ var.db-name | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 17
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd not allowed in edge",
+      "field": "edge",
+      "ctx": "edge-app",
+      "input": "x {{ var.public-host | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 23
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd not allowed in mountPath",
+      "field": "mountPath",
+      "ctx": "app-api",
+      "input": "/data/{{ var.db-name | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 23
+      }
+    },
+    {
+      "name": "#103 mosquitto_passwd then sha256",
+      "field": "env",
+      "ctx": "app-api",
+      "input": "{{ secret.db-password | mosquitto_passwd | sha256 }}",
+      "output": "1d544cea846af336846ddefd3cd7d797f536194083cf89a431e074037b157a94",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.db-password"
+      ]
+    },
+    {
+      "name": "#103 default then mosquitto_passwd",
+      "field": "file",
+      "ctx": "mqtt-site",
+      "input": "{{ secret.unset | default(\"fallback\") | mosquitto_passwd }}",
+      "output": "$7$101$ruW73RmgT0byBXbQ$GZxEhn7gJrz4Z8P9vLRCxijIfgzUkdYcp/MXwlyWOAvvEkzFuaLcOhYBiWAygkc/kMBKHip1LqLNeaMIgoGTsQ==",
+      "masked": "••••",
+      "secret": true,
+      "refs": [
+        "secret.unset"
+      ]
+    }
+  ],
+  "check": [
+    {
+      "name": "check ok",
+      "field": "env",
+      "input": "postgres://{{ secret.x | url }}@{{ site.db.host }}",
+      "error": null
+    },
+    {
+      "name": "check unknown slug not checked",
+      "field": "env",
+      "input": "{{ var.whatever }}",
+      "error": null
+    },
+    {
+      "name": "check not allowed",
+      "field": "host",
+      "input": "x{{ secret.x }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 4
+      }
+    },
+    {
+      "name": "check shape",
+      "field": "env",
+      "input": "{{ site.db.ports }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check syntax",
+      "field": "env",
+      "input": "{{ var.x | }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 11
+      }
+    },
+    {
+      "name": "check numeric shape",
+      "field": "hostPort",
+      "input": "a{{ var.p }}",
+      "error": {
+        "code": "E_TYPE",
+        "pos": 0
+      }
+    },
+    {
+      "name": "check numeric ok",
+      "field": "hostPort",
+      "input": "{{ var.p }}",
+      "error": null
+    },
+    {
+      "name": "check plain",
+      "field": "env",
+      "input": "no blocks here",
+      "error": null
+    },
+    {
+      "name": "check unknown filter",
+      "field": "edge",
+      "input": "{{ var.h | capitalize }}",
+      "error": {
+        "code": "E_UNKNOWN_FILTER",
+        "pos": 11
+      }
+    },
+    {
+      "name": "mountPath ok",
+      "field": "mountPath",
+      "input": "/app/{{ container.env.NODE_ENV }}.ts",
+      "error": null
+    },
+    {
+      "name": "container.env in host",
+      "field": "host",
+      "input": "{{ container.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.env in edge",
+      "field": "edge",
+      "input": "{{ container.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "container.env too deep",
+      "field": "mountPath",
+      "input": "/x/{{ container.env.A.b }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 6
+      }
+    },
+    {
+      "name": "container.envx",
+      "field": "env",
+      "input": "{{ container.envx.A }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "mountPath secret",
+      "field": "mountPath",
+      "input": "/{{ secret.x }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 4
+      }
+    },
+    {
+      "name": "check file: secret allowed",
+      "field": "file",
+      "input": "{{ secret.x }}",
+      "error": null
+    },
+    {
+      "name": "check file: unknown root",
+      "field": "file",
+      "input": "a {{ env.X }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 5
+      }
+    },
+    {
+      "name": "check host: site root not allowed",
+      "field": "host",
+      "input": "{{ site.db.host }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check file: file.<slug>.path is not allowed (per-container path)",
+      "field": "file",
+      "input": "cfg={{ file.api-config.path }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 7
+      }
+    },
+    {
+      "name": "check file: container root is not allowed",
+      "field": "file",
+      "input": "p={{ container.env.DB_PASS }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 5
+      }
+    },
+    {
+      "name": "check containers ok in env",
+      "field": "env",
+      "input": "mqtt://{{ containers.mqtt.host }}:{{ containers.mqtt.port.mqtt }}",
+      "error": null
+    },
+    {
+      "name": "check containers ok in file",
+      "field": "file",
+      "input": "h={{ containers.mqtt.host }}",
+      "error": null
+    },
+    {
+      "name": "check containers unknown slug not checked",
+      "field": "env",
+      "input": "{{ containers.whatever.port.x }}",
+      "error": null
+    },
+    {
+      "name": "check containers not allowed in hostPort",
+      "field": "hostPort",
+      "input": "{{ containers.mqtt.port.mqtt }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check containers shape",
+      "field": "env",
+      "input": "{{ containers.mqtt.hosts }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check devtool containers env ok (unknown names not checked)",
+      "field": "devtool",
+      "input": "{{ containers.whatever.env.ANY }}",
+      "error": null
+    },
+    {
+      "name": "check devtool secret ok",
+      "field": "devtool",
+      "input": "{{ secret.x }}:{{ containers.pg.port.sql }}",
+      "error": null
+    },
+    {
+      "name": "check containers env not allowed in env",
+      "field": "env",
+      "input": "a={{ containers.pg.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 5
+      }
+    },
+    {
+      "name": "check containers env not allowed in file",
+      "field": "file",
+      "input": "{{ containers.pg.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check containers env not allowed in imageEnv",
+      "field": "imageEnv",
+      "input": "{{ containers.pg.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check devtool container.* not allowed",
+      "field": "devtool",
+      "input": "{{ container.env.X }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    },
+    {
+      "name": "check devtool containers env shape",
+      "field": "devtool",
+      "input": "{{ containers.pg.env }}",
+      "error": {
+        "code": "E_UNKNOWN_PATH",
+        "pos": 3
+      }
+    },
+    {
+      "name": "#103 check: mosquitto_passwd ok in file",
+      "field": "file",
+      "input": "northwind:{{ secret.mqtt-password | mosquitto_passwd }}",
+      "error": null
+    },
+    {
+      "name": "#103 check: mosquitto_passwd(6) ok",
+      "field": "env",
+      "input": "{{ secret.x | mosquitto_passwd(6) }}",
+      "error": null
+    },
+    {
+      "name": "#103 check: mosquitto_passwd(7, 10000) ok",
+      "field": "devtool",
+      "input": "{{ secret.x | mosquitto_passwd(7, 10000) }}",
+      "error": null
+    },
+    {
+      "name": "#103 check: bad format",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(5) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: format must be a number",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(\"7\") }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: iterations with format 6",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(6, 10) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: iterations 0",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(7, 0) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: iterations too many",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(7, 10001) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: iterations not an integer",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(7, 1.5) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: three arguments",
+      "field": "file",
+      "input": "{{ secret.x | mosquitto_passwd(7, 101, 1) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 14
+      }
+    },
+    {
+      "name": "#103 check: sha256 takes no arguments",
+      "field": "env",
+      "input": "{{ var.x | sha256(1) }}",
+      "error": {
+        "code": "E_SYNTAX",
+        "pos": 11
+      }
+    },
+    {
+      "name": "#103 check: underscore filter name unknown",
+      "field": "env",
+      "input": "{{ var.x | mosquitto_pass }}",
+      "error": {
+        "code": "E_UNKNOWN_FILTER",
+        "pos": 11
+      }
+    },
+    {
+      "name": "#103 check: md5 is not a filter",
+      "field": "env",
+      "input": "{{ var.x | md5 }}",
+      "error": {
+        "code": "E_UNKNOWN_FILTER",
+        "pos": 11
+      }
+    },
+    {
+      "name": "#103 check: mosquitto_passwd not allowed in host",
+      "field": "host",
+      "input": "{{ var.x | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 11
+      }
+    },
+    {
+      "name": "#103 check: mosquitto_passwd not allowed in hostPort",
+      "field": "hostPort",
+      "input": "{{ var.x | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 11
+      }
+    },
+    {
+      "name": "#103 check: sha256 allowed in edge",
+      "field": "edge",
+      "input": "etag-{{ var.x | sha256 }}",
+      "error": null
+    },
+    {
+      "name": "#103 check: root error before filter error",
+      "field": "imageEnv",
+      "input": "{{ secret.x | mosquitto_passwd }}",
+      "error": {
+        "code": "E_NOT_ALLOWED",
+        "pos": 3
+      }
+    }
+  ],
+  "containers": [
+    {
+      "name": "user example: NODE_ENV choice in a mount path",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "NODE_ENV",
+          "src": "worker",
+          "field": "env"
+        },
+        {
+          "name": "PORT",
+          "src": "{{ var.api-port }}",
+          "field": "imageEnv"
+        }
+      ],
+      "mounts": [
+        {
+          "key": "image:config",
+          "src": "/app/helper/config/env/{{ container.env.NODE_ENV }}.ts"
+        }
+      ],
+      "expect": {
+        "env": {
+          "NODE_ENV": {
+            "value": "worker",
+            "masked": "worker",
+            "secret": false
+          },
+          "PORT": {
+            "value": "8080",
+            "masked": "8080",
+            "secret": false
+          }
+        },
+        "mounts": {
+          "image:config": {
+            "value": "/app/helper/config/env/worker.ts",
+            "masked": "/app/helper/config/env/worker.ts",
+            "secret": false
+          }
+        }
+      }
+    },
+    {
+      "name": "env chain resolves in dependency order",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "URL",
+          "src": "http://{{ container.env.HOST }}:{{ container.env.PORT }}/",
+          "field": "env"
+        },
+        {
+          "name": "HOST",
+          "src": "{{ self.host }}",
+          "field": "env"
+        },
+        {
+          "name": "PORT",
+          "src": "{{ container.env.BASE | int }}",
+          "field": "imageEnv"
+        },
+        {
+          "name": "BASE",
+          "src": "8080.5",
+          "field": "imageEnv"
+        }
+      ],
+      "mounts": [],
+      "expect": {
+        "env": {
+          "URL": {
+            "value": "http://10.0.1.10:8080/",
+            "masked": "http://10.0.1.10:8080/",
+            "secret": false
+          },
+          "HOST": {
+            "value": "10.0.1.10",
+            "masked": "10.0.1.10",
+            "secret": false
+          },
+          "PORT": {
+            "value": "8080",
+            "masked": "8080",
+            "secret": false
+          },
+          "BASE": {
+            "value": "8080.5",
+            "masked": "8080.5",
+            "secret": false
+          }
+        },
+        "mounts": {}
+      }
+    },
+    {
+      "name": "cycle between env vars",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "A",
+          "src": "{{ container.env.B }}",
+          "field": "env"
+        },
+        {
+          "name": "B",
+          "src": "x{{ container.env.A }}",
+          "field": "env"
+        },
+        {
+          "name": "C",
+          "src": "{{ container.env.A | default(\"z\") }}",
+          "field": "env"
+        },
+        {
+          "name": "D",
+          "src": "ok",
+          "field": "env"
+        },
+        {
+          "name": "S",
+          "src": "{{ container.env.S }}",
+          "field": "env"
+        }
+      ],
+      "mounts": [],
+      "expect": {
+        "env": {
+          "A": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 3
+            }
+          },
+          "B": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 4
+            }
+          },
+          "C": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 3
+            }
+          },
+          "D": {
+            "value": "ok",
+            "masked": "ok",
+            "secret": false
+          },
+          "S": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 3
+            }
+          }
+        },
+        "mounts": {}
+      }
+    },
+    {
+      "name": "cycle through a file mount path",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "CFG",
+          "src": "{{ file.api-config.path }}",
+          "field": "env"
+        }
+      ],
+      "mounts": [
+        {
+          "key": "volume[0]",
+          "src": "/etc/{{ container.env.CFG }}",
+          "fileSlug": "api-config"
+        }
+      ],
+      "expect": {
+        "env": {
+          "CFG": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 3
+            }
+          }
+        },
+        "mounts": {
+          "volume[0]": {
+            "error": {
+              "code": "E_CYCLE",
+              "pos": 8
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "file path is the resolved mount path",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "CFG",
+          "src": "{{ file.api-config.path }}",
+          "field": "env"
+        },
+        {
+          "name": "NAME",
+          "src": "prod",
+          "field": "env"
+        },
+        {
+          "name": "T",
+          "src": "{{ file.tls-cert.path }}",
+          "field": "env"
+        }
+      ],
+      "mounts": [
+        {
+          "key": "volume[0]",
+          "src": "/etc/{{ container.env.NAME }}.json",
+          "fileSlug": "api-config"
+        }
+      ],
+      "expect": {
+        "env": {
+          "CFG": {
+            "value": "/etc/prod.json",
+            "masked": "/etc/prod.json",
+            "secret": false
+          },
+          "NAME": {
+            "value": "prod",
+            "masked": "prod",
+            "secret": false
+          },
+          "T": {
+            "error": {
+              "code": "E_FILE_NOT_MOUNTED",
+              "pos": 3
+            }
+          }
+        },
+        "mounts": {
+          "volume[0]": {
+            "value": "/etc/prod.json",
+            "masked": "/etc/prod.json",
+            "secret": false
+          }
+        }
+      }
+    },
+    {
+      "name": "secretRef env: secret everywhere, not allowed in paths and image defaults",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "PASS",
+          "src": null,
+          "field": "env",
+          "secretRef": {
+            "value": "s3"
+          }
+        },
+        {
+          "name": "URL",
+          "src": "u:{{ container.env.PASS }}",
+          "field": "env"
+        },
+        {
+          "name": "X",
+          "src": "{{ container.env.PASS }}",
+          "field": "imageEnv"
+        }
+      ],
+      "mounts": [
+        {
+          "key": "volume[0]",
+          "src": "/d/{{ container.env.PASS }}"
+        }
+      ],
+      "expect": {
+        "env": {
+          "PASS": {
+            "value": "s3",
+            "masked": "••••",
+            "secret": true
+          },
+          "URL": {
+            "value": "u:s3",
+            "masked": "u:••••",
+            "secret": true
+          },
+          "X": {
+            "error": {
+              "code": "E_NOT_ALLOWED",
+              "pos": 3
+            }
+          }
+        },
+        "mounts": {
+          "volume[0]": {
+            "error": {
+              "code": "E_NOT_ALLOWED",
+              "pos": 6
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "image env without default is a known name with null",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "N",
+          "src": null,
+          "field": "imageEnv"
+        },
+        {
+          "name": "M",
+          "src": "{{ container.env.N | default(\"d\") }}",
+          "field": "env"
+        },
+        {
+          "name": "Q",
+          "src": "{{ container.env.N }}",
+          "field": "env"
+        },
+        {
+          "name": "R",
+          "src": "{{ container.env.NOPE }}",
+          "field": "env"
+        }
+      ],
+      "mounts": [],
+      "expect": {
+        "env": {
+          "N": {
+            "value": "",
+            "masked": "",
+            "secret": false
+          },
+          "M": {
+            "value": "d",
+            "masked": "d",
+            "secret": false
+          },
+          "Q": {
+            "error": {
+              "code": "E_NULL",
+              "pos": 0
+            }
+          },
+          "R": {
+            "error": {
+              "code": "E_UNKNOWN_PATH",
+              "pos": 3
+            }
+          }
+        },
+        "mounts": {}
+      }
+    },
+    {
+      "name": "failing dependency propagates its code",
+      "ctx": "app-api",
+      "env": [
+        {
+          "name": "A",
+          "src": "{{ var.nope }}",
+          "field": "env"
+        },
+        {
+          "name": "B",
+          "src": "pre-{{ container.env.A }}",
+          "field": "env"
+        }
+      ],
+      "mounts": [
+        {
+          "key": "image:data",
+          "src": "/data/{{ container.env.B }}"
+        }
+      ],
+      "expect": {
+        "env": {
+          "A": {
+            "error": {
+              "code": "E_UNKNOWN_PATH",
+              "pos": 3
+            }
+          },
+          "B": {
+            "error": {
+              "code": "E_UNKNOWN_PATH",
+              "pos": 7
+            }
+          }
+        },
+        "mounts": {
+          "image:data": {
+            "error": {
+              "code": "E_UNKNOWN_PATH",
+              "pos": 9
+            }
+          }
+        }
+      }
+    }
+  ]
+}

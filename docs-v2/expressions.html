@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Expressions</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  textarea.code, input.code { width: 100%; font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  textarea.code { min-height: 300px; }
+  .pg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .pg-out { font-family: var(--mono); font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+  .pg-out .err { color: var(--bad); }
+  .pg-out .okv { color: var(--ok); }
+  .caret { color: var(--bad); }
+  .ex-tbl td:first-child { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .ex-tbl td:nth-child(3) { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  @media (max-width: 760px) { .pg { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Reference</div>
+<h1>Expressions</h1>
+<p class="lede">An expression is a <code>{{ … }}</code> block inside a string value or inside a text file. It lets one value depend on a variable, a secret, a file, another container or another site. The agent resolves expressions on the site. The cloud stores them as raw text.</p>
+
+<h2 id="where">Where OPM resolves expressions</h2>
+<div class="diagram">
+<svg viewBox="0 0 960 250" role="img" aria-label="Resolution flow">
+  <defs><marker id="exA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+  <rect x="10" y="30" width="200" height="110" rx="10" class="box app" /><text x="110" y="56" text-anchor="middle" font-size="13" font-weight="650">Cloud (draft, revision)</text><text x="110" y="78" text-anchor="middle" font-size="11" class="muted">stores raw text</text><text x="110" y="96" text-anchor="middle" font-size="11" class="muted">checks syntax only</text><text x="110" y="114" text-anchor="middle" font-size="11" class="muted">preview: secrets ••••</text>
+  <rect x="270" y="30" width="200" height="110" rx="10" class="box agent" /><text x="370" y="56" text-anchor="middle" font-size="13" font-weight="650">Agent · staging</text><text x="370" y="78" text-anchor="middle" font-size="11" class="muted">resolves EVERY expression</text><text x="370" y="96" text-anchor="middle" font-size="11" class="muted">of every site</text><text x="370" y="114" text-anchor="middle" font-size="11" fill="var(--bad)">any error → no Approve</text>
+  <rect x="530" y="30" width="200" height="110" rx="10" class="box agent" /><text x="630" y="56" text-anchor="middle" font-size="13" font-weight="650">Agent · container start</text><text x="630" y="78" text-anchor="middle" font-size="11" class="muted">resolves again (same inputs)</text><text x="630" y="96" text-anchor="middle" font-size="11" class="muted">secret values from its store</text><text x="630" y="114" text-anchor="middle" font-size="11" class="muted">env → Docker Engine API</text>
+  <rect x="790" y="30" width="160" height="110" rx="10" class="box ext" /><text x="870" y="56" text-anchor="middle" font-size="13" font-weight="650">GUIs</text><text x="870" y="78" text-anchor="middle" font-size="11" class="muted">raw expression +</text><text x="870" y="96" text-anchor="middle" font-size="11" class="muted">resolved preview</text><text x="870" y="114" text-anchor="middle" font-size="11" class="muted">secret values masked</text>
+  <path d="M210,85 H268" class="ln ln-cloud" marker-end="url(#exA)" /><path d="M470,85 H528" class="ln ln-cloud" marker-end="url(#exA)" /><path d="M730,85 H788" class="ln ln-cloud" marker-end="url(#exA)" />
+  <text x="240" y="76" text-anchor="middle" class="lbl">proposal</text><text x="500" y="76" text-anchor="middle" class="lbl">Approve</text>
+  <text x="480" y="190" text-anchor="middle" font-size="12" class="muted">The cloud never resolves secret.* or site.* values. Only the agent resolves secret values and the real site hosts and ports.</text>
+  <text x="480" y="212" text-anchor="middle" font-size="12" class="muted">The resolved values are the same at staging and at start, because the revision is immutable.</text>
+</svg>
+</div>
+
+<h2 id="fields">Fields that accept expressions</h2>
+<p>Only fields of type <code>Value</code>, the two number fields below, and the content of text files with <code>render: "expressions"</code> accept expressions. All other fields take literal values only (for example commands, slugs, agentPort, agentGuiAliasPort, edge ports, route path prefixes, TLS modes).</p>
+<div class="tbl-wrap"><table>
+<tr><th>Field</th><th>Allowed roots</th><th>Form</th><th>Result type</th></tr>
+<tr><td><code>Container.env[].value</code></td><td>var, secret, file, site, self, deployment, container, containers</td><td>mixed text and blocks</td><td>string</td></tr>
+<tr><td><code>ImageEnv.value</code> (default)</td><td>var, file, site, self, deployment, container, containers</td><td>mixed</td><td>string</td></tr>
+<tr><td><code>ImageVolume.mountPath</code>, <code>Container.volumes[].mountPath</code> (field kind <code>mountPath</code>)</td><td>var, deployment, self, container (including <code>container.env.&lt;NAME&gt;</code>)</td><td>mixed; must start with a literal <code>/</code></td><td>string: an absolute path that is not <code>/</code>, without spaces or <code>..</code> (else <code>V_PATH</code>)</td></tr>
+<tr><td><code>SiteConfig.host</code> (optional: <code>null</code> = auto)</td><td>var, deployment</td><td>mixed</td><td>string (an IP or a DNS name). A result of null or "" falls back to the auto address with the warning <code>V_HOST_AUTO</code>.</td></tr>
+<tr><td><code>Container.ports[].hostPort</code></td><td>var, deployment</td><td>ONE whole block</td><td>integer 1–65535</td></tr>
+<tr><td><code>ImagePort.port</code></td><td>var, deployment</td><td>ONE whole block</td><td>integer 1–65535</td></tr>
+<tr><td><code>SiteConfig.edge.hosts[].hostname</code></td><td>var, deployment, self (<code>self.host</code>)</td><td>mixed</td><td>string (DNS name, wildcard, IP or "*")</td></tr>
+<tr><td><code>EdgeRoute.action.to</code> (redirect)</td><td>var, deployment, self (<code>self.host</code>)</td><td>mixed; also the edge variables <code>$uri $args $is_args $request_uri $host $scheme $1…$9</code> and the placeholders <code>{path}</code> <code>{query}</code> <code>{host}</code> (filled per request, <a href="networking.html#edge-redirect">list</a>)</td><td>string (absolute URL or path)</td></tr>
+<tr><td>Rewrite replacements (rewrite routes, proxy <code>rewrite</code>)</td><td>var, deployment, self (<code>self.host</code>)</td><td>mixed; edge variables as above</td><td>string (the new path, may hold "?query")</td></tr>
+<tr><td><code>EdgeRoute.action.setHeaders</code> values (proxy) and response header values (host and route <code>set</code> / <code>add</code>)</td><td>var, deployment, self (<code>self.host</code>)</td><td>mixed; edge variables as above (no <code>$1</code>)</td><td>string</td></tr>
+<tr><td>File content (<code>FileDef.render = "expressions"</code>, field kind <code>file</code>)</td><td>var, secret, site, self, deployment (NOT <code>container.*</code> or <code>file.*</code>: <code>E_NOT_ALLOWED</code> "files are shared by all containers on the site — use a variable instead")</td><td>many lines of text and blocks; a block stays on one line</td><td>text, rendered ONCE per site; written read-only (0400 when it uses a secret, else 0444) at the file's location and shared by every container that mounts it</td></tr>
+<tr><td>Dev-tool preset values (field kind <code>devtool</code>, §21 #99): username, database, client id, API-key header, password / token expressions, default header values, URL target; also the agent's manual connections and the HTTP client's OPM placeholders</td><td>var, secret, site, self, deployment, containers — the ONLY field with <code>containers.&lt;c&gt;.env.&lt;NAME&gt;</code> (NOT <code>container.*</code> or <code>file.*</code>)</td><td>mixed</td><td>string, resolved ON THE SITE from the head config at every connect (secret when it uses a secret or a secret-valued env)</td></tr>
+</table></div>
+<div class="callout warn"><b>No secrets in the edge</b><p><code>secret.*</code> is <code>E_NOT_ALLOWED</code> in every edge field. The edge config is written to <code>/var/lib/opm/edge/caddy.json</code> and shown in the GUI, so it must not hold secret values. TLS keys and DNS tokens are named by slug (<code>keySecretSlug</code>, <code>dnsTokenSecretSlug</code>); the agent passes them to Caddy in memory. Edge expressions resolve at staging, like hosts; a route never changes per request except the single-brace placeholders.</p></div>
+<div class="callout note"><b>Required variables are set at deployment</b><p>A template does not know the values of a deployment. Mark such a variable <b>Required</b> and leave its value empty. In a template this is normal: there is no warning. Every preview that uses it shows the token <code>‹set at deployment›</code> (a dashed chip). Checks that need the real value (host format, mount path, options, JSON, numbers) wait for the value. In a deployment draft the variable shows one warning, "… is required — set it before publishing", and publish is blocked until it has a value. The sites never see an empty required value. An <b>optional</b> variable without a value gives one note (<code>V_VAR_OPTIONAL_NULL</code>, severity info, not a warning) in a template: add <code>| default(…)</code> where it is used, or a template default. Required secrets work the same way.</p></div>
+<div class="callout note"><b>Optional site host (auto)</b><p><code>SiteConfig.host</code> is optional. Leave it on <b>Auto-detect</b> (the default, <code>null</code>) when you do not know the address of the machine before the install. The agent reports its addresses at enroll and in every heartbeat (<code>detectedAddresses</code>) and the site uses its advertised address. In the cloud, a site that is not installed yet shows <code>&lt;auto:siteSlug&gt;</code> ("auto · detected on install") in previews; that placeholder is never sent to a site. On a site, an auto host that has not been reported yet gives <code>E_NULL</code> when another value uses <code>site.&lt;s&gt;.host</code> or <code>self.host</code>. A host such as <code>{{ var.server-ip }}</code> whose variable has no value does not block: the site uses its auto address and the cloud shows the warning <code>V_HOST_AUTO</code> "var server-ip has no value — leave host on auto or set the variable".</p></div>
+<div class="callout warn"><b>Why host and ports are limited</b><p>Site hosts and ports are inputs of <code>site.*</code> paths. If a host could use <code>site.*</code>, two sites could refer to each other in a loop. So host and port expressions can use <code>var.*</code> and <code>deployment.id</code> only.</p></div>
+
+<h2 id="grammar">Grammar (EBNF)</h2>
+<pre><code>template   = { text | block } ;
+text       = any characters, except the two characters "{{" ;   (* line breaks are allowed in file content *)
+block      = "{{" , ws , expr , ws , "}}" ;
+expr       = primary , { ws , "|" , ws , filter } ;
+primary    = path | string | number | boolean ;
+path       = root , "." , segment , { "." , segment } ;
+root       = "var" | "secret" | "file" | "site" | "self" | "deployment" | "container" ;
+segment    = ( letter | digit ) , { letter | digit | "-" | "_" } ;   (* slugs and Firestore ids *)
+filter     = name , [ "(" , ws , [ arg , { ws , "," , ws , arg } ] , ws , ")" ] ;
+name       = "default" | "join" | "upper" | "lower" | "trim" | "base64" | "url" | "int" | "json"
+           | "sha256" | "sha512" | "mosquitto_passwd" ;   (* lexed as [a-z] { [a-z0-9_] } *)
+arg        = string | number | boolean ;
+string     = '"' , { char - ( '"' | "\" ) | "\" , ( '"' | "\" ) } , '"' ;
+number     = [ "-" ] , digit , { digit } , [ "." , digit , { digit } ] ;
+boolean    = "true" | "false" ;
+ws         = { " " | "\t" } ;</code></pre>
+<ul>
+  <li>A string can hold <code>{{</code> and <code>}}</code>. The parser ignores them inside a string literal.</li>
+  <li>A block cannot span lines.</li>
+  <li><b>Escape:</b> to write a literal <code>{{</code> in a value or a file, use the block <code>{{ "{{" }}</code>. A literal <code>}}</code> outside a block needs no escape. There is no other escape syntax; files use the same grammar.</li>
+</ul>
+
+<h3 id="files">Expressions in files</h3>
+<p>A text file (<code>FileDef.editor = "text"</code>) has <code>render: "expressions"</code> by default (toggle <b>Resolve {{ }} expressions</b> in the file form). Its content is then a template. Binary files are never rendered. On the site, at staging, the agent renders the file <b>once for the site</b>: each site keeps ONE copy at the file's location (auto = <code>&lt;agentHome&gt;/files/&lt;fileSlug&gt;</code>, or a custom <code>./…</code> / absolute path set on the Files page), and every container that mounts the file bind-mounts that single host file read-only. So a file cannot use <code>container.*</code> or <code>file.*</code> (<code>E_NOT_ALLOWED</code>: "files are shared by all containers on the site — use a variable instead"). Something that must differ per container belongs in an env var or a variable. The agent writes a staged copy next to the location and swaps it in atomically at apply. The stored content in the cloud stays the source text.</p>
+<pre><code>{
+  "site": "{{ self.slug }}",
+  "logLevel": "{{ var.log-level }}",
+  "api": "http://{{ site.app.host }}:{{ site.app.port.api.http }}",
+  "dbPassword": "{{ secret.db-password }}",
+  "template": "{{ "{{" }} user.name }}"
+}</code></pre>
+<p>On the site <code>app</code> this renders <code>"site": "app"</code> and <code>"template": "{{ user.name }}"</code> (the escape writes a literal <code>{{</code>). Because it uses a secret, the copy is written with mode 0400; a file without secrets gets 0444.</p>
+<ul>
+  <li>Secrets are allowed in files. The rendered bytes never go to logs, activities, <code>.opmlog</code> bundles or snapshots; a snapshot restore renders again.</li>
+  <li>A block that does not resolve fails the staging with <code>V_FILE_RENDER</code>: <code>"&lt;fileSlug&gt;:&lt;line&gt;:&lt;col&gt;: &lt;code&gt; &lt;message&gt; (site S)"</code> (once per site).</li>
+  <li>A file with a JSON mime (<code>application/json</code> or <code>*+json</code>) must render to valid JSON, else <code>V_FILE_JSON</code>.</li>
+  <li>The cloud file editor highlights blocks, completes paths, checks the source while you type (line:col), and <b>Preview for site…</b> shows the rendered file for a site you pick, with secrets as <code>•••</code>.</li>
+  <li>A file that must hold literal <code>{{ }}</code> (a Handlebars or Go template, for example) either uses the escape or turns rendering off (<code>render: "none"</code>). The TLS certificate file of the edge is never rendered.</li>
+</ul>
+
+<h2 id="paths">Paths</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Path</th><th>Type</th><th>Source</th><th>Error when</th></tr>
+<tr><td><code>var.&lt;variableSlug&gt;</code></td><td>the variable type (string, number, boolean, enum → string, list → string[], json → object)</td><td><code>Config.variables[].value</code></td><td>unknown slug; value is null (use <code>default</code>)</td></tr>
+<tr><td><code>secret.&lt;secretSlug&gt;</code></td><td>string</td><td><code>Config.secrets[].value</code> (resolved on the site only)</td><td>unknown slug; used outside <code>Container.env[].value</code> and file content; no value</td></tr>
+<tr><td><code>file.&lt;fileSlug&gt;.path</code></td><td>string</td><td>the mount path of the mount with source <code>file</code> = that file in THIS container</td><td>unknown slug; the container does not mount the file</td></tr>
+<tr><td><code>site.&lt;siteSlug&gt;.host</code></td><td>string</td><td>the address of that site: its <code>SiteConfig.host</code>, or the auto address when host is null (cloud preview before install: <code>&lt;auto:siteSlug&gt;</code>)</td><td>unknown site; on a site: auto and not reported yet (<code>E_NULL</code>)</td></tr>
+<tr><td><code>site.&lt;siteSlug&gt;.port.&lt;containerSlug&gt;.&lt;portName&gt;</code></td><td>number</td><td>the resolved <code>hostPort</code> of that container port (the container is named by its <code>containerSlug</code>; two instances of one image have two names)</td><td>unknown site / container / port; <code>hostPort</code> is null</td></tr>
+<tr><td><code>self.slug</code></td><td>string</td><td>the site that runs the container</td><td>—</td></tr>
+<tr><td><code>self.host</code></td><td>string</td><td>the address of the same site (as <code>site.&lt;self&gt;.host</code>)</td><td>on a site: auto and not reported yet (<code>E_NULL</code>)</td></tr>
+<tr><td><code>deployment.id</code></td><td>string</td><td><code>deploymentId</code></td><td>—</td></tr>
+<tr><td><code>container.slug</code></td><td>string</td><td>the <code>containerSlug</code> of that container (its name and DNS name in the site network)</td><td>used outside a container field. <code>container.serviceId</code> does not exist (services have no auto id): <code>E_UNKNOWN_PATH</code></td></tr>
+<tr><td><code>containers.&lt;containerSlug&gt;.host</code></td><td>string</td><td>the DNS name of that container on THIS site's network: its network alias, which is its <code>containerSlug</code>. It works with both docker naming modes of the agent (plain and prefixed). It resolves only from containers on the same site network.</td><td>no such container on this site (<code>E_UNKNOWN_PATH</code>); allowed only in env values, image defaults and file content (<code>E_NOT_ALLOWED</code> elsewhere); a disabled container still resolves, with the warning <code>V_CONTAINER_REF_DISABLED</code></td></tr>
+<tr><td><code>containers.&lt;containerSlug&gt;.port.&lt;portName&gt;</code></td><td>number</td><td>the INTERNAL (container) port of that image port, for container-to-container traffic on the site network. No host port is needed.</td><td>no such container or port (<code>E_UNKNOWN_PATH</code>); the image port does not resolve (<code>E_NULL</code>)</td></tr>
+<tr><td><code>containers.&lt;containerSlug&gt;.env.&lt;NAME&gt;</code></td><td>string</td><td>(§21 #99) the FINAL value of env NAME of that container: the container value if set, else the image default, its own expressions resolved — exactly what the container receives. A secret-valued env (secretRef or <code>secret.*</code>) makes the result a secret (masked <code>••••</code>).</td><td>ONLY in dev-tool presets (field <code>devtool</code>); everywhere else <code>E_NOT_ALLOWED</code> "only allowed in dev-tool presets" — a container value can never read another container's env, so containers cannot form cycles. No such container or env name (<code>E_UNKNOWN_PATH</code>); no value (<code>E_NULL</code>, use <code>default</code>); a failed env value gives its own code (for example <code>E_CYCLE</code>)</td></tr>
+<tr><td><code>container.env.&lt;NAME&gt;</code></td><td>string</td><td>the FINAL value of the env var NAME in THIS container (allowed in env values, image defaults and mount paths; not in files): the container value if the template or deployment sets one, else the image default; its own expressions are resolved first</td><td>NAME is not an env var of the image or the container (<code>E_UNKNOWN_PATH</code>); no value (<code>E_NULL</code>, use <code>default</code>); the values refer to each other in a loop (<code>E_CYCLE</code>); NAME holds a secret and the field is an image default or a mount path (<code>E_NOT_ALLOWED</code>)</td></tr>
+</table></div>
+
+<h3 id="containers">Reach another container of the same site</h3>
+<p>Use the plural root <code>containers.&lt;containerSlug&gt;</code>. It gives the DNS name and the internal port of any container of this site (also this container). For example, the backend reaches the MQTT broker like this:</p>
+<pre><code>MQTT_URL = mqtt://{{ containers.mqtt.host }}:{{ containers.mqtt.port.mqtt }}</code></pre>
+<p>Result: <code>mqtt://mqtt:1883</code>.</p>
+<ul>
+  <li><b>Implicit depends.</b> A <code>containers.&lt;slug&gt;.*</code> reference makes that container an implicit dependency: it starts first and the referring container waits until it is ready, as with Depends on. The GUIs show it as “implicit (from expression)”. A literal mention such as <code>mqtt://mqtt:1883</code> or <code>host: "mqtt"</code> only gives a suggestion (“… mentions `mqtt` — add it to Depends on?”, one-click Add) and starts mqtt first, without waiting.</li>
+  <li><b>One rule.</b> <code>container.*</code> (singular) is always THIS container: <code>container.slug</code>, <code>container.env.&lt;NAME&gt;</code>. <code>containers.&lt;slug&gt;.*</code> (plural) is any container of the site. <code>container.mqtt.host</code> is not a path (<code>E_UNKNOWN_PATH</code>). No container name is reserved.</li>
+  <li>The host is the network alias (= the containerSlug). It resolves from containers on the same site network, whatever the docker name of the container is (the agent option <code>containerNames</code>, see <a href="agent.html#driver">Container driver</a>). From another site, use <code>site.&lt;s&gt;.host</code> and <code>site.&lt;s&gt;.port.&lt;containerSlug&gt;.&lt;portName&gt;</code> (the host port).</li>
+  <li>Allowed in <code>Container.env[].value</code>, image env defaults and file content (a file is one copy per site, and these are facts of the site). Not allowed in mount paths, hosts, port fields or edge fields (<code>E_NOT_ALLOWED</code>).</li>
+  <li>The editors suggest the container names first, then their ports.</li>
+</ul>
+
+<h3 id="devtool-env">Dev-tool presets: use another container's env (§21 #99)</h3>
+<p>A dev-tool preset that connects to a container usually needs the credentials that container already has. Instead of a second secret, point the preset at the container's env:</p>
+<pre><code>username = {{ containers.postgress.env.POSTGRES_USER }}
+password = {{ containers.postgress.env.POSTGRES_PASSWORD }}     (the container sets it from the secret pg-password)
+database = {{ containers.postgress.env.POSTGRES_DB | default("postgres") }}</code></pre>
+<ul>
+  <li><b>Where.</b> Only in dev-tool presets (field <code>devtool</code>). <code>Container.env</code>, image defaults, files, mount paths and the edge refuse it (<code>E_NOT_ALLOWED</code>): use <code>container.env.&lt;NAME&gt;</code> for this container, or a variable.</li>
+  <li><b>Not a literal.</b> Presets never hold a literal password; a container env reference is fine. When the env holds a plain (non-secret) value, the editor shows the warning <code>V_DEVTOOL_PLAIN_ENV</code> (the value is readable in the config). An unknown env name is <code>V_DEVTOOL_ENV</code>, an unknown container <code>V_DEVTOOL_CONTAINER</code>.</li>
+  <li><b>Editor.</b> Type <code>{{</code> and pick level by level: <code>containers.</code> → <code>containers.postgress.</code> → <code>env.</code> → the names with their values (secrets masked). With a container target the preset drawer also suggests the well-known names ("Use env POSTGRES_USER of postgress"), and the password has the mode <b>Container env</b>.</li>
+  <li><b>Agent version.</b> Agents from 0.11.1 resolve it; 0.11.0 refuses such a revision. The cloud warns for each site whose agent is older (it never blocks Publish).</li>
+</ul>
+
+<h3 id="container-env">Use the value of one env var in another field</h3>
+<p>Use <code>container.env.&lt;NAME&gt;</code>. For example, an image has the env var <code>NODE_ENV</code> with the choices integration, dc, worker, pg-listen, terminal and migrate. The volume <code>config</code> must mount the config file of the selected mode. Write the mount path like this:</p>
+<pre><code>/app/helper/config/env/{{ container.env.NODE_ENV }}.ts</code></pre>
+<p>When a deployment sets <code>NODE_ENV</code> to <code>worker</code>, the agent mounts the volume at <code>/app/helper/config/env/worker.ts</code>. When no value is set, the image default is used.</p>
+<ul>
+  <li>The path must start with <code>/</code>. A relative path such as <code>helper/config/env/{{ container.env.NODE_ENV }}.ts</code> is not valid (<code>V_PATH</code>). The forms show this error next to the field.</li>
+  <li>The agent resolves the env vars first, in dependency order, and then the mount paths. <code>file.&lt;fileSlug&gt;.path</code> gives the resolved mount path of that file.</li>
+  <li>If two values refer to each other (for example <code>A = {{ container.env.B }}</code> and <code>B = {{ container.env.A }}</code>), both get <code>E_CYCLE</code>. The message shows the loop.</li>
+  <li>You can use <code>container.env.*</code> in <code>Container.env[].value</code>, in image env defaults and in mount paths. Not in rendered files: a file is one copy per site, shared by every container.</li>
+</ul>
+<p class="small muted">The playground on this page does not support <code>container.env.*</code>. Use the expression preview in the container editor.</p>
+<p class="small muted">Inside the site network, containers reach each other by the <code>containerSlug</code> (for example <code>http://api:8080</code>, <code>http://api-2:8080</code>). Use <code>site.*</code> only to reach a container on ANOTHER site through its host port.</p>
+
+<h2 id="filters">Filters</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Filter</th><th>Input → output</th><th>Example</th><th>Result</th></tr>
+<tr><td><code>default(x)</code></td><td>any → input, or <code>x</code> if the input is null or ""</td><td><code>{{ var.region | default("eu") }}</code></td><td><code>eu</code> when region is null</td></tr>
+<tr><td><code>join(sep)</code></td><td>string[] → string</td><td><code>{{ var.admins | join(",") }}</code></td><td><code>a@acme.com,b@acme.com</code></td></tr>
+<tr><td><code>upper</code></td><td>string / number → string</td><td><code>{{ self.slug | upper }}</code></td><td><code>APP</code></td></tr>
+<tr><td><code>lower</code></td><td>string / number → string</td><td><code>{{ var.env-name | lower }}</code></td><td><code>prod</code></td></tr>
+<tr><td><code>trim</code></td><td>string → string without leading / trailing spaces</td><td><code>{{ var.note | trim }}</code></td><td></td></tr>
+<tr><td><code>base64</code></td><td>string → standard Base64 of the UTF-8 bytes</td><td><code>{{ "app:x" | base64 }}</code></td><td><code>YXBwOng=</code></td></tr>
+<tr><td><code>url</code></td><td>string → URL-encoded (RFC 3986, like encodeURIComponent)</td><td><code>{{ secret.db-password | url }}</code></td><td><code>p%40ss%2Fw%3Ard</code></td></tr>
+<tr><td><code>int</code></td><td>string / number → integer (truncates)</td><td><code>{{ var.api-port | int }}</code></td><td><code>8080</code></td></tr>
+<tr><td><code>json</code></td><td>any → JSON text</td><td><code>{{ var.features | json }}</code></td><td><code>{"metrics":true}</code></td></tr>
+<tr><td><code>sha256</code></td><td>string / number → lower-case hex SHA-256 of the UTF-8 bytes (agent 0.13.1+)</td><td><code>{{ "hello" | sha256 }}</code></td><td><code>2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824</code></td></tr>
+<tr><td><code>sha512</code></td><td>string / number → lower-case hex SHA-512 (agent 0.13.1+)</td><td><code>{{ var.api-workers | sha512 }}</code></td><td><code>a321d8b4…31c568</code></td></tr>
+<tr><td><code>mosquitto_passwd</code><br /><code>mosquitto_passwd(7, 1000)</code><br /><code>mosquitto_passwd(6)</code></td><td>password → a Mosquitto password-file hash. Format <code>7</code> (default, Mosquitto 2.x): <code>$7$&lt;iterations&gt;$&lt;salt&gt;$&lt;hash&gt;</code> = PBKDF2-HMAC-SHA512, 101 iterations by default (1–10000), 12-byte salt, 64-byte hash, standard Base64. Format <code>6</code> (Mosquitto 1.x): <code>$6$&lt;salt&gt;$&lt;SHA512(password + salt)&gt;</code>. The salt is <b>deterministic</b> (see below). Only in container env, file content and dev-tool presets (agent 0.13.1+).</td><td><code>northwind:{{ secret.mqtt-password | mosquitto_passwd }}</code></td><td><code>northwind:$7$101$…$…==</code> (preview: <code>northwind:••••</code>)</td></tr>
+</table></div>
+<p>Filters run from left to right. A filter that gets a wrong input type gives <code>E_TYPE</code>. A value that comes from a secret stays a secret after any filter: the cloud shows <code>••••</code>, the site renders the real value.</p>
+
+<h3 id="mosquitto">Worked example: a Mosquitto password file (§21 #103)</h3>
+<p>Mosquitto (<code>password_file</code>) wants lines <code>user:$7$101$&lt;salt&gt;$&lt;hash&gt;</code>, normally written by <code>mosquitto_passwd</code>. With the filter, the file is generated from a secret, so the broker password and the clients that use it come from ONE place:</p>
+<ol>
+  <li><b>Secrets</b> → add <code>mqtt-password</code> and set its value to the plain password.</li>
+  <li><b>Files</b> → the password file (here <code>mqtt-pwfile</code>, text, <b>Resolve {{ }} expressions</b> on), mounted read-only by the mosquitto container at the path its <code>mosquitto.conf</code> names (<code>password_file /mosquitto/config/pwfile</code>). Content:
+<pre><code>northwind:{{ secret.mqtt-password | mosquitto_passwd }}</code></pre>
+  One line per user; another user = another secret (<code>ops:{{ secret.mqtt-ops-password | mosquitto_passwd }}</code>).</li>
+  <li><b>Dev tools</b> → the MQTT preset: user <code>northwind</code>, password <b>Secret</b> <code>mqtt-password</code> — the same secret, so the preset and the broker never drift apart. Containers that connect use <code>{{ secret.mqtt-password }}</code> in their env too.</li>
+</ol>
+<p>The cloud preview shows <code>northwind:••••</code> (secrets never leave the site). The agent renders the real line once per site at staging and never logs it. File mode: a rendered file with a secret <i>in clear</i> is written 0400, but this one is written <b>0444</b>, because its secret only reaches it through <code>mosquitto_passwd</code> (a salted hash): Mosquitto opens <code>password_file</code> after dropping to its own user (uid 1883), so a root-owned 0400 file would fail with "Unable to open pwfile". Mosquitto logs a "world readable" warning for it, as it does for a hand-made file today.</p>
+<p><b>Why a deterministic salt.</b> The salt is the first 12 bytes of HMAC-SHA256(key = password, msg = <code>"opm-mosquitto-salt" NUL deploymentId NUL siteSlug</code>). The same password on the same site always gives the same line, so the rendered file — and its hash — do not change at every staging: no file churn in the Diff and no restart of the broker at every apply (a random salt, like <code>mosquitto_passwd</code> uses, would do both). Another site or deployment gets another salt. The tradeoff: two users with the SAME password on the SAME site get identical lines, so anyone who can read the file sees they share a password — give each user its own password. The password is the HMAC key, so the salt itself tells nothing the hash does not.</p>
+<p><b>Compatibility.</b> 12-byte salt + 101 iterations is what Mosquitto 2.0.x writes; the 2.0 broker accepts ONLY 12-byte salts, Mosquitto 2.1.x writes 64-byte salts / 1000 iterations but still accepts 12-byte ones — so the default works with both. Use <code>mosquitto_passwd(6)</code> for Mosquitto 1.x. OPM's hash is checked byte for byte against the real <code>mosquitto_passwd</code> (eclipse-mosquitto 2.0.18 and 2.1) for the same salt, and a real broker accepts the rendered file (agent test <code>TestDockerMosquittoPasswordFile</code>).</p>
+<p class="small muted">Not available on purpose: <code>bcrypt</code> / <code>htpasswd</code> (needs a deterministic-salt bcrypt), <code>hmac</code> (the key would sit in the config), <code>md5</code> / <code>sha1</code> (weak). An agent older than 0.13.1 does not know the new filters and refuses the revision; the cloud warns per site on the Diff page and in the publish dialog.</p>
+
+<h2 id="typing">Result typing</h2>
+<ul>
+  <li>Each block gives a string: numbers as decimal text, <code>true</code> / <code>false</code> as text.</li>
+  <li>A list or an object must go through <code>join</code> or <code>json</code>. Without it → <code>E_TYPE</code>.</li>
+  <li>A null value without <code>default</code> → <code>E_NULL</code>.</li>
+  <li>Number fields (<code>hostPort</code>, <code>ImagePort.port</code>) must be ONE whole block (spaces around it are allowed). The result must be an integer 1–65535 → else <code>E_TYPE</code>.</li>
+  <li>The final text is used as is. OPM does not add quotes.</li>
+</ul>
+
+<h2 id="errors">Errors</h2>
+<div class="tbl-wrap"><table>
+<tr><th>Code</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><code>E_SYNTAX</code></td><td>The text does not match the grammar. The error has a character position.</td><td><code>{{ var.x | }}</code></td></tr>
+<tr><td><code>E_UNKNOWN_PATH</code></td><td>Root or slug does not exist.</td><td><code>{{ var.dbname }}</code> (slug is <code>db-name</code>)</td></tr>
+<tr><td><code>E_NOT_ALLOWED</code></td><td>The root is not allowed in this field.</td><td><code>secret.*</code> in a host</td></tr>
+<tr><td><code>E_UNKNOWN_FILTER</code></td><td>Filter name is not in the list.</td><td><code>| capitalize</code></td></tr>
+<tr><td><code>E_TYPE</code></td><td>Wrong input type for a filter, a list without join, a non-integer port.</td><td><code>{{ var.admins }}</code></td></tr>
+<tr><td><code>E_NULL</code></td><td>The value is null.</td><td>an optional variable without a value; <code>site.edge.host</code> of an auto host that has not reported its address</td></tr>
+<tr><td><code>E_DEFERRED</code></td><td>Never shown. The value comes from a required variable that is set at deployment.</td><td>a required variable without a value in a template or a draft</td></tr>
+<tr><td><code>E_NO_HOSTPORT</code></td><td>The port has <code>hostPort: null</code>, so other sites cannot reach it.</td><td><code>{{ site.db.port.redis.tcp }}</code></td></tr>
+<tr><td><code>E_FILE_NOT_MOUNTED</code></td><td>The container does not mount that file.</td><td><code>{{ file.tls-cert.path }}</code></td></tr>
+<tr><td><code>E_CYCLE</code></td><td>Values of the same container refer to each other in a loop (env vars and mount paths). The message shows the loop.</td><td><code>A = {{ container.env.B }}</code>, <code>B = {{ container.env.A }}</code></td></tr>
+</table></div>
+<p>Validation codes that are related to expressions: <code>V_PATH</code> (a mount path with <code>{{ }}</code> does not start with <code>/</code>, or its result is not an absolute path), <code>V_OPTION</code> (an env value is not one of the allowed values of the image env), <code>V_HOST_AUTO</code> (warning: a host expression has no value, the site uses its auto address), <code>V_FILE_RENDER</code> (a rendered file does not resolve: <code>file:line:col</code>), <code>V_FILE_JSON</code> (a rendered JSON file does not parse) and <code>V_CONTAINER_REF_DISABLED</code> (warning: a value uses <code>containers.&lt;slug&gt;.*</code> of a disabled container; it resolves, but nothing answers on that name).</p>
+<p>At staging, the agent lists every error with the site, the container, the field and the position. The proposal stays <code>staging: failed</code> on that site and the Approve button does not show.</p>
+
+<h2 id="security">Security rules</h2>
+<ul>
+  <li>The password-hash filter <code>mosquitto_passwd</code> is allowed only where secrets are (container env, file content, dev-tool presets); elsewhere → <code>E_NOT_ALLOWED</code> at the filter.</li>
+  <li><code>secret.*</code> is allowed ONLY in <code>Container.env[].value</code>, in rendered file content (written mode 0400 — 0444 when every secret only goes through <code>mosquitto_passwd</code> — mounted read-only) and in dev-tool preset values (resolved on the site, never stored resolved; §21 #97, #99). It is not allowed in hosts, ports, image defaults, mount paths, the edge, or any other field. To give a whole secret to a container, use <code>secretRef</code> or a mount with source <code>secret</code> instead.</li>
+  <li>An env var that gets its value from <code>secretRef</code> or from <code>secret.*</code> is a secret env var. You can use it with <code>container.env.&lt;NAME&gt;</code> only in <code>Container.env[].value</code> and in files. In an image default or a mount path it gives <code>E_NOT_ALLOWED</code>, so a secret never goes into a path.</li>
+  <li>An env value that uses <code>secret.*</code> is a secret value: the agent never writes it to a log or an activity, and the GUIs show <code>••••</code>.</li>
+  <li>The cloud never resolves <code>secret.*</code>. Its previews always show <code>••••</code>.</li>
+  <li>The agent reads secret values from its store only when it starts a container or writes a secret volume. They never go to logs.</li>
+  <li>Expressions cannot run code, read the host, or call the network. They only read the paths above.</li>
+</ul>
+
+<h2 id="examples">Examples</h2>
+<p>Click <b>Try</b> to load an example into the playground. The results use the playground context below.</p>
+<div class="tbl-wrap"><table class="ex-tbl" id="exTbl"><thead><tr><th>Expression</th><th>Field</th><th>Result</th><th></th></tr></thead><tbody></tbody></table></div>
+
+<h2 id="playground">Playground</h2>
+<p>Edit the context (what the agent knows on site <code>app</code>) and the value. Select the field type, because it changes the rules. Secret values show as <code>••••</code> unless you tick "show secrets".</p>
+<div class="pg">
+  <div><h4>Context</h4><textarea class="code" id="pgCtx" spellcheck="false"></textarea></div>
+  <div>
+    <h4>Value</h4>
+    <textarea class="code" id="pgExpr" spellcheck="false" style="min-height:70px"></textarea>
+    <div class="small muted">Ctrl / ⌘ + Enter resolves. Line breaks are allowed only in the field "File content".</div>
+    <div class="controls">
+      <label>Field <select id="pgField">
+        <option value="env">Container.env[].value</option>
+        <option value="imageEnv">ImageEnv.value (default)</option>
+        <option value="host">SiteConfig.host</option>
+        <option value="hostPort">Container.ports[].hostPort</option>
+        <option value="imagePort">ImagePort.port</option>
+        <option value="edge">Edge hostname / redirect.to / setHeaders</option>
+        <option value="file">File content (render expressions)</option>
+        <option value="devtool">Dev-tool preset value</option>
+      </select></label>
+      <label><input type="checkbox" id="pgShow" /> show secrets</label>
+      <button class="btn primary" type="button" id="pgRun">Resolve</button>
+    </div>
+    <div class="card pg-out" id="pgOut"></div>
+  </div>
+</div>
+</main>
+</div>
+<script>
+const CTX = {
+  deployment: { id: 'acme-plant' },
+  self: { slug: 'app', host: '10.0.1.10' },
+  container: { slug: 'api-2' },
+  var: { 'db-name': 'plant', 'api-port': '8080', 'api-workers': 4, 'env-name': 'PROD', region: null, admins: ['a@acme.com', 'b@acme.com'], features: { metrics: true }, 'tls-on': true, 'public-host': 'plant.acme.com' },
+  secret: { 'db-password': 'p@ss/w:rd', 'session-key': 'k9!Zq', 'mqtt-password': 'Mqtt-Secret-2026' },
+  file: { 'api-config': { path: '/etc/api/config.json', mounted: true }, 'tls-cert': { path: '/etc/tls/cert.pem', mounted: false } },
+  containers: {
+    web: { host: 'web', enabled: true, port: { http: 80 } },
+    api: { host: 'api', enabled: true, port: { http: 8080 } },
+    'api-2': { host: 'api-2', enabled: true, port: { http: 8080 } },
+    mqtt: { host: 'mqtt', enabled: true, port: { mqtt: 1883, ws: 9001 } },
+    postgress: { host: 'postgress', enabled: true, port: { service: 5432 }, env: { POSTGRES_USER: { value: 'plant', secret: false }, POSTGRES_PASSWORD: { value: 'pg-Secr3t', secret: true }, POSTGRES_DB: { value: null, secret: false } } },
+  },
+  site: {
+    app: { host: '10.0.1.10', port: { web: { http: 80 }, api: { http: 8080 }, 'api-2': { http: 9100 } } },
+    db: { host: '10.0.1.11', port: { postgres: { sql: 5432 }, redis: { tcp: null } } },
+    edge: { host: '<auto:edge>', port: {} },
+  },
+};
+const FIELD_ROOTS = {
+  env: ['var', 'secret', 'file', 'site', 'self', 'deployment', 'container', 'containers'],
+  imageEnv: ['var', 'file', 'site', 'self', 'deployment', 'container', 'containers'],
+  host: ['var', 'deployment'],
+  hostPort: ['var', 'deployment'],
+  imagePort: ['var', 'deployment'],
+  edge: ['var', 'deployment', 'self'],
+  file: ['var', 'secret', 'site', 'self', 'deployment', 'containers'], // rendered once per site: no container.*, no file.*; containers.* = site facts
+  devtool: ['var', 'secret', 'site', 'self', 'deployment', 'containers'], // §21 #99 dev-tool presets: the only field with containers.<c>.env.<NAME>
+};
+const ROOTS = ['var', 'secret', 'file', 'site', 'self', 'deployment', 'container', 'containers'];
+const FILTERS = ['default', 'join', 'upper', 'lower', 'trim', 'base64', 'url', 'int', 'json', 'sha256', 'sha512', 'mosquitto_passwd'];
+const SECRET_FIELDS = ['env', 'file', 'devtool'];
+// §21 #103 hashes — a copy of shared/src/hash.ts (compiled), so the playground gives the agent's exact result
+/**
+ * Synchronous hashes for the expression filters `sha256`, `sha512` and `mosquitto_passwd` (SPEC-final §10.4, §21 #103).
+ * Pure TypeScript (no WebCrypto: expressions resolve synchronously in the browser, the backend and tests). The Go
+ * agent uses crypto/sha256, crypto/sha512, crypto/hmac and crypto/pbkdf2; testdata/expr-vectors.json pins both.
+ *
+ * Inputs are bytes (Uint8Array) — text is UTF-8 encoded by the caller (`utf8`).
+ */
+const utf8 = (s) => new TextEncoder().encode(s);
+function toHex(b) {
+    let s = '';
+    for (const x of b)
+        s += x.toString(16).padStart(2, '0');
+    return s;
+}
+/** Standard Base64 with padding (RFC 4648 §4) — what OpenSSL's BIO_f_base64 writes (no newlines). */
+function toBase64(b) {
+    let bin = '';
+    for (const x of b)
+        bin += String.fromCharCode(x);
+    return btoa(bin);
+}
+function fromBase64(s) {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++)
+        out[i] = bin.charCodeAt(i);
+    return out;
+}
+function concat(...parts) {
+    let n = 0;
+    for (const p of parts)
+        n += p.length;
+    const out = new Uint8Array(n);
+    let o = 0;
+    for (const p of parts) {
+        out.set(p, o);
+        o += p.length;
+    }
+    return out;
+}
+// ───────────────────────────────────────────────────────────── SHA-256 (FIPS 180-4)
+const K256 = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+/** Pad a message to whole blocks: 0x80, zeros, then the bit length big-endian in `lenBytes` bytes (8 or 16). */
+function pad(msg, block, lenBytes) {
+    const n = Math.ceil((msg.length + 1 + lenBytes) / block) * block;
+    const out = new Uint8Array(n);
+    out.set(msg);
+    out[msg.length] = 0x80;
+    // bit length = len * 8; messages here are far below 2^53 bits
+    const bits = msg.length * 8;
+    const hi = Math.floor(bits / 0x100000000);
+    const lo = bits >>> 0;
+    const dv = new DataView(out.buffer);
+    dv.setUint32(n - 8, hi);
+    dv.setUint32(n - 4, lo);
+    return out;
+}
+function sha256(msg) {
+    const h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+    const p = pad(msg, 64, 8);
+    const dv = new DataView(p.buffer);
+    const w = new Uint32Array(64);
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let off = 0; off < p.length; off += 64) {
+        for (let i = 0; i < 16; i++)
+            w[i] = dv.getUint32(off + i * 4);
+        for (let i = 16; i < 64; i++) {
+            const a = w[i - 15];
+            const b = w[i - 2];
+            const s0 = rotr(a, 7) ^ rotr(a, 18) ^ (a >>> 3);
+            const s1 = rotr(b, 17) ^ rotr(b, 19) ^ (b >>> 10);
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+        }
+        let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (let i = 0; i < 64; i++) {
+            const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const t1 = (hh + S1 + ch + K256[i] + w[i]) >>> 0;
+            const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const t2 = (S0 + maj) >>> 0;
+            hh = g;
+            g = f;
+            f = e;
+            e = (d + t1) >>> 0;
+            d = c;
+            c = b;
+            b = a;
+            a = (t1 + t2) >>> 0;
+        }
+        h[0] = (h[0] + a) >>> 0;
+        h[1] = (h[1] + b) >>> 0;
+        h[2] = (h[2] + c) >>> 0;
+        h[3] = (h[3] + d) >>> 0;
+        h[4] = (h[4] + e) >>> 0;
+        h[5] = (h[5] + f) >>> 0;
+        h[6] = (h[6] + g) >>> 0;
+        h[7] = (h[7] + hh) >>> 0;
+    }
+    const out = new Uint8Array(32);
+    const ov = new DataView(out.buffer);
+    for (let i = 0; i < 8; i++)
+        ov.setUint32(i * 4, h[i]);
+    return out;
+}
+// ───────────────────────────────────────────────────────────── SHA-512 (FIPS 180-4), 64-bit words as hi / lo 32-bit halves
+const K512 = [
+    '428a2f98d728ae22', '7137449123ef65cd', 'b5c0fbcfec4d3b2f', 'e9b5dba58189dbbc', '3956c25bf348b538', '59f111f1b605d019', '923f82a4af194f9b', 'ab1c5ed5da6d8118',
+    'd807aa98a3030242', '12835b0145706fbe', '243185be4ee4b28c', '550c7dc3d5ffb4e2', '72be5d74f27b896f', '80deb1fe3b1696b1', '9bdc06a725c71235', 'c19bf174cf692694',
+    'e49b69c19ef14ad2', 'efbe4786384f25e3', '0fc19dc68b8cd5b5', '240ca1cc77ac9c65', '2de92c6f592b0275', '4a7484aa6ea6e483', '5cb0a9dcbd41fbd4', '76f988da831153b5',
+    '983e5152ee66dfab', 'a831c66d2db43210', 'b00327c898fb213f', 'bf597fc7beef0ee4', 'c6e00bf33da88fc2', 'd5a79147930aa725', '06ca6351e003826f', '142929670a0e6e70',
+    '27b70a8546d22ffc', '2e1b21385c26c926', '4d2c6dfc5ac42aed', '53380d139d95b3df', '650a73548baf63de', '766a0abb3c77b2a8', '81c2c92e47edaee6', '92722c851482353b',
+    'a2bfe8a14cf10364', 'a81a664bbc423001', 'c24b8b70d0f89791', 'c76c51a30654be30', 'd192e819d6ef5218', 'd69906245565a910', 'f40e35855771202a', '106aa07032bbd1b8',
+    '19a4c116b8d2d0c8', '1e376c085141ab53', '2748774cdf8eeb99', '34b0bcb5e19b48a8', '391c0cb3c5c95a63', '4ed8aa4ae3418acb', '5b9cca4f7763e373', '682e6ff3d6b2b8a3',
+    '748f82ee5defb2fc', '78a5636f43172f60', '84c87814a1f0ab72', '8cc702081a6439ec', '90befffa23631e28', 'a4506cebde82bde9', 'bef9a3f7b2c67915', 'c67178f2e372532b',
+    'ca273eceea26619c', 'd186b8c721c0c207', 'eada7dd6cde0eb1e', 'f57d4f7fee6ed178', '06f067aa72176fba', '0a637dc5a2c898a6', '113f9804bef90dae', '1b710b35131c471b',
+    '28db77f523047d84', '32caab7b40c72493', '3c9ebe0a15c9bebc', '431d67c49c100d4c', '4cc5d4becb3e42b6', '597f299cfc657e2a', '5fcb6fab3ad6faec', '6c44198c4a475817',
+];
+const K512H = new Uint32Array(K512.map((x) => parseInt(x.slice(0, 8), 16)));
+const K512L = new Uint32Array(K512.map((x) => parseInt(x.slice(8), 16)));
+const IV512 = ['6a09e667f3bcc908', 'bb67ae8584caa73b', '3c6ef372fe94f82b', 'a54ff53a5f1d36f1', '510e527fade682d1', '9b05688c2b3e6c1f', '1f83d9abfb41bd6b', '5be0cd19137e2179'];
+function sha512(msg) {
+    const hh = new Uint32Array(IV512.map((x) => parseInt(x.slice(0, 8), 16)));
+    const hl = new Uint32Array(IV512.map((x) => parseInt(x.slice(8), 16)));
+    const p = pad(msg, 128, 16);
+    const dv = new DataView(p.buffer);
+    const wh = new Uint32Array(80);
+    const wl = new Uint32Array(80);
+    // 64-bit rotate right by n of (h, l): returns [hi, lo]
+    const rotrH = (h, l, n) => (n < 32 ? (h >>> n) | (l << (32 - n)) : (l >>> (n - 32)) | (h << (64 - n)));
+    const rotrL = (h, l, n) => (n < 32 ? (l >>> n) | (h << (32 - n)) : (h >>> (n - 32)) | (l << (64 - n)));
+    const shrH = (h, _l, n) => h >>> n; // n < 32
+    const shrL = (h, l, n) => (l >>> n) | (h << (32 - n));
+    for (let off = 0; off < p.length; off += 128) {
+        for (let i = 0; i < 16; i++) {
+            wh[i] = dv.getUint32(off + i * 8);
+            wl[i] = dv.getUint32(off + i * 8 + 4);
+        }
+        for (let i = 16; i < 80; i++) {
+            const ah = wh[i - 15], al = wl[i - 15];
+            const s0h = rotrH(ah, al, 1) ^ rotrH(ah, al, 8) ^ shrH(ah, al, 7);
+            const s0l = rotrL(ah, al, 1) ^ rotrL(ah, al, 8) ^ shrL(ah, al, 7);
+            const bh = wh[i - 2], bl = wl[i - 2];
+            const s1h = rotrH(bh, bl, 19) ^ rotrH(bh, bl, 61) ^ shrH(bh, bl, 6);
+            const s1l = rotrL(bh, bl, 19) ^ rotrL(bh, bl, 61) ^ shrL(bh, bl, 6);
+            // w = w[i-16] + s0 + w[i-7] + s1
+            let lo = (wl[i - 16] >>> 0) + (s0l >>> 0) + (wl[i - 7] >>> 0) + (s1l >>> 0);
+            let hi = wh[i - 16] + s0h + wh[i - 7] + s1h + Math.floor(lo / 0x100000000);
+            wl[i] = lo >>> 0;
+            wh[i] = hi >>> 0;
+        }
+        let ah = hh[0], al = hl[0], bh = hh[1], bl = hl[1], ch = hh[2], cl = hl[2], dh = hh[3], dl = hl[3];
+        let eh = hh[4], el = hl[4], fh = hh[5], fl = hl[5], gh = hh[6], gl = hl[6], xh = hh[7], xl = hl[7];
+        for (let i = 0; i < 80; i++) {
+            const S1h = rotrH(eh, el, 14) ^ rotrH(eh, el, 18) ^ rotrH(eh, el, 41);
+            const S1l = rotrL(eh, el, 14) ^ rotrL(eh, el, 18) ^ rotrL(eh, el, 41);
+            const chh = (eh & fh) ^ (~eh & gh);
+            const chl = (el & fl) ^ (~el & gl);
+            // t1 = x + S1 + ch + K + w
+            const t1l = (xl >>> 0) + (S1l >>> 0) + (chl >>> 0) + K512L[i] + wl[i];
+            const t1h = (xh + S1h + chh + K512H[i] + wh[i] + Math.floor(t1l / 0x100000000)) >>> 0;
+            const S0h = rotrH(ah, al, 28) ^ rotrH(ah, al, 34) ^ rotrH(ah, al, 39);
+            const S0l = rotrL(ah, al, 28) ^ rotrL(ah, al, 34) ^ rotrL(ah, al, 39);
+            const mjh = (ah & bh) ^ (ah & ch) ^ (bh & ch);
+            const mjl = (al & bl) ^ (al & cl) ^ (bl & cl);
+            const t2l = (S0l >>> 0) + (mjl >>> 0);
+            const t2h = (S0h + mjh + Math.floor(t2l / 0x100000000)) >>> 0;
+            const t1lo = t1l >>> 0;
+            const t2lo = t2l >>> 0;
+            xh = gh;
+            xl = gl;
+            gh = fh;
+            gl = fl;
+            fh = eh;
+            fl = el;
+            const el2 = dl + t1lo;
+            eh = (dh + t1h + Math.floor(el2 / 0x100000000)) >>> 0;
+            el = el2 >>> 0;
+            dh = ch;
+            dl = cl;
+            ch = bh;
+            cl = bl;
+            bh = ah;
+            bl = al;
+            const al2 = t1lo + t2lo;
+            ah = (t1h + t2h + Math.floor(al2 / 0x100000000)) >>> 0;
+            al = al2 >>> 0;
+        }
+        const add = (i, h, l) => {
+            const lo = hl[i] + (l >>> 0);
+            hh[i] = (hh[i] + h + Math.floor(lo / 0x100000000)) >>> 0;
+            hl[i] = lo >>> 0;
+        };
+        add(0, ah, al);
+        add(1, bh, bl);
+        add(2, ch, cl);
+        add(3, dh, dl);
+        add(4, eh, el);
+        add(5, fh, fl);
+        add(6, gh, gl);
+        add(7, xh, xl);
+    }
+    const out = new Uint8Array(64);
+    const ov = new DataView(out.buffer);
+    for (let i = 0; i < 8; i++) {
+        ov.setUint32(i * 8, hh[i]);
+        ov.setUint32(i * 8 + 4, hl[i]);
+    }
+    return out;
+}
+const SHA256 = { fn: sha256, block: 64, size: 32 };
+const SHA512 = { fn: sha512, block: 128, size: 64 };
+function hmac(h, key, msg) {
+    const k = key.length > h.block ? h.fn(key) : key;
+    const kp = new Uint8Array(h.block);
+    kp.set(k);
+    const ipad = kp.map((b) => b ^ 0x36);
+    const opad = kp.map((b) => b ^ 0x5c);
+    return h.fn(concat(opad, h.fn(concat(ipad, msg))));
+}
+function pbkdf2(h, password, salt, iterations, keyLen) {
+    const out = new Uint8Array(keyLen);
+    // precompute the padded keys once (HMAC with a fixed key)
+    const k = password.length > h.block ? h.fn(password) : password;
+    const kp = new Uint8Array(h.block);
+    kp.set(k);
+    const ipad = kp.map((b) => b ^ 0x36);
+    const opad = kp.map((b) => b ^ 0x5c);
+    const mac = (m) => h.fn(concat(opad, h.fn(concat(ipad, m))));
+    for (let block = 1, off = 0; off < keyLen; block++, off += h.size) {
+        const idx = new Uint8Array([(block >>> 24) & 0xff, (block >>> 16) & 0xff, (block >>> 8) & 0xff, block & 0xff]);
+        let u = mac(concat(salt, idx));
+        const t = u.slice();
+        for (let i = 1; i < iterations; i++) {
+            u = mac(u);
+            for (let j = 0; j < t.length; j++)
+                t[j] ^= u[j];
+        }
+        out.set(t.subarray(0, Math.min(h.size, keyLen - off)), off);
+    }
+    return out;
+}
+// ───────────────────────────────────────────────────────────── Mosquitto password file lines (§21 #103)
+/**
+ * Mosquitto `mosquitto_passwd` hash (src/password_mosq.c, apps/mosquitto_passwd/mosquitto_passwd.c):
+ *   format 7 (2.x default, sha512-pbkdf2): `$7$<iterations>$<base64 salt>$<base64 PBKDF2-HMAC-SHA512(password, salt, iterations, 64)>`
+ *   format 6 (1.x, sha512):                `$6$<base64 salt>$<base64 SHA512(password ‖ salt)>`
+ * salt = 12 bytes (SALT_LEN), base64 = standard with padding, no newline (BIO_FLAGS_BASE64_NO_NL). The password is
+ * hashed up to its first NUL byte (strlen) — callers refuse a NUL.
+ */
+const MOSQUITTO_SALT_LEN = 12;
+const MOSQUITTO_DEFAULT_ITERATIONS = 101;
+const MOSQUITTO_MAX_ITERATIONS = 10000;
+function mosquittoHash(password, salt, format = 7, iterations = MOSQUITTO_DEFAULT_ITERATIONS) {
+    const pw = utf8(password);
+    if (format === 6)
+        return `$6$${toBase64(salt)}$${toBase64(sha512(concat(pw, salt)))}`;
+    return `$7$${iterations}$${toBase64(salt)}$${toBase64(pbkdf2(SHA512, pw, salt, iterations, 64))}`;
+}
+/**
+ * The DETERMINISTIC salt of the `mosquitto_passwd` filter: the first 12 bytes of
+ * HMAC-SHA256(key = password, msg = "opm-mosquitto-salt" NUL deploymentId NUL siteSlug).
+ * Same password + same site → the same line (the rendered file is stable: no hash churn, no restart on apply);
+ * the deployment id + site slug make lines differ between sites / deployments, so a table precomputed for one
+ * site does not apply to another. The password keys the HMAC, so the salt reveals nothing the hash does not.
+ */
+function mosquittoSalt(password, deploymentId, siteSlug) {
+    return hmac(SHA256, utf8(password), utf8(`opm-mosquitto-salt\u0000${deploymentId}\u0000${siteSlug}`)).slice(0, MOSQUITTO_SALT_LEN);
+}
+//# sourceMappingURL=hash.js.map
+class ExprError extends Error { constructor(code, msg, pos) { super(msg); this.code = code; this.pos = pos; } }
+
+// ---- parser: template → [{text}|{block:{primary, filters}, start, end}]
+function parseTemplate(s, field) {
+  const out = [];
+  let i = 0, buf = '';
+  while (i < s.length) {
+    if (s[i] === '{' && s[i + 1] === '{') {
+      if (buf) { out.push({ text: buf }); buf = ''; }
+      const start = i;
+      i += 2;
+      const p = parseExpr(s, i);
+      i = p.i;
+      i = skipWs(s, i);
+      if (!(s[i] === '}' && s[i + 1] === '}')) throw new ExprError('E_SYNTAX', 'expected "}}"', i);
+      i += 2;
+      out.push({ block: p.node, start, end: i });
+    } else { if (s[i] === '\n' && field !== 'file') throw new ExprError('E_SYNTAX', 'a value cannot hold a line break here', i); buf += s[i++]; }
+  }
+  if (buf) out.push({ text: buf });
+  return out;
+}
+const skipWs = (s, i) => { while (s[i] === ' ' || s[i] === '\t') i++; return i; };
+function parsePrimary(s, i) {
+  i = skipWs(s, i);
+  const c = s[i];
+  if (c === '"') {
+    let j = i + 1, v = '';
+    while (j < s.length && s[j] !== '"') {
+      if (s[j] === '\\') { if (s[j + 1] === '"' || s[j + 1] === '\\') { v += s[j + 1]; j += 2; continue; } throw new ExprError('E_SYNTAX', 'only \\" and \\\\ are valid escapes', j); }
+      if (s[j] === '\n') throw new ExprError('E_SYNTAX', 'unterminated string', j);
+      v += s[j++];
+    }
+    if (s[j] !== '"') throw new ExprError('E_SYNTAX', 'unterminated string', i);
+    return { node: { lit: v }, i: j + 1 };
+  }
+  const num = /^-?\d+(\.\d+)?/.exec(s.slice(i));
+  if (num) return { node: { lit: Number(num[0]) }, i: i + num[0].length };
+  const id = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9][A-Za-z0-9_-]*)*/.exec(s.slice(i));
+  if (id) {
+    if (id[0] === 'true' || id[0] === 'false') return { node: { lit: id[0] === 'true' }, i: i + id[0].length };
+    const parts = id[0].split('.');
+    if (!ROOTS.includes(parts[0])) throw new ExprError('E_UNKNOWN_PATH', `unknown root "${parts[0]}" (use ${ROOTS.join(', ')})`, i);
+    if (parts.length < 2) throw new ExprError('E_SYNTAX', `"${parts[0]}" needs a "." and a name`, i + id[0].length);
+    return { node: { path: parts, pos: i }, i: i + id[0].length };
+  }
+  throw new ExprError('E_SYNTAX', 'expected a path, a string, a number, or true / false', i);
+}
+function parseExpr(s, i) {
+  const p = parsePrimary(s, i);
+  const node = { primary: p.node, filters: [] };
+  i = p.i;
+  for (;;) {
+    i = skipWs(s, i);
+    if (s[i] !== '|') break;
+    i = skipWs(s, i + 1);
+    const m = /^[a-z][a-z0-9_]*/.exec(s.slice(i));
+    if (!m) throw new ExprError('E_SYNTAX', 'expected a filter name after "|"', i);
+    if (!FILTERS.includes(m[0])) throw new ExprError('E_UNKNOWN_FILTER', `unknown filter "${m[0]}" (use ${FILTERS.join(', ')})`, i);
+    const f = { name: m[0], args: [], pos: i };
+    i += m[0].length;
+    if (s[i] === '(') {
+      i = skipWs(s, i + 1);
+      if (s[i] !== ')') {
+        for (;;) {
+          const a = parsePrimary(s, i);
+          if (!('lit' in a.node)) throw new ExprError('E_SYNTAX', 'filter arguments must be literals', i);
+          f.args.push(a.node.lit);
+          i = skipWs(s, a.i);
+          if (s[i] === ',') { i = skipWs(s, i + 1); continue; }
+          break;
+        }
+      }
+      if (s[i] !== ')') throw new ExprError('E_SYNTAX', 'expected ")"', i);
+      i++;
+    }
+    node.filters.push(f);
+  }
+  return { node, i };
+}
+// ---- evaluator
+function lookup(path, ctx, field, pos) {
+  const [root, ...rest] = path;
+  if (!FIELD_ROOTS[field].includes(root) && field === 'file' && (root === 'container' || root === 'file')) throw new ExprError('E_NOT_ALLOWED', `"${root}.*" is not allowed in file content: files are shared by all containers on the site — use a variable instead`, pos);
+  if (!FIELD_ROOTS[field].includes(root)) throw new ExprError('E_NOT_ALLOWED', `"${root}.*" is not allowed in ${field === 'host' ? 'SiteConfig.host' : field === 'hostPort' ? 'Container.port[].hostPort' : field === 'imagePort' ? 'ImagePort.port' : field === 'imageEnv' ? 'ImageEnv.value' : field === 'edge' ? 'edge fields (hostname, redirect.to, setHeaders)' : field === 'file' ? 'file content' : 'this field'}`, pos);
+  const bad = () => new ExprError('E_UNKNOWN_PATH', `unknown path "${path.join('.')}"`, pos);
+  if (root === 'var') { if (rest.length !== 1 || !(rest[0] in (ctx.var || {}))) throw bad(); return { v: ctx.var[rest[0]] }; }
+  if (root === 'secret') { if (rest.length !== 1 || !(rest[0] in (ctx.secret || {}))) throw bad(); return { v: ctx.secret[rest[0]], secret: true }; }
+  if (root === 'file') {
+    if (rest.length !== 2 || rest[1] !== 'path' || !(rest[0] in (ctx.file || {}))) throw bad();
+    if (!ctx.file[rest[0]].mounted) throw new ExprError('E_FILE_NOT_MOUNTED', `this container does not mount file "${rest[0]}"`, pos);
+    return { v: ctx.file[rest[0]].path };
+  }
+  if (root === 'site') {
+    const st = (ctx.site || {})[rest[0]];
+    if (!st) throw bad();
+    if (rest.length === 2 && rest[1] === 'host') return { v: st.host };
+    if (rest.length === 4 && rest[1] === 'port') {
+      const svc = (st.port || {})[rest[2]];
+      if (!svc || !(rest[3] in svc)) throw bad();
+      if (svc[rest[3]] === null) throw new ExprError('E_NO_HOSTPORT', `site ${rest[0]}: ${rest[2]}.${rest[3]} has hostPort null, so other sites cannot reach it`, pos);
+      return { v: svc[rest[3]] };
+    }
+    throw bad();
+  }
+  if (root === 'containers') {
+    if (rest[1] === 'env' && field !== 'devtool') throw new ExprError('E_NOT_ALLOWED', '"containers.<container>.env.*" is only allowed in dev-tool presets', pos);
+    if (!((rest.length === 2 && rest[1] === 'host') || (rest.length === 3 && (rest[1] === 'port' || rest[1] === 'env')))) throw bad();
+    const c = (ctx.containers || {})[rest[0]];
+    if (!c) throw new ExprError('E_UNKNOWN_PATH', `no container "${rest[0]}" on this site`, pos);
+    if (rest[1] === 'host') return { v: c.host };
+    if (rest[1] === 'env') {
+      const e = (c.env || {})[rest[2]];
+      if (!e) throw new ExprError('E_UNKNOWN_PATH', `container ${rest[0]} has no env var "${rest[2]}"`, pos);
+      return { v: e.value, secret: e.secret };
+    }
+    if (!(rest[2] in (c.port || {}))) throw new ExprError('E_UNKNOWN_PATH', `container ${rest[0]} has no port "${rest[2]}"`, pos);
+    if (c.port[rest[2]] === null) throw new ExprError('E_NULL', `port ${rest[2]} of container ${rest[0]} has no number`, pos);
+    return { v: c.port[rest[2]] };
+  }
+  const obj = ctx[root] || {};
+  if (rest.length !== 1 || !(rest[0] in obj)) throw bad();
+  return { v: obj[rest[0]] };
+}
+const isStrNum = (v) => typeof v === 'string' || typeof v === 'number';
+function applyFilter(f, v, ctx, field) {
+  if (f.name === 'mosquitto_passwd' && !SECRET_FIELDS.includes(field)) throw new ExprError('E_NOT_ALLOWED', 'filter "mosquitto_passwd" is only allowed where secrets are (container env, file content, dev-tool presets)', f.pos);
+  const t = (ok) => { if (!ok) throw new ExprError('E_TYPE', `filter "${f.name}" cannot take ${Array.isArray(v) ? 'a list' : v === null ? 'null' : typeof v}`, f.pos); };
+  switch (f.name) {
+    case 'default': return v === null || v === undefined || v === '' ? f.args[0] : v;
+    case 'join': t(Array.isArray(v)); return v.join(f.args[0] === undefined ? ',' : String(f.args[0]));
+    case 'upper': t(isStrNum(v)); return String(v).toUpperCase();
+    case 'lower': t(isStrNum(v)); return String(v).toLowerCase();
+    case 'trim': t(typeof v === 'string'); return v.trim();
+    case 'base64': t(isStrNum(v)); return btoa(String.fromCharCode(...new TextEncoder().encode(String(v))));
+    case 'url': t(isStrNum(v)); return encodeURIComponent(String(v)).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+    case 'int': { t(isStrNum(v)); const n = parseInt(String(v), 10); if (Number.isNaN(n)) throw new ExprError('E_TYPE', `"${v}" is not an integer`, f.pos); return n; }
+    case 'json': return JSON.stringify(v);
+    case 'sha256': t(isStrNum(v)); return toHex(sha256(utf8(String(v))));
+    case 'sha512': t(isStrNum(v)); return toHex(sha512(utf8(String(v))));
+    case 'mosquitto_passwd': {
+      t(isStrNum(v));
+      const fmt = f.args[0] === undefined ? 7 : f.args[0];
+      const it = f.args[1] === undefined ? 101 : f.args[1];
+      if ((fmt !== 7 && fmt !== 6) || f.args.length > 2 || (f.args.length === 2 && (fmt === 6 || !Number.isInteger(it) || it < 1 || it > 10000))) throw new ExprError('E_SYNTAX', 'mosquitto_passwd(format 7 | 6, iterations 1–10000)', f.pos);
+      if (String(v) === '') throw new ExprError('E_TYPE', 'filter "mosquitto_passwd" cannot hash an empty password', f.pos);
+      return mosquittoHash(String(v), mosquittoSalt(String(v), ctx.deployment.id, ctx.self.slug), fmt, it);
+    }
+  }
+}
+function toText(v, pos) {
+  if (v === null || v === undefined) throw new ExprError('E_NULL', 'the value is null; add | default(…)', pos);
+  if (Array.isArray(v) || typeof v === 'object') throw new ExprError('E_TYPE', 'a list or an object needs | join(…) or | json', pos);
+  return String(v);
+}
+function resolve(value, ctx, field) {
+  const segs = parseTemplate(value, field);
+  const numeric = field === 'hostPort' || field === 'imagePort';
+  const blocks = segs.filter((x) => x.block);
+  if (numeric && (blocks.length !== 1 || segs.some((x) => x.text && x.text.trim()))) throw new ExprError('E_TYPE', 'a number field must be ONE whole block, for example {{ var.api-port }}', 0);
+  let out = '', masked = '', secret = false;
+  for (const sgm of segs) {
+    if (sgm.text !== undefined) { out += sgm.text; masked += sgm.text; continue; }
+    const b = sgm.block;
+    let r = 'lit' in b.primary ? { v: b.primary.lit } : lookup(b.primary.path, ctx, field, b.primary.pos);
+    let v = r.v;
+    for (const f of b.filters) v = applyFilter(f, v, ctx, field);
+    const txt = toText(v, sgm.start);
+    out += txt; masked += r.secret ? '••••' : txt;
+    if (r.secret) secret = true;
+  }
+  if (numeric) {
+    const n = Number(out.trim());
+    if (!Number.isInteger(n) || n < 1 || n > 65535) throw new ExprError('E_TYPE', `"${out}" is not an integer 1–65535`, 0);
+  }
+  return { out, masked, secret };
+}
+// ---- UI
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const ctxIn = document.getElementById('pgCtx'), exIn = document.getElementById('pgExpr'), fIn = document.getElementById('pgField'), out = document.getElementById('pgOut');
+ctxIn.value = JSON.stringify(CTX, null, 2);
+function run() {
+  let ctx;
+  try { ctx = JSON.parse(ctxIn.value); } catch (e) { out.innerHTML = `<span class="err">Context is not valid JSON: ${esc(e.message)}</span>`; return; }
+  const v = exIn.value;
+  try {
+    const r = resolve(v, ctx, fIn.value);
+    const show = document.getElementById('pgShow').checked;
+    out.innerHTML = `<span class="okv">OK</span>\nresult: ${esc(show ? r.out : r.masked)}` + (r.secret ? `\n<span class="muted">This value uses secret.* → the agent stores and shows it as a secret.</span>` : '') + (fIn.value === 'hostPort' || fIn.value === 'imagePort' ? `\ntype: integer` : `\ntype: string`);
+  } catch (e) {
+    if (!(e instanceof ExprError)) { out.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+    const pos = Math.max(0, Math.min(e.pos || 0, v.length));
+    const before = v.slice(0, pos), line = before.split('\n').length, col = pos - before.lastIndexOf('\n'), lineText = v.split('\n')[line - 1];
+    out.innerHTML = `<span class="err">${e.code}: ${esc(e.message)}</span>\nat ${fIn.value === 'file' ? `line ${line}, column ${col}` : `position ${pos}`}\n${esc(lineText)}\n<span class="caret">${' '.repeat(col - 1)}^</span>`;
+  }
+}
+document.getElementById('pgRun').onclick = run;
+document.getElementById('pgShow').onchange = run;
+fIn.onchange = run;
+exIn.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || fIn.value !== 'file')) { e.preventDefault(); run(); } });
+const EX = [
+  ['postgres://app:{{ secret.db-password | url }}@{{ site.db.host }}:{{ site.db.port.postgres.sql }}/{{ var.db-name }}', 'env', 'Database URL to another site; secret is URL-encoded'],
+  ['http://api:8080/health', 'env', 'Plain value; same-site containers use the container name (containerSlug) as host'],
+  ['http://{{ site.app.host }}:{{ site.app.port.api-2.http }}', 'env', 'Port of a second instance of the same image (container api-2)'],
+  ['{{ site.edge.host }}', 'env', 'Cloud preview of an auto host before install (on a site: the detected address)'],
+  ['{{ var.api-workers }}', 'env', 'Number variable as text'],
+  ['{{ var.region | default("eu") }}', 'env', 'Null variable with a default'],
+  ['{{ var.admins | join(",") }}', 'env', 'List variable joined'],
+  ['{{ var.features | json }}', 'env', 'JSON variable as text'],
+  ['{{ deployment.id }}-{{ self.slug | upper }}', 'env', 'Build a name'],
+  ['https://{{ self.host }}:8443{path}', 'edge', 'Edge redirect target'],
+  ['{{ var.public-host }}', 'edge', 'Edge hostname from a variable'],
+  ['{{ secret.db-password }}', 'edge', 'Error: no secrets in the edge'],
+  ['{{ file.api-config.path }}', 'env', 'Path of a mounted file'],
+  ['{{ "app:secret" | base64 }}', 'env', 'Literal through a filter'],
+  ['northwind:{{ secret.mqtt-password | mosquitto_passwd }}', 'file', 'Mosquitto password file line (§21 #103; deterministic salt)'],
+  ['northwind:{{ secret.mqtt-password | mosquitto_passwd(6) }}', 'file', 'Mosquitto 1.x format ($6$)'],
+  ['{{ secret.mqtt-password | mosquitto_passwd }}', 'edge', 'Error: mosquitto_passwd only where secrets are allowed'],
+  ['etag-{{ var.db-name | sha256 }}', 'edge', 'SHA-256 hex of a variable'],
+  ['{{ "{{" }} not a block }}', 'env', 'Escape a literal "{{"'],
+  ['{\n  "site": "{{ self.slug }}",\n  "db": "{{ secret.db-password }}",\n  "tpl": "{{ "{{" }} user }}"\n}', 'file', 'JSON file rendered once for the site (secrets allowed)'],
+  ['line 1\nline 2: {{ var.nope }}', 'file', 'Error in a file: reported as line:col'],
+  ['mode = {{ container.slug }}', 'file', 'container.* in a file: E_NOT_ALLOWED (one copy per site)'],
+  ['mqtt://{{ containers.mqtt.host }}:{{ containers.mqtt.port.mqtt }}', 'env', 'Another container of the site: DNS name + internal port'],
+  ['listener {{ containers.mqtt.port.mqtt }}', 'file', 'containers.* in a file (site-level fact)'],
+  ['{{ containers.nope.host }}', 'env', 'Error: no such container on this site'],
+  ['{{ containers.mqtt.host }}', 'edge', 'Error: containers.* is not allowed in the edge'],
+  ['{{ containers.postgress.env.POSTGRES_PASSWORD }}', 'devtool', 'Dev-tool preset: another container\'s env (secret → masked)'],
+  ['{{ containers.postgress.env.POSTGRES_DB | default("postgres") }}', 'devtool', 'Dev-tool preset: env without a value + default'],
+  ['{{ containers.postgress.env.POSTGRES_USER }}', 'env', 'Error: containers.<c>.env only in dev-tool presets'],
+  ['{{ var.api-port }}', 'hostPort', 'Whole-value number field'],
+  ['{{ var.api-port | int }}', 'imagePort', 'Image port from a variable'],
+  ['{{ var.db-host | default("10.0.1.11") }}', 'host', 'Site host from a variable (db-host is unknown → error)'],
+  ['{{ secret.db-password }}', 'host', 'Error: secret in a host'],
+  ['{{ var.admins }}', 'env', 'Error: list without join'],
+  ['{{ site.db.port.redis.tcp }}', 'env', 'Error: port with hostPort null'],
+  ['{{ file.tls-cert.path }}', 'env', 'Error: file not mounted'],
+  ['port-{{ var.api-port }}', 'hostPort', 'Error: number field with extra text'],
+  ['{{ var.db-name | capitalize }}', 'env', 'Error: unknown filter'],
+  ['{{ var.db-name | }}', 'env', 'Error: syntax'],
+];
+const FNAME = { env: 'Container.env', imageEnv: 'ImageEnv.value', host: 'SiteConfig.host', hostPort: 'ports.hostPort', imagePort: 'ImagePort.port', edge: 'edge', file: 'file content' };
+document.querySelector('#exTbl tbody').innerHTML = EX.map(([v, f, note], i) => {
+  let res;
+  try { const r = resolve(v, CTX, f); res = esc(r.masked); } catch (e) { res = `<span style="color:var(--bad)">${e.code}</span>`; }
+  return `<tr><td>${esc(v).replace(/\n/g, '<br>')}<div class="small muted" style="font-family:var(--sans)">${note}</div></td><td><code>${FNAME[f]}</code></td><td>${res}</td><td><button class="btn" type="button" data-ex="${i}">Try</button></td></tr>`;
+}).join('');
+document.querySelectorAll('[data-ex]').forEach((b) => (b.onclick = () => { const [v, f] = EX[+b.dataset.ex]; exIn.value = v; fIn.value = f; run(); document.getElementById('playground').scrollIntoView({ behavior: 'smooth' }); }));
+exIn.value = EX[0][0];
+run();
+</script>
+</body>
+</html>

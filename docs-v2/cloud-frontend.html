@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cloud Frontend Routes</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .rtree-wrap { overflow-x: auto; }
+  .rtree-wrap svg text.rt { cursor: pointer; }
+  .rtree-wrap svg text.rt:hover { fill: var(--accent); }
+  .pframe { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .pscroll { overflow-x: auto; }
+  .pinner { min-width: 980px; }
+  .pinner .tag { white-space: normal; } .pinner .kv > div { min-width: 0; }
+  .pbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .pbar .dots span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--border); margin-right: 4px; }
+  .paddr { flex: 1; font-family: var(--mono); font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .paddr b { color: var(--text); font-weight: 500; }
+  .pbody { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 560px; }
+  .pbody.noside { grid-template-columns: minmax(0, 1fr); }
+  .pside { border-right: 1px solid var(--border); background: var(--surface-2); padding: 10px 8px; font-size: 13px; }
+  .pside .logo { font-weight: 700; padding: 4px 8px 10px; }
+  .pside .scope { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 8px 4px; }
+  .pside button { display: flex; gap: 8px; width: 100%; text-align: left; font: inherit; font-size: 13px; color: var(--text); background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+  .pside button:hover { background: var(--surface); }
+  .pside button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .pside .user { margin-top: 18px; padding: 8px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+  .pside .back { color: var(--muted); font-size: 12px; }
+  .pside .t1 { padding-left: 18px; }
+  .pside .t2 { padding-left: 32px; font-size: 12px; }
+  .pside .t3 { padding-left: 46px; font-size: 12px; font-family: var(--mono); }
+  .pside .bdg { margin-left: auto; font-size: 10.5px; border-radius: 8px; padding: 0 6px; background: var(--surface); color: var(--muted); }
+  .pside .bdg.w { color: var(--warn, #b45309); }
+  .pside .foot { margin-top: 18px; padding: 8px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+  .pcrumb { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .pcrumb b { color: var(--text); font-weight: 600; }
+  .pnav { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: 13px; }
+  .pnav .dn { font-weight: 700; }
+  .pnav .sp { flex: 1; }
+  .pmain { padding: 16px 18px 22px; font-size: 13px; min-width: 0; }
+  .pmain h3 { margin: 0 0 4px; font-size: 18px; }
+  .pmain h5 { margin: 14px 0 6px; font-size: 13px; }
+  .pmain .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
+  .hdr { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .wbtn { font: inherit; font-size: 12.5px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .wbtn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .wbtn.danger { color: var(--bad); }
+  .wbtn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .wt { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 6px 0 10px; }
+  .wt th, .wt td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .wt th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: var(--surface-2); }
+  .wt tr.click { cursor: pointer; }
+  .wt tr.click:hover td { background: var(--accent-soft); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .ban { border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; font-size: 12.5px; border: 1px solid var(--border); }
+  .ban.info { background: var(--accent-soft); border-color: transparent; }
+  .ban.warn { background: var(--warn-soft); border-color: transparent; }
+  .ban.bad { background: var(--bad-soft); border-color: transparent; }
+  .ban.ok { background: var(--ok-soft); border-color: transparent; }
+  .cols { display: grid; gap: 10px; }
+  .c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .box { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+  .box.click { cursor: pointer; }
+  .box.click:hover { border-color: var(--accent); }
+  .kv { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 10px; font-size: 12.5px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .lock::before { content: '🔒 '; font-size: 10px; }
+  .fld { display: grid; gap: 3px; margin-bottom: 8px; font-size: 12px; }
+  .fld label { color: var(--muted); }
+  .fld input, .fld select, .fld textarea { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+  .fld textarea { font-family: var(--mono); min-height: 80px; }
+  .code { font-family: var(--mono); font-size: 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre; overflow-x: auto; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chips button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 99px; padding: 2px 10px; cursor: pointer; color: var(--text); }
+  .chips button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+  .tabs button { font: inherit; font-size: 12.5px; border: 0; background: none; padding: 6px 10px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .heat { display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; margin: 4px 0 10px; }
+  .heat i { display: block; height: 12px; border-radius: 2px; background: var(--ok); opacity: 0.85; }
+  .heat i.w { background: var(--warn); } .heat i.b { background: var(--bad); } .heat i.n { background: var(--border); }
+  .dadd { color: var(--ok); } .ddel { color: var(--bad); text-decoration: line-through; }
+  .avatar { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 11px; margin-right: 6px; }
+  .login { max-width: 360px; margin: 60px auto; }
+  .hint { font-size: 11.5px; color: var(--muted); }
+  #rtFilter { margin-bottom: 6px; }
+  #jump { max-width: calc(100vw - 110px); }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Cloud frontend</div>
+<h1>Cloud frontend: every route</h1>
+<div class="callout note" id="commit-only-105"><b>Agent 0.14.1: one action — Commit (SPEC §21 #105)</b><p>There is no working copy and no draft any more. Every edit stays <b>in your browser</b> (kept in local storage, so a reload loses nothing) until you press <b>Commit…</b> and give a message — that writes the commit directly. The bar on every config page shows <i>N changes (not committed)</i> · Discard · Review · Commit…; drawers and dialogs <b>Apply</b> into it, there is no Save button. If someone else committed meanwhile, your changes are rebased onto the new head (automatically when nothing conflicts). On a site, a Commit in the agent GUI also <b>applies</b> the changes to the containers (a failed apply writes no commit); there, "uncommitted" means only changes made on the server outside the agent — commit those first. Details: <a href="branches-commits.md">branches-commits.md §15</a>.</p></div>
+<div class="callout note" id="commit-tx-107"><b>Agent 0.15.1: one Commit = one transaction, including the files (SPEC §21 #107)</b><p>Editing a file — a volume's starter content (create, edit, rename, move, delete, upload files or folders), a File's content, a volume archive — is a pending change like any other: nothing is uploaded while you edit and there is no Apply or Save content button. The bytes stay in your browser (memory + IndexedDB, so a reload restores them too) and the change bar counts every file; Review shows a per-file diff. <b>Commit…</b> first uploads only the new files to a staging area ("Uploading 2 of 5 files · 1.2 MB of 3 MB"), then writes the commit; the server checks every file, moves it into the store and only then makes the commit visible. If anything fails — an upload, validation, someone else committed first, the network — nothing is committed, the staged files are deleted and your changes (files included) stay in the browser so you can retry. <b>Drafts:</b> everything you have not committed is auto-saved in this browser (IndexedDB) per account; after a refresh or when you come back you are asked “You have unsaved changes from &lt;time&gt; (N changes) — Restore or Discard?”. A draft is only offered when it was made on the current latest commit — otherwise it is discarded with a notice. Drafts expire 1 hour after the site was last open in any tab (an open tab keeps them alive) and are deleted when you log out. Details: <a href="branches-commits.md">branches-commits.md §16</a>.</p></div>
+<div class="callout note" id="github-106"><b>§21 #106: Admin → GitHub</b><p><code>/app/github</code> (admins): repository + Mirroring toggle, token (masked, View 60 s, Replace…, Remove), Test connection, branch status table with Sync / Sync now / Resync everything. Template and deployment create forms show the <b>slug</b> (the GitHub branch name; immutable). See <a href="github-mirror.md">github-mirror.md</a>.</p></div>
+<div class="callout note" id="branches-104"><b>Agent 0.14 / §21 #104: History, Compare, Agent branches</b><p>Template and deployment scopes have <b>History</b> (commits; open, compare two, revert, reset) and <b>Compare</b> (any branch → this one: cherry-pick items, conflicts, "Removed by this merge", then Merge… with a message). Diff and Template sync redirect to Compare. Every config page shows "N uncommitted" and <b>Commit…</b>. New template / deployment can start from a template, a deployment or an agent branch. The deployment <b>Agent branches</b> page shows each site (behind / ahead / differs, drift). See <a href="branches-commits.md">branches-commits.md</a>.</p></div>
+<p class="lede">The cloud frontend is a SvelteKit app at <code>https://app.opm.example</code>. Only people from the operations and developer teams log in. There is no signup. This page shows every route as a tree, as a clickable wireframe, and as a table.</p>
+
+<div class="grid g3">
+  <div class="card"><div class="kpi" id="kRoutes">0</div><div class="muted small">routes in total</div></div>
+  <div class="card"><div class="kpi" id="kRoot">0</div><div class="muted small">routes in the root scope (incl. /login and /app)</div></div>
+  <div class="card"><div class="kpi" id="kDep">0</div><div class="muted small">routes in the deployment scope</div></div>
+</div>
+
+<h2 id="tree">Route tree</h2>
+<p>Click a route to open it in the prototype below.</p>
+<div class="diagram rtree-wrap"><svg id="rtSvg" role="img" aria-label="Route tree"></svg>
+<div class="cap">Left: the root scope (template pages included: they get the template sidebar). Right: the deployment scope. When you open a template or a deployment, the app replaces the sidebar; there is no top bar inside them.</div></div>
+
+<h2 id="scopes">Three scopes, one sidebar at a time</h2>
+<p>The left sidebar shows one scope: the <b>root scope</b>, the <b>template scope</b> (inside <code>/app/templates/{templateId}/…</code>) or the <b>deployment scope</b> (inside <code>/app/deployments/{deploymentId}/…</code>). There are no tab rows for navigation. The template and deployment sidebars hold a <b>Sites tree</b>.</p>
+<div class="diagram"><svg viewBox="0 0 900 200" role="img" aria-label="Scopes">
+  <rect x="20" y="30" width="360" height="140" rx="12" class="zone zone-cloud" />
+  <text x="36" y="54" font-size="13" font-weight="650">Root scope · /app/…</text>
+  <text x="36" y="80" font-size="12" class="muted">Deployments · Templates · Services · Registries</text>
+  <text x="36" y="100" font-size="12" class="muted">Not-found pages · Tags · Accounts</text>
+  <text x="36" y="130" font-size="12">Data for the whole organization.</text>
+  <text x="36" y="150" font-size="12">Developer tools need access rules (scope "all").</text>
+  <rect x="520" y="30" width="360" height="140" rx="12" class="zone" />
+  <text x="536" y="54" font-size="13" font-weight="650">Deployment scope · /app/deployments/{id}/…</text>
+  <text x="536" y="80" font-size="12" class="muted">Overview · Setup · Status · Activities · Variables</text>
+  <text x="536" y="100" font-size="12" class="muted">Secrets · Files · Sites (tree) · Diff</text>
+  <text x="536" y="130" font-size="12">Data of one deployment. Edits change the cloud draft.</text>
+  <text x="536" y="150" font-size="12">Publish on Diff makes a proposal for the sites.</text>
+  <defs><marker id="scA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+  <path d="M380,85 H518" class="ln ln-cloud" marker-end="url(#scA)" /><text x="450" y="78" text-anchor="middle" class="lbl">open a deployment</text>
+  <path d="M518,125 H382" class="ln ln-agent" marker-end="url(#scA)" /><text x="450" y="142" text-anchor="middle" class="lbl">← All deployments</text>
+</svg></div>
+<h3 id="nav">Sidebar navigation (template and deployment)</h3>
+<div class="grid g3">
+  <div class="card"><h4>Template sidebar</h4><ul><li>"← All templates", the template name and version.</li><li><b>Overview</b> · <b>Variables</b> (count) · <b>Secrets</b> (count) · <b>Files</b> (count) · <b>Sites</b>.</li><li><b>Sites tree</b>: each site expands to <b>Containers</b> (count; the container names link to their pages) · <b>Edge</b> · <b>Volumes</b> (count) · <b>Dev tools</b> (preset count) · <b>Settings</b> (host, agent ports, depends, 404 page), then <b>+ Add site</b>.</li><li>Error / warning badges on the tree nodes. The current item is highlighted. The expanded sites are remembered per template in the browser (localStorage; the page works without it).</li></ul></div>
+  <div class="card"><h4>Deployment sidebar</h4><ul><li>"← All deployments", the logo and label.</li><li>Overview · Setup · Status · Activities · Variables · Secrets · Files · Sites · Diff · Template sync (badge = newer template versions).</li><li>Under Sites: the same Sites tree for the draft sites (Containers · Edge · Volumes · Dev tools · Settings).</li><li>The deployment id, tags, head and pending badge are in the Overview header.</li></ul></div>
+  <div class="card"><h4>Pages, routes, footer</h4><ul><li>No top bar in a template or a deployment: a page starts with the <b>breadcrumb</b> (Templates › Single › site-01 › Containers) and a page header with its actions (Save template, Add container …).</li><li>Each site section is a route: <code>…/sites/{siteSlug}/containers | edge | volumes | devtools | settings</code>. <code>…/sites/{siteSlug}</code> and old <code>?tab=</code> links redirect (default: containers; <code>tab=site</code> → settings).</li><li>The <b>sidebar footer</b> (every scope) holds the account menu (avatar, My profile, Log out) and the light / dark theme toggle. Menus and the My profile modal open above everything (portal to the body).</li><li>At 390 px the sidebar is a drawer; its toggle (☰) sits in the breadcrumb row.</li><li>Moving between the pages of the SAME site (Containers, a container, Edge, Volumes, Settings) keeps the unsaved edits; leaving the site asks "Leave without saving?".</li></ul></div>
+</div>
+
+<h2 id="prototype">Clickable prototype</h2>
+<p>Use the sidebar, the rows, the cards and the buttons. The address bar shows the exact route.</p>
+<div class="controls"><label>Open route <select id="jump"></select></label></div>
+<div class="pframe"><div class="pscroll"><div class="pinner">
+  <div class="pbar"><span class="dots"><span></span><span></span><span></span></span><div class="paddr" id="addr"></div></div>
+  <div id="pwrap"></div>
+</div></div></div>
+
+<h2 id="edge-tab">Site pages: Edge</h2>
+<p>Every site (template site and deployment site) has the page <b>Edge</b> (<code>…/sites/{siteSlug}/edge</code>). Open it in the prototype: Templates → a template → sidebar <b>app</b> → <b>Edge</b> (the prototype still shows the older route drawer and "first match wins" order; the cards below describe the current page). It edits <code>SiteConfig.edge</code> (see <a href="data-model.html#t-Edge">Edge</a>). The agent runs it with an embedded Caddy server (<a href="agent.html#edge">agent edge</a>).</p>
+<div class="grid g3">
+  <div class="card"><h4>1 · Ports, limits, hosts</h4><ul><li>HTTP port, HTTPS port, <b>Max request body</b> (unlimited or a size).</li><li>Add a hostname: DNS name, wildcard <code>*.acme.com</code>, IP, or <code>*</code>.</li><li>TLS mode per host: none · internal · acme (email, challenge, DNS provider + token secret) · files (cert file + key secret).</li><li>HTTP→HTTPS redirect per host.</li><li><b>Response headers → browser</b> per host (nginx <code>add_header</code> in a server).</li><li>Certificate status from the last agent report.</li></ul></div>
+  <div class="card"><h4>2 · Routes (nginx rules)</h4><ul><li>The table shows the <b>effective order</b>: exact, prefix with stop regex, regex, prefix (longest first). A badge says why. Only regex rows have ↑ / ↓.</li><li><b>+ Proxy route</b>, <b>+ Redirect route</b>, <b>+ Rewrite route</b> and <b>Edit</b> open the <b>route page</b> (<code>…/edge/route?id=…</code>): match (prefix / exact / regex, stop regex, hosts, methods), action, connection (WebSocket, streaming presets SSE / Uploads, body limit, timeouts), <b>Request headers → container</b>, <b>Response headers → browser</b>, and a <b>Try a path</b> box.</li><li>A response header put in the request group (for example <code>Cache-Control: public, max-age=3600</code>) shows a warning with <b>Move to response headers</b>.</li><li><b>Import from nginx.conf…</b> opens <code>…/edge/import</code> (<a href="networking.html#nginx">how</a>).</li></ul></div>
+  <div class="card"><h4>3 · Test a URL</h4><ul><li>Enter a URL, a method, optionally a body size and "WebSocket upgrade". The box shows the host, the winning route in the effective order, rewrite steps, regex groups, the redirect target or the container URL and path.</li><li>It lists the request headers sent to the container and the response headers sent to the browser (from the route or the host), timeouts, buffering, body limit, WebSocket.</li><li>Tick "not ready" to see the 503 page. Errors block Save; warnings do not.</li></ul></div>
+</div>
+<p>The rules (matching, rewrites, variables, headers, streaming, timeouts) and the nginx compatibility matrix are on <a href="networking.html#edge">Networking → Edge routing</a>.</p>
+<div class="callout note"><b>Draft only</b><p>The Edge page changes the cloud draft like every other field. The agent validates the edge again in staging and reloads Caddy in the apply step. A failed reload keeps the old edge running and fails the update (automatic rollback).</p></div>
+
+<h2 id="containers">Containers: the full-page editor</h2>
+<p>A container is one <b>instance</b> of an image on a site. One image can run many times on the same site, each time with its own name, env, ports and volumes (for example <code>worker</code> and <code>worker-2</code> from <code>northwind-backend:v1</code>, one with <code>NODE_ENV = worker</code> and one with <code>NODE_ENV = pg-listen</code>). Open it in the prototype: Templates → a template → sidebar <b>app</b> → <b>Containers</b> → <b>+ Add container</b>, or a container name in the tree.</p>
+<div class="grid g3">
+  <div class="card"><h4>Routes</h4><ul><li><b>+ Add container</b> opens the full page <code>…/sites/{siteSlug}/containers/new</code> (no modal).</li><li>A row opens <code>…/containers/{containerSlug}</code>.</li><li><b>Duplicate</b> opens <code>…/containers/new?duplicate=&lt;containerSlug&gt;</code>: a copy with a new suggested name, host ports cleared, a <code>&lt;old&gt;-&lt;volume&gt;</code> volume renamed to <code>&lt;new&gt;-&lt;volume&gt;</code> and declared on the site.</li><li>The same page exists on the deployment draft: <code>/app/deployments/{deploymentId}/sites/{siteSlug}/containers/…</code>.</li></ul></div>
+  <div class="card"><h4>1 · Service + name · 2 · Ports</h4><ul><li><b>Service</b> and <b>Version</b> pickers (any service, also one that is already on the site).</li><li><b>Name</b> (<code>containerSlug</code>): suggested as the service slug, then <code>-2</code>, <code>-3</code> …; editable only while new; unique on the site; not <code>new</code>. It is the DNS name, the name in expressions and in edge routes.</li><li>Ports: one row per image port: <b>Published</b> toggle, host port (number or <code>{{ }}</code>), bind address (0.0.0.0 all · 127.0.0.1 this machine), <b>Edge may proxy</b> toggle.</li></ul></div>
+  <div class="card"><h4>3 · Volumes · 4 · Env · 5 · Runtime</h4><ul><li>One row per image volume ("image volume <code>data</code> · /var/lib/cassandra") with ONE grouped dropdown: <b>Data volumes</b> (the volumes declared on the site, "shared with X" when another container uses one, and <b>+ New data volume…</b>), <b>Files</b>, <b>Secrets</b>, <b>Advanced: host path…</b>, <b>Not mounted</b>. Read-only toggle only for volume / host (off = read-write); file / secret show a "read-only" badge. Column <b>Inside the container</b>: volume / host rows show the mount path (the image path by default); file / secret rows show the text "mounted read-only at &lt;path&gt;" — WHERE the file lives on the server is set on the Files page, not here. <b>Edit path</b> opens the expression input (Reset = the image path). A file / secret / volume that other containers also mount shows "shared copy · also used by X, Y". An image volume with no choice shows "Not mounted — pick a data volume". Each image volume shows its kind badge <b>Folder</b> / <b>File</b> (set on the image page); a mismatch is explained with the exact control to change and one-click fixes: folder volume on a File → error <code>V_VOLUME_KIND_MISMATCH</code> with <b>+ New single-file volume…</b> and <b>Set image volume X to Folder on the image page</b>; single-file volume on a Folder → warning <code>V_VOLUME_KIND_IMAGE</code> with <b>+ New folder volume…</b> and <b>Set image volume X to File on the image page</b> (opens <code>/app/services/S/image/V?volume=X</code>: the row is outlined, a banner explains, "Back to the container"). A read-write single-file volume shows the info <code>V_FILE_VOLUME_RENAME</code> (save-by-rename apps such as Node-RED fail with EBUSY) with the tip <b>Recommended for Node-RED</b>. "+ New data volume…" on an image volume starts with that image volume's kind. <b>+ Extra mount</b>.</li><li>Env: the image env list with defaults; a choice env is a dropdown, a secret env a secret picker, values accept expressions with autocomplete.</li><li>Runtime: command / entrypoint, restart, depends (other containers of this site; the site depends are shown with a link), CPU / memory limits, health check override.</li><li>A sidebar shows the name, image, published ports, <b>Mounts</b> lines ("/etc/app.json ← file web-config (server: ./config/web.json)", also volume / secret / host) and the live validation issues of this container.</li></ul></div>
+</div>
+<div class="callout note"><b>Site host is optional</b><p>The site form has <b>Host: Auto-detect (recommended)</b>, on by default (<code>host: null</code>). The agent reports its address after the install, and the table shows "auto" (and the address once known). Turn it off only to set a DNS name, a NAT address or <code>{{ var.… }}</code>. An optional host variable without a value shows the warning <code>V_HOST_AUTO</code> in a deployment and the site uses its auto address; it never blocks a save or a publish. A <b>required</b> variable is set at deployment: in a template it shows "set at deployment" and no warning.</p></div>
+<div class="callout note"><b>Files with expressions</b><p>A text file has the toggle <b>Resolve {{ }} expressions</b> (on by default; binary files: always off). The code editor highlights <code>{{ }}</code> blocks, completes paths (var, secret, site, self, deployment — not <code>container.*</code> / <code>file.*</code>: a file is rendered ONCE per site and shared by every container that mounts it, "use a variable instead"), checks the content while you type (errors at line:col) and reminds you that a literal <code>{{</code> is written <code>{{ "{{" }}</code>. <b>Preview for site…</b> asks for a site and shows the rendered file with secrets as <code>•••</code>. The Files table has the column <b>On the server</b> ("auto · &lt;agentHome&gt;/files/&lt;slug&gt;" or the custom path) and the file drawer the control <b>Location on the server</b>: Auto (recommended) / Custom path ("./ = agent home", or an absolute path). The content loads from <code>GET /v1/blobs/{sha256}</code> (direct for ≤ 8 MiB, else a signed URL). A failed load shows the real reason, for example "download failed: 403 …" or "network error / CORS", never only "Failed to fetch".</p></div>
+
+<h2 id="volumes">Site pages: Volumes</h2>
+<p>A site declares its data folders once, on <code>…/sites/{siteSlug}/volumes</code> (<a href="data-model.html#t-SiteVolume">SiteVolume</a>). Containers then pick one in their Volumes section. The agent knows exactly what to back up: the declared volumes with <b>Back up</b> on (<a href="backups.html#volumes">Backups</a>).</p>
+<div class="grid g3">
+  <div class="card"><h4>Volumes table</h4><ul><li>Columns: Name (<code>volumeSlug</code>) · Label · Description · <b>Kind</b> (folder / single file) · <b>Starts with</b> (starter content) · <b>On the server</b> ("auto · &lt;agentHome&gt;/volumes/&lt;slug&gt;" or the custom path) · <b>Back up</b> toggle · <b>Used by</b> (container chips, each opens the container page) · Edit / Delete.</li><li>Info line: "Volumes are folders on the site server (auto: &lt;agentHome&gt;/volumes/&lt;name&gt;). Back up = included in snapshots. Host paths are never backed up."</li><li>A volume that no container uses shows the warning <code>V_VOLUME_UNUSED</code>.</li></ul></div>
+  <div class="card"><h4>Add / edit (side drawer)</h4><ul><li>Name (volumeSlug, <code>^[a-z0-9][a-z0-9_.-]{0,99}$</code>, unique on the site; fixed after create) · Label · Description · <b>Kind</b>: Folder / Single file (fixed after create; Single file shows the rename warning for Node-RED-like apps) · <b>Starter content</b>: Empty / Own content (opens the content page) / Archive (.tar.gz ≤ 200 MiB) — Files are never volume content (§21 #101); written only into a new or empty volume (<a href="backups.html#seed">how</a>) · Back up (on by default) · <b>Location on the server</b>: Auto (recommended) / Custom path ("./ = agent home", or absolute; V_LOCATION).</li><li>The same drawer opens from a container page with <b>+ New data volume…</b>, prefilled <code>&lt;container&gt;-&lt;imagevolume&gt;</code> (then <code>-2</code> …); it declares the volume and selects it.</li><li>Changes go into the browser change set and are committed with Commit… (§21 #105).</li></ul></div>
+  <div class="card"><h4>Volume content page (§21 #101)</h4><ul><li>Route <code>…/sites/{siteSlug}/volumes/content?volume=&lt;slug&gt;&amp;tab=content|persist|cloud</code> (template and deployment scope; a full page, not a drawer).</li><li><b>Starter content</b>: file tree (folders first; new file / folder, rename, <b>Move to…</b> and drag-and-drop, duplicate, delete; right-click menu; keyboard: arrows, Enter, F2, Del) + upload of files and folders (relative paths kept; existing names → Overwrite / Skip / Keep both) + CodeMirror editor by extension, per-file mode and <b>render {{ }}</b>; binary or &gt; 2 MiB files show size + download. Limits: 50 MiB per file, 1000 files, 200 MiB. Save uploads the changed blobs, then saves the site. Single-file volumes: one editor.</li><li><b>Persist to cloud</b>: on / off, exclude patterns (live check + preview of what they leave out), size cap 1–200 MiB, automatic snapshots.</li><li><b>Cloud copy</b> (deployment, persist on): state badge (In sync / Live changed / Cloud ahead / Conflict / No snapshot yet / Waiting to upload / Error), Latest version in the same editor → <b>Save as new version</b> (409 "a newer version arrived": Compare / Reload), <b>History</b> (origin, trigger, restored from, who, when, counts, per-version diff), <b>Restore</b>, <b>Send to site…</b> (version, restart containers, note; warns when the site's agent &lt; 0.12), <b>Cancel pending push</b>, <b>Snapshot now</b>, <b>Use as starter content</b>.</li><li>A legacy starter content that references Files shows an error card with <b>Convert to own content</b>; a File mounted inside a writable volume (V_FILE_IN_WRITABLE_VOLUME) has <b>Move into the volume's content</b> on the container page.</li><li>Diff: per-file content changes (<code>&lt;site&gt;/volumes/&lt;v&gt;/content/&lt;path&gt;</code>) with <b>View diff</b>; the publish dialog warns per site whose agent is older than 0.12.</li></ul></div>
+  <div class="card"><h4>Delete</h4><ul><li>A volume that a container uses cannot be deleted: the dialog lists the containers (links).</li><li>An unused volume: confirm. The folder stays on the server (it becomes an orphan; never deleted automatically).</li><li>Errors <code>V_VOLUME_UNDECLARED</code> (a mount names an undeclared volume) and <code>V_READONLY</code> (a file / secret mount not read-only) block Save; they show on the row and in the summary sidebar.</li></ul></div>
+</div>
+
+<h2 id="devtools">Site pages: Dev tools (presets)</h2>
+<p>Every site has the page <b>Dev tools</b> (<code>…/sites/{siteSlug}/devtools</code>, template and deployment scope; sidebar node after Volumes with the preset count and an error / warning badge; SPEC §17, §21 #97). It edits the site's dev-tool presets, <code>SiteConfig.devTools</code> (<a href="data-model.html#t-DevToolPreset">DevToolPreset</a>): connections the agent GUI lists ready to use under <a href="agent-gui.html#devtools">Dev tools</a> (HTTP client, PostgreSQL, SQLite, Cassandra, Redis, MQTT). Operators can always add manual connections on the agent too; presets just save them the typing. Open it in the prototype: Templates → a template → route <b>Site · Dev tools</b> in "Open route".</p>
+<div class="grid g3">
+  <div class="card"><h4>Presets table</h4><ul><li>Info banner: "The agent GUI lists these presets ready to use under Dev tools. Credentials: a secret (recommended), a container env, an expression, or a typed Value (stored in plain text in the config: use a secret for production). Operators can always add manual connections on the agent."</li><li>Columns: <b>Preset</b> (kind icon, name, <code>p:&lt;slug&gt;</code>, description, read-only badge) · <b>Kind</b> · <b>Target</b> ("postgres:sql", "10.0.0.12:5432", "volume data → app.db") · <b>Auth</b> ("user postgres · password: secret pg-password · db acme") · Edit / Duplicate / Delete (confirm).</li><li>Issues from <code>validateSiteDevTools</code> (V_DEVTOOL_*) inline on the row and in the site validation card; errors block Save.</li></ul></div>
+  <div class="card"><h4>+ Add preset (drawer)</h4><ul><li>A kind picker (6 kinds), then a drawer. <b>Preset</b>: name, id (slug, suggested from the kind, fixed after create), description, read-only.</li><li><b>Connect to</b> (allowed per kind): a container + port picker from the image's ports (the default port of the kind preselected) · host : port · http(s) base URL · SQLite: a declared folder volume + relative path, or a container + path.</li><li><b>Authentication</b> per kind (PostgreSQL user / password / database, Cassandra user / password / keyspace, Redis ACL user / password / db 0–15, MQTT user / password / client id, HTTP basic / bearer / API key). Password / token = <b>None · Value</b> (§21 #103: typed, masked input with a show / hide toggle and the amber note "Stored in plain text in the config — anyone who can read the config sees it; use a secret for production."; saved as <code>{ kind: 'literal', value }</code>, warning <code>V_DEVTOOL_LITERAL</code>, never shown in clear in Diff / Template sync, needs agent 0.13.1) <b>· Secret</b> (picker + "+ New secret…") <b>· Container env</b> (§21 #99, when the target is a container: a picker of that container's env, <code>{{ containers.&lt;c&gt;.env.&lt;NAME&gt; }}</code>) <b>· Expression</b>.</li><li><b>Expressions</b> (field <code>devtool</code>): typing <code>{{</code> lists the roots; pick <code>containers.</code> → <code>containers.postgress.</code> → <code>env.</code> → <code>POSTGRES_USER</code> (values shown, secrets masked); the preview shows the resolved value. With a container target, chips <b>Use env POSTGRES_USER of postgress</b> (PostgreSQL POSTGRES_USER / PGUSER, POSTGRES_PASSWORD / PGPASSWORD, POSTGRES_DB; Redis REDIS_PASSWORD; Cassandra CASSANDRA_USER / CASSANDRA_PASSWORD / CASSANDRA_KEYSPACE; MQTT MQTT_USERNAME / MQTT_PASSWORD …) fill a field in one click. A password from a plain (non-secret) env shows the warning <code>V_DEVTOOL_PLAIN_ENV</code>; an unknown env name is the error <code>V_DEVTOOL_ENV</code>.</li><li><b>Options</b> per kind: SSL mode, consistency, TLS (+ skip verify, server name), timeout, rows per page, scheme / base path / follow redirects / default headers, MQTT clean session / keep alive.</li><li>Duplicate opens the drawer as a new preset (<code>&lt;slug&gt;-copy</code>).</li></ul></div>
+  <div class="card"><h4>Save, diff, sync, publish</h4><ul><li>Changes go into the browser change set and are committed with Commit… (§21 #105). Removing the last preset <b>deletes the key</b>: the config never holds <code>devTools: []</code>.</li><li><b>Diff</b>: tab "Dev tools", one row per preset (path <code>&lt;site&gt;/devtools/&lt;presetSlug&gt;</code>, added / removed / changed) with a one-line summary above the JSON; credentials are expressions, so values are shown.</li><li><b>Template sync</b>: group "Site X · Dev tools", a keyed list by presetSlug (theirs / ours / same / conflict, like volumes).</li><li>A local proposal on the site cannot change presets (V_LOCAL_DEVTOOLS).</li></ul></div>
+</div>
+<div class="callout warn" id="devtools-agent-warning"><b>Presets need agent 0.11.0 on that site</b><p>An agent older than 0.11.0 drops the unknown <code>devTools</code> key when it re-hashes a revision, so the hash does not match and that site <b>refuses the revision</b>. The Diff page (banner), the <b>Publish</b> dialog and the site's Dev tools page warn for every site of the draft that has presets and whose last reported agent version is below 0.11.0: "Site X runs agent &lt;v&gt;; dev tool presets need agent 0.11.0 or newer — upgrade the agent first, otherwise the site refuses the revision." (with a link to <a href="#agent-upgrades">Setup</a>). The warning is advice; it never blocks Publish. A site that never reported a version shows no warning. Revisions without presets stay hash-identical for old agents.</p><p><b>§21 #99:</b> a preset that uses <code>{{ containers.&lt;c&gt;.env.&lt;NAME&gt; }}</code> needs agent <b>0.11.1</b>; for a site on 0.11.0 the same places warn "Site X runs agent 0.11.0-…; a preset uses a container env ({{ containers.redis.env.REDIS_PASSWORD }}), which needs agent 0.11.1 or newer — upgrade the agent first, otherwise the site refuses the revision." (advice, never blocks).</p></div>
+
+<h2 id="agent-upgrades">Setup: agent upgrades</h2>
+<p>The agent upgrades from the console (SPEC §17.3, §21 #90). Nobody has to log in to the server. It is never automatic: a person clicks, and the request is logged (audit <code>deployment.agent-upgrade-requested</code>, activity <code>agent.upgrade-requested</code>).</p>
+<div class="grid g2">
+  <div class="card"><h4>Version and badge</h4><ul><li>Setup and Status show per site <b>installed / latest</b> (latest = the pinned release) and a badge: upgrade available · up to date · queued (requested by, when) · upgrading: download 62 % / verify / swap / restart / health · failed · rolled back (the error in a tooltip).</li><li>The latest version opens its release notes.</li></ul></div>
+  <div class="card"><h4>Upgrade agent · Upgrade all</h4><ul><li><b>Upgrade agent</b>: a confirm with from → to, the notes, "the agent restarts, the containers keep running, it rolls back by itself if not healthy within 60 s", and the typed site slug. A queued request has <b>Cancel request</b> until the agent starts it.</li><li><b>Upgrade all (N)</b>: typed UPGRADE; one site at a time in site order; the next site starts only when the previous one is done; the first failure stops the run. A run panel shows each site; <b>Cancel run</b>.</li></ul></div>
+  <div class="card"><h4>Hard fallback + unattended install</h4><ul><li>When an upgrade from here or the agent GUI cannot run, or you need a downgrade: rerun the site's install command on the server. It asks "Installed A → available B: UPGRADE | DOWNGRADE | SAME", keeps agent.json, the key, the data and the enrollment, backs up the database, and rolls back by itself if the new agent is not healthy within 60 s (<a href="agent.html#fallback">details</a>).</li><li>The install command row has a disclosure <b>Unattended install (no terminal prompts)</b>: <b>Answer yes to every prompt</b> (<code>OPM_YES=1</code>) and <b>Docker when missing</b> Ask / Install / Skip (<code>OPM_INSTALL_DOCKER=1|0</code>). The flags go after <code>sudo</code>. The command line says "Asks before installing Docker 28.5.2 when it is missing (uses your existing Docker ≥ 20.10 without asking)".</li><li>An expired or revoked token prints what to do and changes nothing.</li></ul></div>
+  <div class="card"><h4>Older agents (below 0.10.0)</h4><ul><li>The button is disabled. The hint says: run the site's <b>Upgrade / reinstall command</b> once. It sits right in the hint: <b>View</b> shows it for 60 s (logged), <b>Copy</b>, <b>Regenerate…</b>. Example: a server on 0.7.2, where <code>sudo opm-agent upgrade</code> says "unknown command".</li><li>After that one rerun, upgrades are a button here, or on the <a href="agent-gui.html#agent-page">Agent page</a> of the agent GUI.</li></ul></div>
+</div>
+
+<h2 id="forms">Forms: icons, pickers, overlays</h2>
+<p>These rules apply to every form of the cloud frontend. Open the examples in the prototype: Services → <b>+ New service</b>, a service → <b>+ Register image</b>, and Registries → <b>Test login</b>.</p>
+<div class="grid g3">
+  <div class="card"><h4>Icon picker</h4><ul><li>Services, templates and tags use the icon picker. Accounts and deployments use it for the avatar and the logo.</li><li>Tab <b>Icons</b>: search the curated Lucide set (350 icons in groups). A pick stores <code>lucide:&lt;name&gt;</code>.</li><li>Tab <b>Uploads</b>: the icon library of the cloud. Upload a PNG, SVG or WebP file (≤ 64 KiB), or reuse an icon that is there. A pick stores <code>upload:&lt;iconId&gt;</code>. The same file again gives the existing icon.</li><li><b>None</b> stores <code>null</code>: the app shows the default icon of the entity type.</li><li>Delete an upload only when nothing uses it (409 conflict lists the users).</li></ul></div>
+  <div class="card"><h4>New / edit service (one modal)</h4><ul><li>Fields: <b>Label</b>, <b>Name (id)</b>, <b>Icon</b>, <b>Description</b>. There is no repository field.</li><li>The form makes the name from the label (lower case, "-"). You can change it before you save. After create it is fixed.</li><li>The name is the only identifier of the service (<code>serviceSlug</code>): the document id and the image name on a site (<code>&lt;serviceSlug&gt;:&lt;version&gt;</code>). It is the suggested name of a new container; the DNS name and the name in expressions are the container name (<code>containerSlug</code>).</li></ul></div>
+  <div class="card"><h4>Register image</h4><ul><li><b>Version</b>: the OPM name of the image (v1, v2, …). The form suggests the next version. It is the document id and it is fixed.</li><li><b>Image reference</b>: one combobox for the full docker reference. It completes registry → repository → tag and shows the parsed parts as chips (host, repository, tag, digest).</li><li><b>Registry</b>: matched by the host of the reference. No match = public (no credentials). You can choose another registry.</li><li><b>Clone from…</b> copies the fields of a version. <b>Read from registry</b> shows a diff; nothing changes until you choose.</li><li>Env: free text or <b>choice</b> (1–50 options; the default is one of them). An old list default opens as a choice.</li><li>Mount path: may hold expressions, for example <code>/app/helper/config/env/{{ container.env.NODE_ENV }}.ts</code>. It must start with a literal "/" (else V_PATH).</li></ul></div>
+  <div class="card"><h4>Image detail</h4><ul><li><b>Clone as new version</b> opens Register image with all fields of this version.</li><li>While the import failed, <b>Edit source</b> changes the reference and the registry. Then <b>Retry import</b>. In other states the source is locked.</li><li>The site image name is <code>&lt;serviceSlug&gt;:&lt;version&gt;</code>, for example <code>northwind-backend:v1</code>.</li></ul></div>
+  <div class="card"><h4>Registries</h4><ul><li><b>Anonymous</b>: username and password stay empty. Use it for public images that need a mirror or a host match.</li><li><b>Test login</b> takes an optional repository. With a repository the test also checks the pull access.</li><li>Docker Hub gives a token also without pull access. The cloud reads the <code>access</code> claim of the token and shows: "repository X not found, or account Y has no pull access to it".</li></ul></div>
+  <div class="card"><h4>Pickers and overlays</h4><ul><li><b>Pickers rule</b>: a field that refers to a thing that exists (service, version, registry, repository, tag, icon, variable, secret, file, site, container, port, site volume, not-found page) is a picker. Free text is only for labels, descriptions, paths, hostnames, HTML and values.</li><li><b>Overlay rule</b>: every overlay (modal, drawer, menu, combobox list, tooltip, toast) renders at <code>document.body</code>. All overlays use one z-index scale. The top overlay gets Esc and the focus trap.</li></ul></div>
+</div>
+
+<h2 id="one-form">One form per entity (shared with the agent GUI, §21 #102)</h2>
+<p>Every form that the agent GUI also shows comes from the shared package <code>ui/</code> (<code>$opm/forms/…</code>): container, edge host / route / ports / nginx import / Test a URL, variable, secret, dev-tool preset, volume, persist settings, site settings, file definition and the transfer send form. The cloud renders it for create and edit; read-only users get the SAME form disabled. Locked fields show a lock icon with the reason (for example "Fixed after create"). Services use one modal and deployments one drawer for both create and edit. The site editor's <b>Discard</b> / <b>Save</b> live in the sticky change bar at the bottom (the same bar as the agent's local-edit bar). Details, the comparison with other Docker GUIs and side-by-side screenshots: <a href="gui-consistency.md">gui-consistency.md</a>.</p>
+
+<h2 id="routes">Route table</h2>
+<p>The prototype and this table use the same data. The permission column uses the access model of the data model page (resource.action).</p>
+<input type="search" id="rtFilter" placeholder="Filter routes…" />
+<div class="tbl-wrap"><table id="rtTbl"><thead><tr><th>Route</th><th>Scope</th><th>Screen</th><th>What is shown</th><th>Actions</th><th>API calls</th><th>Permission</th></tr></thead><tbody></tbody></table></div>
+
+<div class="callout note"><b>Rules for every screen</b>
+<ul>
+  <li>The frontend calls only the HTTP API <code>https://api.opm.example/v1/…</code> with the Firebase ID token. It never reads Firestore or Storage directly.</li>
+  <li>A screen hides the actions that the user has no permission for. The API checks the permission again.</li>
+  <li>Edits in the deployment scope change the cloud draft only. The sites change only after a person approves the proposal in the agent GUI.</li>
+  <li>Every entity has one identifier, and the routes use it: <code>{serviceSlug}</code>, <code>{version}</code> (of an image in its service), <code>{registryId}</code>, <code>{templateId}</code>, <code>{tagSlug}</code>, <code>{deploymentId}</code>, <code>{siteSlug}</code>, <code>{containerSlug}</code>, <code>{uid}</code>, <code>{iconId}</code>. <code>new</code> is reserved (<code>…/containers/new</code>), so no container can be named <code>new</code>.</li>
+  <li>Fields that refer to a thing that exists are pickers. Every overlay renders at <code>document.body</code> on one z-index scale (see <a href="#forms">Forms</a>).</li>
+</ul></div>
+</main>
+</div>
+<script id="edge-lib">
+// ---------- edge (embedded Caddy) · shared model, resolver, editor (same code on every docs page that shows the edge) ----------
+const EDGE_PORTS = { web: { http: 80 }, api: { http: 3000 }, redis: { redis: 6379 }, postgres: { sql: 5432 }, worker: {} };
+function edgeSample(site) {
+  if (site === 'db') return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: '10.0.1.11', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }], routes: [] };
+  return { httpPort: 80, httpsPort: 443, hosts: [
+    { hostname: 'plant.acme.com', tls: { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: true },
+    { hostname: '10.0.1.10', tls: { mode: 'internal' }, redirectHttpToHttps: false },
+    { hostname: '*', tls: { mode: 'none' }, redirectHttpToHttps: false }],
+  routes: [
+    { routeId: 'api', hosts: [], match: { pathPrefix: '/api', methods: null }, action: { type: 'proxy', containerSlug: 'api', portName: 'http', stripPrefix: true, addPrefix: null, setHeaders: { 'X-Forwarded-Prefix': '/api' }, removeHeaders: [], websocket: false, timeoutSec: 60 }, order: 1 },
+    { routeId: 'old', hosts: [], match: { pathPrefix: '/old', methods: null }, action: { type: 'redirect', to: '/new', status: 308, keepPath: true }, order: 2 },
+    { routeId: 'docs', hosts: ['plant.acme.com'], match: { pathPrefix: '/docs', methods: null }, action: { type: 'redirect', to: 'https://docs.acme.com{path}', status: 301, keepPath: false }, order: 3 },
+    { routeId: 'web', hosts: [], match: { pathPrefix: '/', methods: null }, action: { type: 'proxy', containerSlug: 'web', portName: 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: true, timeoutSec: 60 }, order: 4 }] };
+}
+const edgeEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const edgePrefixHit = (p, path) => p === '/' || path === p || path.startsWith(p.endsWith('/') ? p : p + '/');
+function edgeHostOf(edge, hn) {
+  hn = hn.toLowerCase();
+  let h = edge.hosts.find((x) => x.hostname.toLowerCase() === hn);
+  if (h) return [h, 'exact'];
+  h = edge.hosts.find((x) => x.hostname.startsWith('*.') && hn.endsWith(x.hostname.slice(1).toLowerCase()) && hn.split('.').length === x.hostname.split('.').length);
+  if (h) return [h, 'wildcard'];
+  h = edge.hosts.find((x) => x.hostname === '*');
+  return h ? [h, 'any host (*)'] : [null, ''];
+}
+// Resolve one request exactly like the agent edge does. opts: { method, notReady: { containerSlug: true } }
+function edgeResolve(edge, raw, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase(), steps = [];
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'http://' + raw); } catch (e) { return { status: 0, kind: 'bad', title: 'Not a URL', steps: ['Enter for example https://plant.acme.com/api/v1/x'] }; }
+  const scheme = u.protocol.slice(0, -1), hn = u.hostname.replace(/^\[|\]$/g, ''), q = u.search, path = u.pathname || '/';
+  if (scheme !== 'http' && scheme !== 'https') return { status: 0, kind: 'bad', title: 'Only http and https', steps: [] };
+  const port = u.port ? +u.port : scheme === 'https' ? 443 : 80;
+  const want = scheme === 'https' ? edge.httpsPort : edge.httpPort;
+  if (port !== want) return { status: 0, kind: 'bad', title: `Port ${port} is not an edge port`, steps: [`The edge listens on http ${edge.httpPort} and https ${edge.httpsPort == null ? 'off' : edge.httpsPort}.`, 'agentPort and agentGuiAliasPort serve only /_opm/ and do not use these rules.'] };
+  const [host, how] = edgeHostOf(edge, hn);
+  if (!host) return { status: scheme === 'https' ? 0 : 404, kind: 'bad', title: scheme === 'https' ? 'TLS handshake fails' : '404 · site not-found page', steps: [`No entry in edge.hosts matches <code>${edgeEsc(hn)}</code> and there is no "*" host.`, scheme === 'https' ? 'There is no certificate for this name.' : 'The edge answers with the site not-found page.'] };
+  steps.push(`Host <code>${edgeEsc(hn)}</code> → <code>${edgeEsc(host.hostname)}</code> (${how}) · TLS ${host.tls.mode}`);
+  if (scheme === 'https' && host.tls.mode === 'none') return { status: 0, kind: 'bad', title: 'TLS handshake fails', host, steps: steps.concat(['TLS mode is none for this host, so the edge has no certificate for HTTPS.']) };
+  if (scheme === 'http' && host.redirectHttpToHttps && host.tls.mode !== 'none' && edge.httpsPort != null) {
+    const loc = `https://${hn}${edge.httpsPort === 443 ? '' : ':' + edge.httpsPort}${path}${q}`;
+    return { status: 308, kind: 'redirect', title: '308 → HTTPS', host, location: loc, steps: steps.concat(['redirectHttpToHttps is on for this host. Routes are not checked on HTTP.']) };
+  }
+  if (path === '/_opm' || path.startsWith('/_opm/')) {
+    const known = path === '/_opm' || path === '/_opm/' || /^\/_opm\/(app|install)(\/|$)/.test(path) || path.startsWith('/_opm/api/') || path.startsWith('/_opm/assets/');
+    return { status: known ? 200 : 404, kind: 'agent', title: known ? '200 · agent GUI / API' : '404 · agent 404 page', host, steps: steps.concat(['<code>/_opm/</code> is reserved on every host. Routes are not checked.', known ? 'The agent answers (in process, not a container).' : 'Unknown /_opm/ path → the AGENT 404 page (never the site page). /_opm/peer/ is only on agentPort.']) };
+  }
+  const cand = edge.routes.filter((r) => !r.hosts.length || r.hosts.includes(host.hostname)).sort((a, b) => a.order - b.order || b.match.pathPrefix.length - a.match.pathPrefix.length);
+  steps.push(`Routes for this host, in order: ${cand.map((r) => `<code>${edgeEsc(r.routeId)}</code>`).join(' → ') || 'none'}`);
+  const r = cand.find((x) => edgePrefixHit(x.match.pathPrefix, path) && (!x.match.methods || !x.match.methods.length || x.match.methods.includes(method)));
+  if (!r) return { status: 404, kind: 'bad', title: '404 · site not-found page', host, steps: steps.concat(['No route matches. The edge serves the site not-found page (notFoundPageId; built-in page if null).']) };
+  const pre = r.match.pathPrefix, rest = pre === '/' ? path : path.slice(pre.replace(/\/$/, '').length);
+  steps.push(`First match: route <code>${edgeEsc(r.routeId)}</code> (prefix <code>${edgeEsc(pre)}</code>)`);
+  const a = r.action;
+  if (a.type === 'redirect') {
+    let loc = String(a.to).replace(/\{path\}/g, path).replace(/\{query\}/g, q).replace(/\{host\}/g, hn);
+    if (a.keepPath) loc = loc.replace(/\/$/, '') + (rest === '/' ? '' : rest) + q;
+    return { status: a.status, kind: 'redirect', title: `${a.status} redirect`, host, route: r, location: loc, steps: steps.concat([a.keepPath ? `keepPath: the rest of the path (<code>${edgeEsc(rest || '/')}</code>) and the query are added.` : 'keepPath is off: only the placeholders in "to" are used.']) };
+  }
+  if ((opts.notReady || {})[a.containerSlug]) return { status: 503, kind: 'bad', title: '503 · not-found page', host, route: r, steps: steps.concat([`Container <code>${edgeEsc(a.containerSlug)}</code> is not ready (health check). The edge serves the not-found page with status 503.`]) };
+  let up = a.stripPrefix ? (rest && rest.startsWith('/') ? rest : '/' + (rest || '')) : path;
+  if (a.addPrefix) up = a.addPrefix.replace(/\/$/, '') + up;
+  const cport = (EDGE_PORTS[a.containerSlug] || {})[a.portName];
+  const upstream = `http://${a.containerSlug}:${cport == null ? '?' : cport}${up}${q}`;
+  const hdr = Object.entries(a.setHeaders || {}).map(([k, v]) => `${k}: ${v}`);
+  return { status: 200, kind: 'proxy', title: 'proxy → container', host, route: r, upstream, steps: steps.concat([
+    a.stripPrefix ? `stripPrefix: <code>${edgeEsc(path)}</code> → <code>${edgeEsc(up)}</code>` : 'stripPrefix is off: the path goes unchanged.',
+    `Upstream (site network, DNS = container name): <code>${edgeEsc(upstream)}</code>`,
+    hdr.length ? `setHeaders: <code>${edgeEsc(hdr.join(' · '))}</code>` : 'Headers: X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host are always set.',
+    a.websocket ? 'WebSocket upgrade allowed.' : `Timeout ${a.timeoutSec} s.`]) };
+}
+function edgeExplainHTML(res) {
+  const cls = res.kind === 'proxy' ? 'ok' : res.kind === 'redirect' ? 'warn' : res.kind === 'agent' ? 'agent' : 'bad';
+  return `<div class="ee-res"><span class="tag ${cls}">${res.status || '—'}</span> <b>${res.title}</b>${res.location ? ` → <code>${edgeEsc(res.location)}</code>` : ''}<ol>${res.steps.map((s) => `<li>${s}</li>`).join('')}</ol></div>`;
+}
+// opts: { containers: [{ slug, hostPorts: number[] }], agentPort, agentGuiAliasPort, files: [], secrets: [] }
+function edgeValidate(edge, opts) {
+  opts = opts || {};
+  const E = [], W = [], slugRe = /^[a-z0-9][a-z0-9-]{0,62}$/;
+  const names = edge.hosts.map((h) => h.hostname.toLowerCase());
+  const isIp = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || s.includes(':');
+  if (edge.httpPort === edge.httpsPort) E.push('httpPort and httpsPort must differ.');
+  [['httpPort', edge.httpPort], ['httpsPort', edge.httpsPort]].forEach(([k, p]) => {
+    if (p == null) return;
+    if (!Number.isInteger(p) || p < 1 || p > 65535) E.push(`${k} ${p} must be 1–65535.`);
+    if (p === opts.agentPort) E.push(`${k} ${p} is the agentPort.`);
+    if (p === opts.agentGuiAliasPort) E.push(`${k} ${p} is the agentGuiAliasPort.`);
+  });
+  (opts.containers || []).forEach((c) => (c.hostPorts || []).forEach((p) => {
+    if (p === 80 || p === 443 || p === edge.httpPort || p === edge.httpsPort) E.push(`Container ${c.slug} publishes host port ${p}; ${p} belongs to the edge. Add a route instead.`);
+  }));
+  edge.hosts.forEach((h, i) => {
+    const n = h.hostname;
+    if (!n) E.push(`hosts[${i}]: hostname is empty.`);
+    if (names.indexOf(n.toLowerCase()) !== i) E.push(`Host ${n} is listed two times.`);
+    if (n !== '*' && !n.includes('{{') && !isIp(n) && !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(n)) E.push(`Host "${n}" is not a DNS name, a wildcard, an IP or "*".`);
+    if (h.tls.mode === 'acme') {
+      if (n === '*' || isIp(n)) E.push(`Host ${n}: ACME cannot issue a certificate for an IP or "*". Use internal.`);
+      if (!h.tls.email) E.push(`Host ${n}: ACME needs an email.`);
+      if (n.startsWith('*.') && h.tls.challenge !== 'dns-01') E.push(`Host ${n}: a wildcard certificate needs the dns-01 challenge.`);
+      if (h.tls.challenge === 'dns-01' && (!h.tls.dnsProvider || !h.tls.dnsTokenSecretSlug)) E.push(`Host ${n}: dns-01 needs dnsProvider and dnsTokenSecretSlug.`);
+      if (h.tls.challenge !== 'dns-01') { const need = h.tls.challenge === 'http-01' ? 80 : 443; W.push(`Host ${n}: ${h.tls.challenge} needs internet on this site AND ${n} reachable from the internet on port ${need}.`); if ((need === 80 ? edge.httpPort : edge.httpsPort) !== need) E.push(`Host ${n}: ${h.tls.challenge} needs the edge on port ${need}.`); }
+    }
+    if (h.tls.mode === 'files' && (!h.tls.certFileSlug || !h.tls.keySecretSlug)) E.push(`Host ${n}: files mode needs certFileSlug and keySecretSlug.`);
+    if (h.tls.mode === 'files' && opts.files && h.tls.certFileSlug && !opts.files.includes(h.tls.certFileSlug)) E.push(`Host ${n}: file ${h.tls.certFileSlug} does not exist.`);
+    if (h.tls.mode === 'files' && opts.secrets && h.tls.keySecretSlug && !opts.secrets.includes(h.tls.keySecretSlug)) E.push(`Host ${n}: secret ${h.tls.keySecretSlug} does not exist.`);
+    if (h.redirectHttpToHttps && (h.tls.mode === 'none' || edge.httpsPort == null)) E.push(`Host ${n}: redirectHttpToHttps needs TLS and an httpsPort.`);
+  });
+  const ids = edge.routes.map((r) => r.routeId);
+  const sorted = edge.routes.slice().sort((a, b) => a.order - b.order);
+  sorted.forEach((r, i) => {
+    if (!slugRe.test(r.routeId)) E.push(`Route id "${r.routeId}" is not a slug.`);
+    if (ids.indexOf(r.routeId) !== ids.lastIndexOf(r.routeId)) E.push(`Route id ${r.routeId} is used two times.`);
+    const p = r.match.pathPrefix;
+    if (!p || p[0] !== '/') E.push(`Route ${r.routeId}: pathPrefix must start with "/".`);
+    if (p === '/_opm' || (p && p.startsWith('/_opm/'))) E.push(`Route ${r.routeId}: /_opm/ is reserved for the agent.`);
+    r.hosts.forEach((x) => { if (!edge.hosts.some((h) => h.hostname === x)) E.push(`Route ${r.routeId}: host ${x} is not in edge.hosts.`); });
+    const a = r.action;
+    if (a.type === 'proxy') {
+      const ports = EDGE_PORTS[a.containerSlug];
+      if (opts.containers && !opts.containers.some((c) => c.slug === a.containerSlug)) E.push(`Route ${r.routeId}: container ${a.containerSlug} does not exist on this site.`);
+      else if (!ports || !(a.portName in ports)) E.push(`Route ${r.routeId}: port ${a.portName} does not exist on the image of ${a.containerSlug}.`);
+      if (!(a.timeoutSec >= 1 && a.timeoutSec <= 3600)) E.push(`Route ${r.routeId}: timeoutSec must be 1–3600.`);
+      if (a.addPrefix && a.addPrefix[0] !== '/') E.push(`Route ${r.routeId}: addPrefix must start with "/".`);
+    } else {
+      if (!a.to) E.push(`Route ${r.routeId}: redirect needs "to".`);
+      if (![301, 302, 303, 307, 308].includes(+a.status)) E.push(`Route ${r.routeId}: status must be 301, 302, 303, 307 or 308.`);
+    }
+    const shadow = sorted.slice(0, i).find((o) => edgePrefixHit(o.match.pathPrefix, p) && (!o.hosts.length || (r.hosts.length && r.hosts.every((x) => o.hosts.includes(x)))) && !o.match.methods);
+    if (shadow) W.push(`Route ${r.routeId} never matches: route ${shadow.routeId} (prefix ${shadow.match.pathPrefix}) is before it. Move it up.`);
+  });
+  return { E: [...new Set(E)], W: [...new Set(W)] };
+}
+function edgeCert(h) {
+  const m = h.tls.mode;
+  if (m === 'none') return '<span class="muted">— (HTTP only)</span>';
+  if (m === 'internal') return '<span class="tag ok">valid</span> <span class="small">OPM local CA · 12 h · renews itself</span>';
+  if (m === 'files') return `<span class="tag ok">valid</span> <span class="small">from file ${edgeEsc(h.tls.certFileSlug || '?')}</span>`;
+  return h.hostname === 'plant.acme.com' ? '<span class="tag ok">valid</span> <span class="small">Let\'s Encrypt R11 · until 2027-01-04</span>' : '<span class="tag warn">pending</span> <span class="small">first issue after apply</span>';
+}
+(function () {
+  if (document.getElementById('ee-style')) return;
+  const s = document.createElement('style'); s.id = 'ee-style';
+  s.textContent = `.ee{font-size:13px}.ee h5{margin:14px 0 6px;font-size:13px}.ee .ee-w{overflow-x:auto;-webkit-overflow-scrolling:touch}.ee table{width:100%;border-collapse:collapse;min-width:640px}.ee th,.ee td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top;font-size:12px}.ee th{color:var(--muted);font-weight:600}.ee input[type=text],.ee input[type=number],.ee select{font:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);max-width:100%}.ee input.w{width:150px}.ee input.n{width:64px}.ee .ee-b{font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer}.ee .ee-b.pri{background:var(--accent);color:#fff;border-color:transparent}.ee .ee-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.ee .ee-sub{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.ee .ee-res{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px;background:var(--surface-2);overflow-wrap:anywhere}.ee .ee-res ol{margin:6px 0 0 18px;padding:0}.ee .ee-msg li{margin:2px 0}.ee .ee-try{cursor:pointer;text-decoration:underline;margin-right:8px;font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}.ee code{overflow-wrap:anywhere}`;
+  document.head.appendChild(s);
+})();
+// Mount an interactive editor into el. edge is edited in place. opts: { local, onChange, containers, agentPort, agentGuiAliasPort, files, secrets, testUrl }
+function mountEdge(el, edge, opts) {
+  opts = opts || {};
+  const S = el.__ee || (el.__ee = { url: opts.testUrl || 'https://plant.acme.com/api/v1/x', method: 'GET', notReady: {}, newHost: '' });
+  const svcs = Object.keys(EDGE_PORTS).filter((k) => !opts.containers || opts.containers.some((c) => c.slug === k));
+  const opt = (vals, cur) => vals.map((v) => `<option ${String(v) === String(cur) ? 'selected' : ''}>${v}</option>`).join('');
+  const sorted = () => edge.routes.sort((a, b) => a.order - b.order);
+  const draw = () => {
+    sorted();
+    const v = edgeValidate(edge, opts);
+    const hostRows = edge.hosts.map((x, i) => {
+      const t = x.tls, m = t.mode;
+      const extra = m === 'acme' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.email" data-i="${i}" value="${edgeEsc(t.email)}" placeholder="email" aria-label="ACME email"/><select data-f="h.tls.challenge" data-i="${i}" aria-label="challenge">${opt(['http-01', 'tls-alpn-01', 'dns-01'], t.challenge)}</select>${t.challenge === 'dns-01' ? `<input type="text" class="w" data-f="h.tls.dnsProvider" data-i="${i}" value="${edgeEsc(t.dnsProvider)}" placeholder="dns provider (cloudflare)"/><input type="text" class="w" data-f="h.tls.dnsTokenSecretSlug" data-i="${i}" value="${edgeEsc(t.dnsTokenSecretSlug)}" placeholder="token secret slug"/>` : ''}</div>`
+        : m === 'files' ? `<div class="ee-sub"><input type="text" class="w" data-f="h.tls.certFileSlug" data-i="${i}" value="${edgeEsc(t.certFileSlug)}" placeholder="cert file slug"/><input type="text" class="w" data-f="h.tls.keySecretSlug" data-i="${i}" value="${edgeEsc(t.keySecretSlug)}" placeholder="key secret slug"/></div>`
+        : m === 'internal' ? '<span class="small muted">clients trust the OPM local CA (download in the agent GUI)</span>' : '<span class="small muted">HTTP only</span>';
+      return `<tr><td><input type="text" class="w" data-f="h.hostname" data-i="${i}" value="${edgeEsc(x.hostname)}" aria-label="hostname"/></td><td><select data-f="h.tls.mode" data-i="${i}" aria-label="TLS mode">${opt(['none', 'internal', 'acme', 'files'], m)}</select></td><td>${extra}</td><td><input type="checkbox" data-f="h.redirect" data-i="${i}" ${x.redirectHttpToHttps ? 'checked' : ''} aria-label="HTTP to HTTPS"/></td><td>${edgeCert(x)}</td><td><button type="button" class="ee-b" data-e="delHost" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const routeRows = edge.routes.map((r, i) => {
+      const a = r.action;
+      const act = a.type === 'proxy'
+        ? `<div class="ee-sub"><select data-f="r.svc" data-i="${i}" aria-label="container">${opt(svcs, a.containerSlug)}</select>:<select data-f="r.port" data-i="${i}" aria-label="port">${opt(Object.keys(EDGE_PORTS[a.containerSlug] || {}), a.portName)}</select><label><input type="checkbox" data-f="r.strip" data-i="${i}" ${a.stripPrefix ? 'checked' : ''}/> strip prefix</label><input type="text" class="n" style="width:90px" data-f="r.addPrefix" data-i="${i}" value="${edgeEsc(a.addPrefix)}" placeholder="add prefix"/><label><input type="checkbox" data-f="r.ws" data-i="${i}" ${a.websocket ? 'checked' : ''}/> websocket</label><input type="number" class="n" data-f="r.timeout" data-i="${i}" value="${a.timeoutSec}" aria-label="timeout s"/>s<input type="text" class="w" data-f="r.headers" data-i="${i}" value="${edgeEsc(Object.entries(a.setHeaders || {}).map(([k, x]) => k + '=' + x).join('; '))}" placeholder="set headers: K=V; K2=V2"/></div>`
+        : `<div class="ee-sub"><input type="text" class="w" style="width:200px" data-f="r.to" data-i="${i}" value="${edgeEsc(a.to)}" aria-label="redirect to"/><select data-f="r.status" data-i="${i}" aria-label="status">${opt([301, 302, 307, 308], a.status)}</select><label><input type="checkbox" data-f="r.keep" data-i="${i}" ${a.keepPath ? 'checked' : ''}/> keep path</label></div>`;
+      return `<tr><td>${r.order}</td><td style="white-space:nowrap"><button type="button" class="ee-b" data-e="up" data-i="${i}" ${i ? '' : 'disabled'} aria-label="move up">↑</button> <button type="button" class="ee-b" data-e="down" data-i="${i}" ${i < edge.routes.length - 1 ? '' : 'disabled'} aria-label="move down">↓</button></td><td><input type="text" class="n" style="width:70px" data-f="r.id" data-i="${i}" value="${edgeEsc(r.routeId)}" aria-label="route id"/></td><td><select data-f="r.hosts" data-i="${i}" aria-label="hosts">${['all hosts'].concat(edge.hosts.map((x) => x.hostname)).map((x) => `<option ${(r.hosts.length ? r.hosts[0] : 'all hosts') === x ? 'selected' : ''}>${edgeEsc(x)}</option>`).join('')}</select></td><td><input type="text" class="n" style="width:80px" data-f="r.prefix" data-i="${i}" value="${edgeEsc(r.match.pathPrefix)}" aria-label="path prefix"/></td><td><select data-f="r.type" data-i="${i}" aria-label="action">${opt(['proxy', 'redirect'], a.type)}</select></td><td>${act}</td><td><button type="button" class="ee-b" data-e="delRoute" data-i="${i}">✕</button></td></tr>`;
+    }).join('');
+    const res = edgeResolve(edge, S.url, { method: S.method, notReady: S.notReady });
+    el.innerHTML = `<div class="ee">
+      ${opts.local ? '<div class="small muted">Local edit on this site. Save → a <b>local proposal</b> (needs approval, then sent to the cloud).</div>' : ''}
+      <div class="ee-row"><b>Ports</b> http <input type="number" class="n" data-f="httpPort" value="${edge.httpPort}" aria-label="httpPort"/> https <input type="number" class="n" data-f="httpsPort" value="${edge.httpsPort == null ? '' : edge.httpsPort}" placeholder="off" aria-label="httpsPort"/><span class="small muted">served by the agent (embedded Caddy). Containers may not publish these ports.</span></div>
+      <h5>Hosts (${edge.hosts.length})</h5><div class="ee-w"><table><tr><th>Hostname</th><th>TLS mode</th><th>TLS details</th><th>HTTP→HTTPS</th><th>Certificate</th><th></th></tr>${hostRows}</table></div>
+      <div class="ee-row"><input type="text" class="w" id="edgeNewHost" value="${edgeEsc(S.newHost)}" placeholder="new hostname, e.g. ops.acme.com" aria-label="new hostname"/><button type="button" class="ee-b" data-e="addHost" id="edgeAddHost">+ Add host</button></div>
+      <h5>Routes (${edge.routes.length}) · first match wins, top to bottom</h5><div class="ee-w"><table><tr><th>#</th><th>Order</th><th>Route id</th><th>Hosts</th><th>Path prefix</th><th>Action</th><th>Action fields</th><th></th></tr>${routeRows}</table></div>
+      <div class="ee-row"><button type="button" class="ee-b" data-e="addRoute" data-v="proxy" id="edgeAddProxy">+ Proxy route</button><button type="button" class="ee-b" data-e="addRoute" data-v="redirect" id="edgeAddRedirect">+ Redirect route</button><span class="small muted">/_opm/ is reserved on every host. No match → not-found page (404). Target not ready → 503.</span></div>
+      <div class="ee-msg">${v.E.length ? `<div class="ee-res" style="border-color:var(--bad)"><b style="color:var(--bad)">${v.E.length} error(s) · cannot save</b><ul>${v.E.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : '<div class="ee-res"><span class="tag ok">valid</span> The agent turns this into Caddy JSON and reloads without dropped connections.</div>'}${v.W.length ? `<div class="ee-res" style="border-color:var(--warn)"><b style="color:var(--warn)">Warnings</b><ul>${v.W.map((x) => `<li>${edgeEsc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+      <h5>Test a URL</h5>
+      <div class="ee-row"><select id="edgeMethod" aria-label="method">${opt(['GET', 'POST', 'PUT', 'DELETE'], S.method)}</select><input type="text" id="edgeUrl" style="flex:1;min-width:200px" value="${edgeEsc(S.url)}" aria-label="URL to test"/><button type="button" class="ee-b pri" data-e="test" id="edgeTest">Test</button></div>
+      <div class="ee-row small">${svcs.map((s) => `<label><input type="checkbox" data-nr="${s}" ${S.notReady[s] ? 'checked' : ''}/> ${s} not ready</label>`).join(' ')}</div>
+      <div class="small">Try: ${['https://plant.acme.com/api/v1/x?id=7', 'http://plant.acme.com/api/v1/x', 'https://plant.acme.com/old/a?b=1', 'https://plant.acme.com/docs/setup', 'https://10.0.1.10/', 'https://10.0.1.10/_opm/app', 'http://10.0.1.10/_opm/nope', 'http://10.0.1.10/apix', 'https://other.example/'].map((x) => `<span class="ee-try" data-e="try" data-v="${x}">${x}</span>`).join('')}</div>
+      <div id="edgeOut">${edgeExplainHTML(res)}</div></div>`;
+  };
+  const changed = () => { if (opts.onChange) opts.onChange(edge); draw(); };
+  el.onclick = (ev) => {
+    const b = ev.target.closest('[data-e]'); if (!b || !el.contains(b)) return;
+    ev.stopPropagation();
+    const e = b.dataset.e, i = +b.dataset.i, R = edge.routes;
+    if (e === 'test') { S.url = el.querySelector('#edgeUrl').value; S.method = el.querySelector('#edgeMethod').value; return draw(); }
+    if (e === 'try') { S.url = b.dataset.v; return draw(); }
+    if (e === 'up' && i > 0) [R[i - 1].order, R[i].order] = [R[i].order, R[i - 1].order];
+    if (e === 'down' && i < R.length - 1) [R[i + 1].order, R[i].order] = [R[i].order, R[i + 1].order];
+    if (e === 'delRoute') R.splice(i, 1);
+    if (e === 'delHost') { const n = edge.hosts[i].hostname; edge.hosts.splice(i, 1); R.forEach((r) => (r.hosts = r.hosts.filter((x) => x !== n))); }
+    if (e === 'addHost') { const n = el.querySelector('#edgeNewHost').value.trim(); if (!n) return; const star = edge.hosts.findIndex((x) => x.hostname === '*'); edge.hosts.splice(star === -1 ? edge.hosts.length : star, 0, { hostname: n, tls: /^\d|\*$/.test(n) ? { mode: 'internal' } : { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null }, redirectHttpToHttps: !/^\d|\*$/.test(n) }); S.newHost = ''; }
+    if (e === 'addRoute') { const n = R.length + 1; R.forEach((r) => (r.order += 1)); R.unshift({ routeId: 'route-' + n, hosts: [], match: { pathPrefix: '/new-' + n, methods: null }, action: b.dataset.v === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: true, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false }, order: 1 }); }
+    R.sort((a, b) => a.order - b.order).forEach((r, k) => (r.order = k + 1));
+    changed();
+  };
+  el.onkeydown = (ev) => { if (ev.target.id === 'edgeUrl' && ev.key === 'Enter') { S.url = ev.target.value; draw(); } if (ev.target.id === 'edgeNewHost' && ev.key === 'Enter') el.querySelector('#edgeAddHost').click(); };
+  el.oninput = (ev) => { if (ev.target.id === 'edgeNewHost') S.newHost = ev.target.value; if (ev.target.id === 'edgeUrl') S.url = ev.target.value; };
+  el.onchange = (ev) => {
+    const t = ev.target; ev.stopPropagation();
+    if (t.dataset.nr) { S.notReady[t.dataset.nr] = t.checked; return draw(); }
+    if (t.id === 'edgeMethod') { S.method = t.value; return draw(); }
+    const f = t.dataset.f; if (!f) return;
+    const i = +t.dataset.i, val = t.type === 'checkbox' ? t.checked : t.value;
+    if (f === 'httpPort') edge.httpPort = +val;
+    if (f === 'httpsPort') edge.httpsPort = val === '' ? null : +val;
+    if (f.startsWith('h.')) {
+      const x = edge.hosts[i];
+      if (f === 'h.hostname') { const old = x.hostname; x.hostname = String(val).trim(); edge.routes.forEach((r) => (r.hosts = r.hosts.map((y) => (y === old ? x.hostname : y)))); }
+      if (f === 'h.redirect') x.redirectHttpToHttps = val;
+      if (f === 'h.tls.mode') x.tls = val === 'acme' ? { mode: 'acme', email: 'it@acme.com', challenge: 'http-01', dnsProvider: null, dnsTokenSecretSlug: null } : val === 'files' ? { mode: 'files', certFileSlug: 'tls-cert', keySecretSlug: 'tls-key' } : { mode: val };
+      if (f.startsWith('h.tls.') && f !== 'h.tls.mode') x.tls[f.slice(6)] = val || null;
+    }
+    if (f.startsWith('r.')) {
+      const r = edge.routes[i], a = r.action;
+      if (f === 'r.id') r.routeId = val.trim();
+      if (f === 'r.prefix') r.match.pathPrefix = val.trim();
+      if (f === 'r.hosts') r.hosts = val === 'all hosts' ? [] : [val];
+      if (f === 'r.type') r.action = val === 'proxy' ? { type: 'proxy', containerSlug: svcs[0], portName: Object.keys(EDGE_PORTS[svcs[0]] || {})[0] || 'http', stripPrefix: false, addPrefix: null, setHeaders: {}, removeHeaders: [], websocket: false, timeoutSec: 60 } : { type: 'redirect', to: '/', status: 302, keepPath: false };
+      if (f === 'r.svc') { a.containerSlug = val; a.portName = Object.keys(EDGE_PORTS[val] || {})[0] || ''; }
+      if (f === 'r.port') a.portName = val;
+      if (f === 'r.strip') a.stripPrefix = val;
+      if (f === 'r.addPrefix') a.addPrefix = val.trim() || null;
+      if (f === 'r.ws') a.websocket = val;
+      if (f === 'r.timeout') a.timeoutSec = +val;
+      if (f === 'r.headers') a.setHeaders = Object.fromEntries(String(val).split(';').map((p) => p.split('=').map((y) => y.trim())).filter((p) => p[0]).map(([k, ...rest]) => [k, rest.join('=')]));
+      if (f === 'r.to') a.to = val.trim();
+      if (f === 'r.status') a.status = +val;
+      if (f === 'r.keep') a.keepPath = val;
+    }
+    changed();
+  };
+  draw();
+  return { redraw: draw };
+}
+// ---------- end edge ----------
+</script>
+<script>
+// ---------- sample data (neutral) ----------
+const ME = { uid: 'u_ravi', name: 'Ravi Shah', email: 'ravi@ops.example' };
+const REG = [
+  { id: 'rG7hQ2mLp0aX9cVb3nKe', label: 'Docker Hub · team account', url: 'https://registry-1.docker.io', user: 'opsbot', check: 'ok · 2026-10-06 09:12' },
+  { id: 'rT4sW8yU1iO6pA2dF5gH', label: 'GHCR · acme', url: 'https://ghcr.io', user: 'acme-ci', check: 'ok · 2026-10-05 17:40' },
+  { id: 'rQ2uA3yP4uB5lI6cX7zA', label: 'Quay · public images', url: 'https://quay.io', user: '', check: 'ok · 2026-10-07 08:30' },
+];
+const SVC = [ // one identifier per service: slug (= document id services/{serviceSlug}); images are versions; reg = REG index, null = public
+  { slug: 'postgres', label: 'PostgreSQL', icon: 'lucide:database', kind: 'service', images: [
+    { version: 'v2', ref: 'docker.io/library/postgres:16.4', reg: null, digest: 'sha256:5f1c…9a02', size: '152 MB', status: 'ready', mode: 'copy' },
+    { version: 'v1', ref: 'docker.io/library/postgres:16.3', reg: null, digest: 'sha256:a03e…71bd', size: '151 MB', status: 'ready', mode: 'copy' }] },
+  { slug: 'web', label: 'Web (frontend)', icon: 'upload:iW3bLg0aB2cD3eF4gH5k', kind: 'service', images: [
+    { version: 'v1', ref: 'docker.io/acme/web:3.2.0', reg: 0, digest: 'sha256:0bc4…e3f1', size: '21 MB', status: 'ready', mode: 'copy' }] },
+  { slug: 'api', label: 'API', icon: 'lucide:server', kind: 'service', images: [
+    { version: 'v6', ref: 'ghcr.io/acme/api-server:2.5.0', reg: 1, digest: null, size: '—', status: 'failed', mode: 'copy', error: 'repository acme/api-server not found, or account acme-ci has no pull access to it (the registry answers 401 for both)' },
+    { version: 'v5', ref: 'ghcr.io/acme/api:2.4.1', reg: 1, digest: 'sha256:77d0…c2a9', size: '98 MB', status: 'copying', mode: 'copy' },
+    { version: 'v4', ref: 'ghcr.io/acme/api:2.4.0', reg: 1, digest: 'sha256:c3e8…1f44', size: '97 MB', status: 'ready', mode: 'copy' }] },
+  { slug: 'redis', label: 'Redis', icon: null, kind: 'service', images: [
+    { version: 'v1', ref: 'redis:7.4', reg: null, digest: null, size: '—', status: 'pending', mode: 'gateway' }] },
+  { slug: 'worker', label: 'Worker', icon: 'lucide:cog', kind: 'job', images: [
+    { version: 'v1', ref: 'ghcr.io/acme/worker:1.9.0', reg: 1, digest: 'sha256:9b1c…44e0', size: '64 MB', status: 'ready', mode: 'copy' }] },
+];
+const ICONS_LUCIDE = ['database', 'server', 'globe', 'layers', 'cog', 'box', 'shield', 'cloud', 'cpu', 'zap', 'gauge', 'radio', 'landmark', 'flask-conical', 'layout-grid', 'hard-drive'];
+const ICONS_UP = [{ id: 'iW3bLg0aB2cD3eF4gH5k', name: 'acme-web', type: 'image/svg+xml', used: 1 }, { id: 'iP9lAnT7xQ1wE2rT3yU4', name: 'plant-logo', type: 'image/png', used: 2 }, { id: 'iN0tUs3d5Hk6Jl7Zx8Cv', name: 'old-badge', type: 'image/webp', used: 0 }];
+const NFP = [
+  { id: 'nP1aB2cD3eF4gH5iJ6kL', label: 'Plain 404 · light', by: 'meera@ops.example', at: '2026-09-21' },
+  { id: 'nQ9wE8rT7yU6iO5pA4sD', label: 'ACME branded 404', by: 'ravi@ops.example', at: '2026-10-02' },
+];
+const TAGS = [
+  { slug: 'gov', label: 'Government', color: '#2563eb', icon: 'lucide:landmark', n: 4 },
+  { slug: 'pilot', label: 'Pilot', color: '#f59e0b', icon: 'lucide:flask-conical', n: 2 },
+  { slug: 'air-gapped', label: 'Air-gapped', color: '#7c3aed', icon: null, n: 1 },
+];
+const ACC = [
+  { uid: 'u_ravi', name: 'Ravi Shah', email: 'ravi@ops.example', phone: '+91 98200 11111', access: 'admin: all resources', dis: false },
+  { uid: 'u_meera', name: 'Meera Iyer', email: 'meera@ops.example', phone: null, access: 'templates · services · images (write, all)', dis: false },
+  { uid: 'u_kiran', name: 'Kiran Rao', email: 'kiran@ops.example', phone: '+91 98200 22222', access: 'deployment.* (read, write) · tags gov', dis: false },
+  { uid: 'u_sam', name: 'Sam Field', email: 'sam@ops.example', phone: null, access: 'deployments (read) · all', dis: true },
+];
+// declared site volumes: volumeSlug, label, description, backup, used by (containerSlugs)
+const SITE_VOLS = {
+  app: [['api-uploads', 'API uploads', 'Files that users upload', true, ['api', 'worker']], ['redis-aof', 'Redis AOF', '', true, ['redis']], ['worker-2-cache', 'Worker cache', 'Rebuilt on start', false, ['worker-2']], ['old-reports', 'Old reports', 'Kept for audits', true, []]],
+  db: [['postgres-pgdata', 'PostgreSQL data', 'Database files', true, ['postgres']]],
+  main: [],
+};
+const TPL = [
+  { id: 'tA1sD2fG3hJ4kL5zX6cV', label: 'Two-site web + database', icon: 'lucide:layout-grid', ver: 7, sites: ['app', 'db'], vars: 4, secrets: 2, files: 2 },
+  { id: 'tB7nM8qW9eR0tY1uI2oP', label: 'Single server', icon: 'upload:iP9lAnT7xQ1wE2rT3yU4', ver: 3, sites: ['main'], vars: 3, secrets: 2, files: 1 },
+];
+const DEPS = [
+  { id: 'dAcme7Plant2Q9xW4eR1', slug: 'acme-plant', label: 'ACME plant', tags: ['gov', 'pilot'], sites: ['app', 'db'], online: 2, head: 14, pending: 'proposal 15 · staging' },
+  { id: 'dNorth3Grid8T5yU2iO6', slug: 'north-grid', label: 'North grid', tags: ['gov'], sites: ['main'], online: 1, head: 6, pending: null },
+  { id: 'dPort1Lab4V7bN0mQ3wE', slug: 'port-lab', label: 'Port lab', tags: ['air-gapped'], sites: ['app', 'db', 'gate'], online: 2, head: 22, pending: 'proposal 23 · stale' },
+];
+const VARS = [
+  ['db-name', 'string', 'app', 'true', 'Database name'],
+  ['public-host', 'string', '10.0.1.10', 'true', 'Address users open'],
+  ['api-workers', 'number', '4', 'false', 'Worker threads (1..16)'],
+  ['log-level', 'enum', 'info', 'true', 'debug | info | warn | error'],
+];
+const SECRETS = [
+  ['db-password', 'generate alnum 32', 'set', '2026-09-30'],
+  ['api-token', 'person enters', 'not set', '—'],
+];
+const FILES = [ // slug, mime, editor, content, size, render, on the server (location label)
+  ['web-config', 'application/json', 'text', 'sha256:41de…7a10', '0.2 KB', 'expressions', './config/web.json'],
+  ['tls-cert', 'application/x-pem-file', 'text', '—', '—', 'none', 'auto · &lt;agentHome&gt;/files/tls-cert'],
+];
+const fileLocCtl = `<div class="box" style="margin:6px 0"><h5 style="margin-top:0">Location on the server (file drawer)</h5><label class="small"><input type="radio" name="floc" /> Auto (recommended) · <span class="mono">&lt;agentHome&gt;/files/&lt;slug&gt;</span></label><br><label class="small"><input type="radio" name="floc" checked /> Custom path <input class="mono" value="./config/web.json" style="width:180px" /></label><p class="hint">./ = agent home (the agent data dir, e.g. /var/lib/opm), or an absolute path. Each site keeps ONE copy; every container that mounts the file shares it read-only. V_LOCATION when two files / volumes use the same place or nest.</p></div>`;
+const SITE_APP = {
+  host: '{{ var.public-host }}',
+  containers: [ // containerSlug, service label, image, published ports, mounts, depends
+    ['web', 'Web (frontend)', 'web:v1', '— (edge route /)', 'file web-config → /srv/web/config.json', 'api'],
+    ['api', 'API', 'api:v5', '—', 'volume api-uploads → /srv/uploads', 'redis'],
+    ['redis', 'Redis', 'redis:v1', '—', 'volume redis-aof → /data', '—'],
+    ['worker', 'API', 'api:v5', '—', 'volume api-uploads → /srv/uploads (shared)', 'api'],
+    ['worker-2', 'API', 'api:v5', '127.0.0.1:9100 → metrics', 'volume worker-2-cache → /cache', 'api'],
+  ],
+  env: [
+    ['DATABASE_URL', 'postgres://app:{{ secret.db-password | url }}@{{ site.db.host }}:{{ site.db.port.postgres.sql }}/{{ var.db-name }}', 'expr'],
+    ['LOG_LEVEL', '{{ var.log-level }}', 'expr'],
+    ['WORKERS', '{{ var.api-workers }}', 'expr'],
+    ['API_TOKEN', 'secretRef: api-token', 'secret'],
+  ],
+};
+
+// ---------- route model ----------
+const P = { tpl: TPL[0].id, svc: SVC[0].slug, img: 'v2', nfp: NFP[1].id, dep: DEPS[0].id, site: 'app', cont: 'worker-2' };
+const SECVAL = { 'sec:db-password': 'q8Vt2mZr6LxW1nPc9KbY4sHd7JfE3aGu', 'reg:rG7hQ2mLp0aX9cVb3nKe': 'dckr_pat_7Hs2kQ9mLx', 'reg:rT4sW8yU1iO6pA2dF5gH': 'ghp_4Xs8mQ2kLp9', ak: 'K7QF-2M3X-PL4D-6WZT-R3VB-6HJN', 'acc:kiran': 'Vb7kQ2mXp9LwR4sZt6Hc' };
+// RevealValue (§21 #84): nothing is shown only at create. Masked → View (logged) → value + 60 s countdown → masked again
+// (also on page change and when the tab is hidden). Regenerate… where it applies (typed ACCEPT for the access key).
+const REVEAL_MS = 60000;
+const shown = (k) => (st.reveal[k] || 0) > Date.now();
+const left = (k) => Math.max(0, Math.ceil(((st.reveal[k] || 0) - Date.now()) / 1000));
+const rv = (k, o = {}) => {
+  const val = SECVAL[k];
+  const regen = o.regen ? (st.regen === k ? (o.typed ? `<div class="row" style="margin-top:6px"><span class="hint">${o.regen}</span> <input id="regenTyped" placeholder="type ACCEPT" style="width:110px" /> ${B(o.regenLabel ? 'Set' : 'Regenerate', 'danger', '', `data-act="regenYes" data-v="${k}"`)} ${B('Cancel', '', '', 'data-act="regenNo"')}</div>` : `<div class="row" style="margin-top:6px"><span class="hint">${o.regen}</span> ${B('Regenerate', 'danger', '', `data-act="regenYes" data-v="${k}"`)} ${B('Cancel', '', '', 'data-act="regenNo"')}</div>`) : ' ' + B(o.regenLabel || 'Regenerate…', '', '', `data-act="regen" data-v="${k}"`)) : '';
+  if (!val) return `<span class="muted">not stored — regenerate to view</span>${regen}`;
+  if (shown(k)) return `<span class="mono" style="${o.big ? 'font-size:14px;font-weight:700' : ''}">${val}</span> <span class="tag warn" title="masks again after 60 s">&#9719; <span data-left="${k}">${left(k)}</span> s</span> ${B('Copy')}${regen}`;
+  return `<span class="mono">••••••</span> <span class="small muted">${val.replace(/-/g, '').length} chars</span> <button type="button" class="wbtn" data-act="reveal" data-v="${k}" title="Show for 60 s (logged)">&#128065; View</button>${regen}`;
+};
+const eye = (k) => rv(k);
+setInterval(() => document.querySelectorAll('[data-left]').forEach((e) => { e.textContent = left(e.dataset.left); }), 1000);
+document.addEventListener('visibilitychange', () => { if (document.hidden && typeof st !== 'undefined') { st.reveal = {}; render(); } });
+const auditBox = (kind) => { const rows = st.audit.filter((x) => x.kind === kind); return rows.length ? `<div class="box" style="margin-top:8px"><h5 style="margin-top:0">${kind === 'reg' ? 'auditLog (root scope)' : 'New activities'}</h5>${rows.map((x) => `<div class="small mono">${x.ts} · ${x.type} · ${x.target} · by meera@ops.example</div>`).join('')}</div>` : ''; };
+const EDGE_STATE = { app: edgeSample('app'), db: edgeSample('db'), main: edgeSample('db') };
+const st = { reveal: {}, audit: [], tab: 'containers', diff: 'variables', sel: null, act: 'all', uploaded: false, cmd: {}, ip: false, ipTab: 'icons', newsvc: false, diffReg: false, src: false, regTest: false };
+const path = (tpl) => tpl.replace('{templateId}', P.tpl).replace('{serviceSlug}', P.svc).replace('{version}', P.img).replace('{notFoundPageId}', P.nfp).replace('{deploymentId}', P.dep).replace('{siteSlug}', P.site).replace('{containerSlug}', P.cont);
+const B = (t, cls = '', go = '', extra = '') => `<button type="button" class="wbtn ${cls}" ${go ? `data-go="${go}"` : ''} ${extra}>${t}</button>`;
+const svcOf = () => SVC.find((s) => s.slug === P.svc);
+const imgOf = () => svcOf().images.find((i) => i.version === P.img) || svcOf().images[0];
+const regName = (i) => (i == null ? '<span class="tag">public · no credentials</span>' : REG[i].label);
+const ico = (i) => (i == null ? '<span class="muted">default icon</span>' : `<span class="mono">${i}</span>`);
+const refParts = (r) => { const m = r.match(/^(?:([^/]+[.:][^/]+)\/)?([^:@]+)(?::([^@]+))?/); const host = m[1] || 'docker.io'; const repo = host === 'docker.io' && !m[2].includes('/') ? 'library/' + m[2] : m[2]; return `host ${host} · repository ${repo} · tag ${m[3] || 'latest'}`; };
+const statusTag = (x) => `<span class="tag ${x === 'ready' ? 'ok' : x === 'failed' ? 'bad' : 'warn'}">${x}</span>`;
+function iconPicker(cur) {
+  const tab = st.ipTab || 'icons';
+  return `<div class="box" style="margin:4px 0 8px"><div class="tabs">${[['icons', 'Icons'], ['uploads', 'Uploads']].map(([k, n]) => `<button class="${tab === k ? 'on' : ''}" data-act="ipTab" data-v="${k}">${n}</button>`).join('')}</div>
+    ${tab === 'icons' ? `<div class="fld"><input placeholder="Search 350 Lucide icons (name or group)…" /></div><div class="chips">${ICONS_LUCIDE.map((n) => `<button class="${cur === 'lucide:' + n ? 'on' : ''}">${n}</button>`).join('')}</div><p class="hint">Picks store <span class="mono">lucide:&lt;name&gt;</span>. No upload is necessary.</p>`
+      : `${tbl(['Icon', 'Type', 'Used by', ''], ICONS_UP.map((u) => tr([`<span class="mono">${u.name}</span>`, u.type, u.used, B('Use', cur === 'upload:' + u.id ? 'pri' : '') + ' ' + B('Delete', 'danger', '', u.used ? 'disabled title="In use (409 conflict)"' : '')])))}${B('Upload a file (PNG, SVG or WebP, ≤ 64 KiB)')}<p class="hint">Picks store <span class="mono">upload:&lt;iconId&gt;</span>. The same file uploaded again returns the existing icon (reuse, no copy).</p>`}
+    <div>${B('None (default icon)')} <span class="hint">None stores null. The app then shows the default icon of the entity type.</span></div></div>`;
+}
+const depOf = () => DEPS.find((d) => d.id === P.dep);
+const tplOf = () => TPL.find((t) => t.id === P.tpl);
+const tbl = (heads, rows) => `<table class="wt"><tr>${heads.map((x) => `<th>${x}</th>`).join('')}</tr>${rows.join('')}</table>`;
+const tr = (cells, go) => `<tr ${go ? `class="click" data-go="${go}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+const draftBan = `<div class="ban warn"><b>Cloud draft.</b> Edits here change only the cloud draft. Open <a data-go="diff" style="cursor:pointer;text-decoration:underline">Diff</a> to publish a proposal. The sites change only after a person approves it in the agent GUI.</div>`;
+
+const R = [
+  { id: 'login', scope: 'root', route: '/login', name: 'Login', shows: 'Email + password form (or Google SSO for the org domain). No signup link.', actions: 'Log in · Forgot password', api: 'Firebase Auth (client SDK) → GET /v1/accounts/{uid}', perm: 'none (account must exist and not be disabled)', noside: true,
+    render: () => `<div class="login box"><h3>On-Prem Manager</h3><div class="sub">Operations and developer teams only.</div>
+      <div class="fld"><label>Email</label><input value="ravi@ops.example" /></div><div class="fld"><label>Password</label><input type="password" value="••••••••••" /></div>
+      ${B('Log in', 'pri', 'deployments')} ${B('Continue with Google (ops.example)')}<p class="hint" style="margin-top:10px">No account? Ask an admin. There is no signup. Disabled accounts cannot log in.</p></div>` },
+  { id: 'app', scope: 'root', route: '/app', name: 'App root', shows: 'Nothing. Redirects to /app/deployments.', actions: '—', api: '—', perm: 'logged in', redirect: 'deployments' },
+  { id: 'deployments', scope: 'root', route: '/app/deployments', name: 'Deployments', shows: 'Cards: logo, label, tags, sites online / total, head revision, pending proposal. Filter by tag.', actions: 'Open · Create (from a template or empty)', api: 'GET /v1/deployments · POST /v1/deployments · GET /v1/tags', perm: 'deployments.read (create: deployments.write)',
+    render: () => `<div class="hdr"><div><h3>Deployments</h3><div class="sub">${DEPS.length} deployments you can see</div></div><div>${B('+ New deployment', 'pri', '', 'data-act="newdep"')}</div></div>
+      ${st.newdep ? `<div class="box" style="margin-bottom:12px"><h5 style="margin-top:0">New deployment</h5><div class="cols c3"><div class="fld"><label>Label</label><input value="Harbor depot" /></div><div class="fld"><label>Source</label><select><option>Template · Two-site web + database (v7)</option><option>Template · Single server (v3)</option><option>Empty (no template)</option></select></div><div class="fld"><label>Tags</label><input value="pilot" /></div></div><div class="fld"><label>Managers</label><input value="kiran@ops.example" /></div>${B('Create', 'pri', '', 'data-act="depCreated"')} <span class="hint">From a template: the full template JSON is copied into srcTemplate. Create opens Setup, where the new access key shows for 60 s (View again any time).</span></div>` : ''}
+      <div class="chips"><button class="on">all</button>${TAGS.map((t) => `<button>${t.label}</button>`).join('')}</div>
+      <div class="cols c3">${DEPS.map((d) => `<div class="box click" data-go="dep|${d.id}"><b>${d.label}</b> <span class="mono muted">${d.slug}</span><div style="margin:6px 0">${d.tags.map((t) => `<span class="tag">${t}</span>`).join(' ')}</div>
+        <div class="kv"><div>sites online</div><div>${d.online} / ${d.sites.length} (${d.sites.join(', ')})</div><div>head</div><div>rev ${d.head}</div><div>pending</div><div>${d.pending ? `<span class="tag ${d.pending.includes('stale') ? 'warn' : 'app'}">${d.pending}</span>` : '—'}</div></div></div>`).join('')}</div>` },
+  { id: 'templates', scope: 'root', route: '/app/templates', name: 'Templates', shows: 'List: icon, label, version, sites, counts of variables / secrets / files, used by N deployments.', actions: 'Open · Create (label, icon, description)', api: 'GET /v1/templates · POST /v1/templates', perm: 'templates.read (create: templates.write)',
+    render: () => `<div class="hdr"><div><h3>Templates</h3><div class="sub">Reusable deployment blueprints.</div></div>${B('+ New template', 'pri')}</div>
+      ${tbl(['Template', 'Version', 'Sites', 'Variables', 'Secrets', 'Files', 'Used by'], TPL.map((t, i) => tr([`<b>${t.label}</b>`, 'v' + t.ver, t.sites.join(', '), t.vars, t.secrets, t.files, i ? '1 deployment' : '2 deployments'], 'template|' + t.id)))}` },
+  { id: 'template', scope: 'root', route: '/app/templates/{templateId}', name: 'Template overview', shows: 'Label, icon, description, version, site dependency graph, full JSON preview.', actions: 'Edit label / icon (icon picker) / description · Delete if unused', api: 'GET /v1/templates/{id} · PATCH /v1/templates/{id} (ifVersion)', perm: 'templates.read / templates.write', tsub: true,
+    render: () => tplHead('overview') + `<div class="cols c2"><div><div class="fld"><label>Label</label><input value="${tplOf().label}" /></div><div class="fld"><label>Icon</label><div>${ico(tplOf().icon)} ${B('Change icon', '', '', 'data-act="ip"')}</div></div>${st.ip ? iconPicker(tplOf().icon) : ''}<div class="fld"><label>Description</label><textarea style="font-family:inherit">Web + API on one server, PostgreSQL on a second server.</textarea></div>${B('Save (makes v8)', 'pri')}
+      <h5>Site dependencies</h5><svg viewBox="0 0 300 80" style="width:100%;max-width:300px"><rect x="10" y="20" width="90" height="40" rx="8" class="box cs" /><text x="55" y="45" text-anchor="middle" font-size="13">db</text><rect x="200" y="20" width="90" height="40" rx="8" class="box app" /><text x="245" y="45" text-anchor="middle" font-size="13">app</text><path d="M200,40 H104" class="ln ln-data" /><text x="150" y="34" text-anchor="middle" class="lbl">depends on</text></svg></div>
+      <div><h5 style="margin-top:0">JSON preview</h5><div class="code" style="max-height:300px">{
+  "templateId": "${tplOf().id}",
+  "label": "${tplOf().label}",
+  "version": 7,
+  "variables": [ 4 items ],
+  "secrets":   [ 2 items ],
+  "files":     [ 2 items ],
+  "sites": [
+    { "siteSlug": "db",  "config": { "containers": [ postgres ], "depends": [] } },
+    { "siteSlug": "app", "config": { "containers": [ web, api, redis, worker ],
+                                     "depends": [ { "siteSlug": "db" } ] } }
+  ]
+}</div></div></div>` },
+  { id: 'tplVars', scope: 'root', route: '/app/templates/{templateId}/variables', name: 'Template variables', shows: 'Table of Variable: slug, label, type, default value, required, options, validation, description.', actions: 'Add · Edit · Remove · Save', api: 'PATCH /v1/templates/{id} { variables }', perm: 'templates.write', tsub: true,
+    render: () => tbl(['Slug', 'Type', 'Default value', 'Required', 'Description', ''], VARS.map((v) => tr([`<span class="mono">${v[0]}</span>`, v[1], `<span class="mono">${v[2]}</span>`, v[3], v[4], B('Edit')]))) + B('+ Add variable') + ' ' + B('Save', 'pri') + `<p class="hint">Slugs are immutable after create. In a template the value is the default. In a deployment it is the actual value.</p>` },
+  { id: 'tplSecrets', scope: 'root', route: '/app/templates/{templateId}/secrets', name: 'Template secrets', shows: 'Table of SecretDef: slug, label, required, generate rule. Never a value in a template.', actions: 'Add · Edit · Remove · Save', api: 'PATCH /v1/templates/{id} { secrets }', perm: 'templates.write', tsub: true,
+    render: () => tbl(['Slug', 'Value source', 'Required', 'Description'], [tr(['<span class="mono">db-password</span>', 'generate · alnum · 32', 'yes', 'Password of the app database user']), tr(['<span class="mono">api-token</span>', 'a person enters it', 'yes', 'Token for the upstream API'])]) + B('+ Add secret') + ' ' + B('Save', 'pri') + `<div class="ban info" style="margin-top:10px">Templates never hold secret values. A deployment generates them (generate rule) or a person enters them on the deployment Secrets page.</div>` },
+  { id: 'tplFiles', scope: 'root', route: '/app/templates/{templateId}/files', name: 'Template files', shows: 'Table of FileDef with default content; text files open in a code editor.', actions: 'Add · Edit content · Upload binary · Remove · Save', api: 'POST /v1/blobs · PATCH /v1/templates/{id} { files }', perm: 'templates.write', tsub: true,
+    render: () => `<div class="cols c2"><div><p class="hint">Each site keeps ONE copy of every file; every container that mounts it shares that copy (read-only).</p>${tbl(['Slug', 'Mime', 'Editor', 'Render', 'Default content', 'On the server'], FILES.map((f, i) => tr([`<span class="mono">${f[0]}</span>`, f[1], f[2], f[5], f[3], `<span class="mono small">${f[6]}</span>`])))}${B('+ Add file')}<p class="hint">Add file / Edit definition: Slug · Label · Description · Mime · Editor · Max bytes · <b>Resolve {{ }} expressions</b> (text only, on by default) · <b>Location on the server</b>.</p>${fileLocCtl}</div>
+      <div>${fileEditor('default content')}${B('Save content (new blob)', 'pri')} <span class="hint">Saving uploads a blob and stores its sha256 (the source text, never the rendered file).</span></div></div>` },
+  { id: 'tplSites', scope: 'root', route: '/app/templates/{templateId}/sites', name: 'Template sites', shows: 'Site list: slug, label, host, containers, depends, not-found page.', actions: 'Open · Add site (slug, label, host) · Remove', api: 'PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => tbl(['Site', 'Host', 'Containers', 'Depends on', 'Not-found page'], [tr(['<b>app</b>', '<span class="mono">{{ var.public-host }}</span>', 'web, api, redis, worker, worker-2', 'db', 'ACME branded 404'], 'tplSite|app'), tr(['<b>db</b>', '<span class="tag">auto</span> <span class="hint">detected on install</span>', 'postgres', '—', 'Plain 404 · light'], 'tplSite|db')]) + B('+ Add site') + `<p class="hint">Add site: Site slug · Label · <b>Host: Auto-detect (recommended)</b> toggle (on = host null; off = an IP, a DNS name or {{ var.… }}).</p>` },
+  { id: 'tplSiteRedirect', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}', name: 'Site (redirect)', shows: 'Redirects to …/containers. Old links with ?tab= go to the matching section (containers, edge, site → settings).', actions: '—', api: '—', perm: 'templates.read', tsub: true, redirect: 'tplSite', render: () => '' },
+  { id: 'tplSite', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/containers', name: 'Site · Containers', shows: 'Containers table (name = containerSlug, service, image, published ports, mounts, depends; row actions Edit · Duplicate · Remove; + Add container → full page). Breadcrumb + header with Save template and the validation counter.', actions: 'Add container · Edit · Duplicate · Remove · Save', api: 'PATCH /v1/templates/{id} { sites } · GET /v1/services', perm: 'templates.write', tsub: true,
+    render: () => siteEditor(false, 'containers') },
+  { id: 'tplSiteEdge', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/edge', name: 'Site · Edge', shows: 'Edge ports, hosts + TLS, routes (proxy / strip prefix / redirect), Test a URL.', actions: 'Add / edit / remove host and route · Test a URL · Save', api: 'PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => siteEditor(false, 'edge') },
+  { id: 'tplSiteVolumes', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/volumes', name: 'Site · Volumes', shows: 'The declared data folders of the site: name (volumeSlug), label, description, Back up toggle, used by (container chips). Unused volumes show V_VOLUME_UNUSED.', actions: 'Add volume (modal) · Edit · Delete (blocked while used: lists the containers) · Save', api: 'PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => siteEditor(false, 'volumes') },
+  { id: 'tplSiteDevtools', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/devtools', name: 'Site · Dev tools', shows: 'Dev-tool presets of the site (SiteConfig.devTools, agent 0.11.0): kind icon, name, p:&lt;slug&gt;, kind, target, auth summary, read-only badge; V_DEVTOOL_* issues inline.', actions: '+ Add preset (kind picker → drawer: Preset · Connect to · Authentication · Options) · Edit · Duplicate · Delete (confirm) · Save', api: 'PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => siteEditor(false, 'devtools') },
+  { id: 'tplSiteSettings', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/settings', name: 'Site · Settings', shows: 'Host (Auto-detect toggle or a value), site depends, not-found page, agentPort, agentGuiAliasPort.', actions: 'Save', api: 'PATCH /v1/templates/{id} { sites } · GET /v1/not-found-pages', perm: 'templates.write', tsub: true,
+    render: () => siteEditor(false, 'settings') },
+  { id: 'tplContNew', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/containers/new', name: 'Add container (full page)', shows: 'Container editor for a new instance: Service + Version pickers, Name (containerSlug, suggested), Ports, Volumes, Env, Runtime, summary sidebar with live validation. ?duplicate=<containerSlug> prefills a copy.', actions: 'Save template · Cancel', api: 'GET /v1/services · GET /v1/services/{serviceSlug}/images · PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => containerPage(false, true) },
+  { id: 'tplCont', scope: 'root', route: '/app/templates/{templateId}/sites/{siteSlug}/containers/{containerSlug}', name: 'Container editor (full page)', shows: 'Same page for an existing container: the name is locked; Duplicate and Remove buttons.', actions: 'Save template · Duplicate · Remove', api: 'PATCH /v1/templates/{id} { sites }', perm: 'templates.write', tsub: true,
+    render: () => containerPage(false, false) },
+  { id: 'services', scope: 'root', route: '/app/services', name: 'Services', shows: 'List: icon, label, name (the service id = serviceSlug), number of versions, used by N deployments.', actions: 'Open · New service (drawer: Label, Name (id) auto-derived from the label, Icon picker, Description; the name is fixed after create)', api: 'GET /v1/services · POST /v1/services · GET /v1/icons · POST /v1/icons', perm: 'services.read (create: services.write)',
+    render: () => `<div class="hdr"><div><h3>Services</h3><div class="sub">A service is a named kind of container. It has images. Each image is one version (v1, v2, …) with its own full docker reference.</div></div>${B('+ New service', 'pri', '', 'data-act="newsvc"')}</div>
+      ${tbl(['Service', 'Name (id · DNS name)', 'Icon', 'Versions', 'Used by'], SVC.map((s, i) => tr([`<b>${s.label}</b>`, `<span class="mono">${s.slug}</span>`, ico(s.icon), s.images.map((im) => im.version).join(', '), [3, 3, 2, 1, 2][i] + ' deployments'], 'service|' + s.slug)))}
+      ${st.newsvc ? `<div class="box" style="margin-top:12px;border-left:3px solid var(--accent)"><h5 style="margin-top:0">New service (drawer)</h5><div class="cols c2"><div class="fld"><label>Label</label><input value="Northwind backend" /></div><div class="fld"><label>Name (id) · auto-derived from the label</label><input class="mono" value="northwind-backend" /></div></div>
+        <div class="fld"><label>Icon</label><div>${ico(null)} ${B('Choose icon', '', '', 'data-act="ip"')}</div></div>${st.ip ? iconPicker(null) : ''}<div class="fld"><label>Description</label><input value="Core API of the plant" /></div>${B('Create', 'pri', 'service|postgres')} ${B('Cancel', '', '', 'data-act="newsvc"')}
+        <p class="hint">The name is the only identifier of the service: the document id, and the image name on every site (<span class="mono">northwind-backend:v1</span>). It is also the suggested name of a new container (the container name is the DNS name and the name in expressions). The form makes it from the label until you change it. It is fixed after create. There is no repository field: each image has its own full reference.</p></div>` : ''}` },
+
+  { id: 'service', scope: 'root', route: '/app/services/{serviceSlug}', name: 'Service · images', shows: 'Service header (label, icon, name, description) + image list: version, reference, registry or public, digest, size, import status, mode.', actions: 'Register image · Open image · Clone as new version · Edit label / icon / description · Used by · Delete if no images', api: 'GET /v1/services/{serviceSlug} · PATCH /v1/services/{serviceSlug} · GET /v1/services/{serviceSlug}/images', perm: 'images.read (register: images.write)',
+    render: () => { const s = svcOf(); return `<div class="hdr"><div><h3>${s.label}</h3><div class="sub">name <span class="mono">${s.slug}</span> · ${ico(s.icon)} · ${B('Used by', '', 'serviceUsed')}</div></div>${B('+ Register image', 'pri', 'regImage')}</div>
+      ${tbl(['Version', 'Reference', 'Registry', 'Digest', 'Size', 'Import', 'Mode', ''], s.images.map((im) => tr([`<b class="mono">${im.version}</b>`, `<span class="mono">${im.ref}</span>`, regName(im.reg), `<span class="mono">${im.digest || '—'}</span>`, im.size, statusTag(im.status), im.mode, B('Clone as new version', '', 'regImage')], 'image|' + im.version)))}
+      <p class="hint">On a site the agent tags each image <span class="mono">&lt;name&gt;:&lt;version&gt;</span>, for example <span class="mono">${s.slug}:${s.images[0].version}</span>. You cannot change an image. For a change, register a new version.</p>`; } },
+  { id: 'regImage', scope: 'root', route: '/app/services/{serviceSlug}/register-image', name: 'Register image', shows: 'Form: Version (next-version suggestion), Image reference combobox (registry → repository → tag autocomplete, parsed chips), matched registry or public, Clone from…, Read from registry (diff), platform, mode, kind, ports, env (free text or choice), volumes (mount path may hold expressions), health check, description.', actions: 'Clone from a version · Read from registry · Register and import', api: 'GET /v1/registries · GET /v1/registries/{registryId}/repositories?q= · GET /v1/registries/{registryId}/tags?repository=&q= · POST /v1/services/{serviceSlug}/images/inspect · POST /v1/services/{serviceSlug}/images', perm: 'images.write',
+    render: () => { const s = svcOf(); return `<div class="hdr"><div><h3>${s.label} · register image</h3><div class="sub">The version is the OPM name of the image. The reference is the docker image to import.</div></div></div>
+      <div class="cols c2"><div class="box"><h5 style="margin-top:0">1 · Source</h5>
+        <div class="fld"><label>Clone from…</label><select><option>— nothing (empty form) —</option>${s.images.map((im) => `<option>${im.version} · ${im.ref}</option>`).join('')}</select><span class="hint">Copies ports, env, volumes, health check and description of that version. Then change the version and the reference.</span></div>
+        <div class="fld"><label>Version</label><input class="mono" value="v3" /><span class="hint">Suggested: the next version after v2. Unique in this service. Lower case letters, digits, ".", "_", "-". Fixed after create.</span></div>
+        <div class="fld"><label>Image reference</label><input class="mono" value="docker.io/library/postgres:16.5" /></div>
+        <div class="box" style="padding:6px 10px;margin-bottom:8px"><div class="hint">Autocomplete: registry → repository → tag</div><div class="mono small">Docker Hub · team account › library/postgres (official) › 16.5 · pushed 2026-10-03 · 16.4 · 16.3 …</div></div>
+        <div class="chips"><button>host docker.io</button><button>repository library/postgres</button><button>tag 16.5</button><button>digest —</button></div>
+        <div class="fld"><label>Registry (credentials)</label><select><option>Matched by host: Docker Hub · team account</option><option>Public (no credentials)</option>${REG.slice(1).map((r) => `<option>${r.label}</option>`).join('')}</select><span class="hint">The form matches the registry by the host of the reference. No match = public (registryId null). You can choose another registry.</span></div>
+        ${B('Read from registry', '', '', 'data-act="diffReg"')}
+        ${st.diffReg ? `<h5>Registry compared with the form</h5>${tbl(['Field', 'Form', 'Registry', ''], [tr(['ports', '<span class="mono">sql 5432/tcp</span>', '<span class="mono">5432/tcp</span>', 'same']), tr(['env PG_VERSION', '—', '<span class="dadd mono">16.5</span>', 'new']), tr(['user', '<span class="ddel mono">999:999</span>', '<span class="dadd mono">postgres</span>', 'changed']), tr(['volumes', '<span class="mono">/var/lib/postgresql/data</span>', '<span class="mono">/var/lib/postgresql/data</span>', 'same'])])}${B('Use registry values', 'pri')} ${B('Keep the form')}<p class="hint">Nothing changes until you choose. Read from registry stores nothing (inspect).</p>` : ''}</div>
+      <div class="box"><h5 style="margin-top:0">2 · Env</h5>${tbl(['Name', 'Kind', 'Default', 'Options'], [tr(['<span class="mono">POSTGRES_USER</span>', 'free text', '<span class="mono">app</span>', '—']), tr(['<span class="mono">APP_ENV</span>', 'choice', '<select><option>production</option><option>staging</option></select>', '<span class="mono">production, staging</span>']), tr(['<span class="mono">PGTZ</span>', 'choice (from a list)', '<span class="mono">UTC</span>', '<span class="mono">UTC, Asia/Kolkata</span>'])])}
+        <p class="hint">Choice: 1–50 unique values. The default must be one of them. Containers must resolve to one of them (V_OPTION). An old image that holds a list as its default opens as a choice: the options are the list and the default is the first item.</p>
+        <h5>3 · Volumes</h5>${tbl(['Name', 'Mount path', ''], [tr(['<span class="mono">pgdata</span>', '<span class="mono">/var/lib/postgresql/data</span>', '<span class="tag ok">ok</span>']), tr(['<span class="mono">config</span>', '<span class="mono">/app/helper/config/env/{{ container.env.APP_ENV }}</span>', '<span class="tag ok">ok · resolves to /app/helper/config/env/production</span>']), tr(['<span class="mono">cache</span>', '<span class="mono">cache/{{ container.env.APP_ENV }}</span>', '<span class="tag bad">V_PATH: the mount path must start with a literal "/"</span>'])])}
+        <p class="hint">A mount path can hold expressions (roots var, deployment, self, container). <span class="mono">container.env.&lt;NAME&gt;</span> is the final value of that env in this container. The resolved path must be absolute, not "/", without spaces or "..".</p>
+        <h5>4 · Ports · health check · description</h5><div class="hint">Same fields as the image detail.</div></div></div>
+      <div style="margin-top:10px">${B('Cancel', '', 'service')} ${B('Register and import', 'pri', 'image|v2')}</div><p class="hint">A version that exists gives 409 conflict (version-exists). After create the import starts (status pending).</p>`; } },
+
+  { id: 'image', scope: 'root', route: '/app/services/{serviceSlug}/image/{version}', name: 'Image detail', shows: 'One Image form. A locked identity card (version, reference with its parsed parts, registry or public, digest, platform, import with layers, created) and the same editor as Register image: runtime (kind, entrypoint, command, workdir, user, stop timeout), ports, env and volumes (add, remove, rename, edit), health check, description. A renamed or removed name that templates or drafts use opens an impact dialog: Cancel, or Rename everywhere (renames only; removals stay blocked, each use links to its container). Published revisions keep their copy until the next publish. Old links with ?tag= resolve to this route.', actions: 'Save changes · Reset · Rename everywhere (impact dialog) · Clone as new version · Edit source (reference, registry) + Retry import while the import failed · Used by · Delete if unused', api: 'GET /v1/services/{serviceSlug}/images/{version} · PATCH /v1/services/{serviceSlug}/images/{version} · POST …/retry-import · DELETE', perm: 'images.read / images.write',
+    render: () => { const im = imgOf(); return `<div class="hdr"><div><h3>${svcOf().label} · <span class="mono">${im.version}</span></h3><div class="sub">site image <span class="mono">${svcOf().slug}:${im.version}</span> · ${B('Used by', '', 'imageUsed')}</div></div><div>${B('Clone as new version', '', 'regImage')}</div></div>
+      ${im.status === 'failed' ? `<div class="ban bad"><b>Import failed.</b> <span class="mono">${im.error}</span></div><div class="box" style="margin-bottom:12px"><h5 style="margin-top:0">Edit source (only while the import failed)</h5><div class="cols c2"><div class="fld"><label>Image reference</label><input class="mono" value="ghcr.io/acme/api:2.5.0" /></div><div class="fld"><label>Registry</label><select><option>${REG[1].label}</option><option>Public (no credentials)</option></select></div></div>${B('Save and retry import', 'pri')} <span class="hint">In other states the source is locked (409 conflict).</span></div>` : ''}
+      <div class="cols c2"><div class="box"><h5 style="margin-top:0">Image identity (locked)</h5><div class="kv"><div class="lock">version</div><div class="mono">${im.version}</div><div class="lock">reference</div><div class="mono">${im.ref}</div><div class="lock">source</div><div class="mono">${refParts(im.ref)}</div><div class="lock">registry</div><div>${regName(im.reg)}</div><div class="lock">digest</div><div class="mono">${im.digest || '—'}</div><div class="lock">platform</div><div>linux/amd64</div><div class="lock">import</div><div>${im.mode} · ${im.status} · ${im.size}</div><div class="lock">kind</div><div>${svcOf().kind}</div></div>
+      <h5>Runtime</h5><div class="kv"><div>entrypoint</div><div class="mono">image default</div><div>command</div><div class="mono">["postgres","-c","max_connections=200"]</div><div>workdir</div><div class="mono">—</div><div>user</div><div class="mono">999:999</div></div>
+      <h5>Volumes</h5>${tbl(['Name', 'Mount path', 'Description'], [tr(['<span class="mono">pgdata</span>', '<span class="mono">/var/lib/postgresql/data</span>', 'Database files']), tr(['<span class="mono">config</span>', '<span class="mono">/app/helper/config/env/{{ container.env.APP_ENV }}</span>', 'Config of the environment'])])}</div>
+      <div class="box"><h5 style="margin-top:0">Image form (everything but the identity)</h5><div class="fld"><label>Description</label><input value="Official PostgreSQL 16" /></div>
+      <h5>Ports</h5>${tbl(['Name', 'Port', 'Protocol', 'Description (editable)'], [tr(['<span class="mono">sql</span>', '5432', 'tcp', '<input value="SQL clients" style="width:100%" />'])])}
+      <h5>Env</h5>${tbl(['Name', 'Default (editable)', 'Options', 'Req.', 'Secret', 'Description'], [tr(['<span class="mono">POSTGRES_USER</span>', '<input value="app" style="width:90px" />', 'free text', 'yes', 'no', 'Superuser name']), tr(['<span class="mono">POSTGRES_PASSWORD</span>', '—', '—', 'yes', 'yes', 'From a secret']), tr(['<span class="mono">APP_ENV</span>', '<select><option>production</option><option>staging</option></select>', '<span class="mono">production, staging</span>', 'yes', 'no', 'Choice'])])}
+      <h5>Health check</h5><div class="cols c2"><div class="fld"><label>Type</label><select><option>exec</option><option>tcp</option><option>http</option><option>log</option></select></div><div class="fld"><label>Command</label><input value='["pg_isready","-U","app"]' /></div><div class="fld"><label>Interval / timeout / retries / start</label><input value="10 / 5 / 3 / 30 s" /></div><div class="fld"><label>Stop timeout (s)</label><input value="30" /></div></div>
+      ${B('Reset')} ${B('Save changes', 'pri')}<p class="hint">Ports, env and volumes can be added, removed and renamed (same rows as Register image). Renaming a name in use asks first: Rename everywhere updates templates and drafts. Existing deployments keep their published revisions until the next publish.</p></div></div>`; } },
+
+  { id: 'imageUsed', scope: 'root', route: '/app/services/{serviceSlug}/image/{version}/used', name: 'Image · used by', shows: 'Deployments and templates that use this exact version (site, container).', actions: 'Open deployment / template', api: 'GET /v1/services/{serviceSlug}/images/{version}/used', perm: 'images.read',
+    render: () => `<h3>${svcOf().label} · <span class="mono">${P.img}</span> · used by</h3><div class="sub">Delete is possible only when this list is empty.</div>${tbl(['Kind', 'Name', 'Site', 'Container'], [tr(['deployment', 'ACME plant', 'db', 'postgres'], 'dep|' + DEPS[0].id), tr(['deployment', 'Port lab', 'db', 'postgres'], 'dep|' + DEPS[2].id), tr(['template', 'Two-site web + database v7', 'db', 'postgres'], 'template|' + TPL[0].id)])}` },
+
+  { id: 'serviceUsed', scope: 'root', route: '/app/services/{serviceSlug}/used', name: 'Service · used by', shows: 'Deployments and templates that use any version of this service, with the version.', actions: 'Open deployment / template', api: 'GET /v1/services/{serviceSlug}/used', perm: 'services.read',
+    render: () => `<h3>${svcOf().label} · used by</h3>${tbl(['Kind', 'Name', 'Site', 'Version'], [tr(['deployment', 'ACME plant', 'db', 'v2'], 'dep|' + DEPS[0].id), tr(['deployment', 'North grid', 'main', 'v1'], 'dep|' + DEPS[1].id), tr(['deployment', 'Port lab', 'db', 'v2'], 'dep|' + DEPS[2].id), tr(['template', 'Two-site web + database v7', 'db', 'v2'], 'template|' + TPL[0].id), tr(['template', 'Single server v3', 'main', 'v1'], 'template|' + TPL[1].id)])}` },
+
+  { id: 'registries', scope: 'root', route: '/app/registries', name: 'Registries', shows: 'List: label, url, username or anonymous, last login check. Password masked (RevealValue: View 60 s, audited).', actions: 'Create (label, url, username + password, or anonymous) · Test login (optional repository) · Edit · Delete if unused', api: 'GET/POST /v1/registries · PATCH/DELETE /v1/registries/{registryId} · POST /v1/registries/{registryId}/test', perm: 'registries.read / registries.write',
+    render: () => `<div class="hdr"><div><h3>Registries</h3><div class="sub">Docker accounts that the cloud uses to import images. Passwords are stored with the registry and shown as ••• (View = visible 60 s, any number of times, audited). Sites never get them. An image without a registry is public.</div></div>${B('+ New registry', 'pri')}</div>
+      ${tbl(['Label', 'URL', 'Username', 'Password', 'Last check', ''], REG.map((r) => tr([`<b>${r.label}</b>`, `<span class="mono">${r.url}</span>`, r.user || '<span class="tag">anonymous</span>', r.user ? eye('reg:' + r.id) : '—', `<span class="tag ok">${r.check}</span>`, B('Test login', '', '', 'data-act="regTest"') + ' ' + B('Edit')])))}
+      ${st.regTest ? `<div class="box" style="margin-bottom:10px"><h5 style="margin-top:0">Test login · ${REG[0].label}</h5><div class="cols c2"><div class="fld"><label>Repository (optional: also checks pull access)</label><input class="mono" value="northwind/backend" /></div><div>${B('Test', 'pri')}</div></div><div class="ban bad"><span class="mono">repository northwind/backend not found, or account opsbot has no pull access to it (Docker Hub answers 401 for both)</span></div><p class="hint">Without a repository the test checks only the login. Docker Hub gives a token for every repository; the cloud reads the access claim of the token to find a missing pull access.</p></div>` : ''}
+      <div class="box"><h5 style="margin-top:0">New registry</h5><div class="cols c4"><div class="fld"><label>Label</label><input placeholder="Docker Hub · team account" /></div><div class="fld"><label>URL (empty = Docker Hub)</label><input placeholder="https://registry-1.docker.io" /></div><div class="fld"><label>Username</label><input /></div><div class="fld"><label>Password / token</label><input type="password" /></div></div><div class="fld"><label><input type="checkbox" /> Anonymous (public images: username and password stay empty)</label></div>${B('Create', 'pri')}</div>${auditBox('reg')}` },
+
+  { id: 'nfps', scope: 'root', route: '/app/not-found-pages', name: 'Not-found pages', shows: 'List: label, created by, created at, used by.', actions: 'Open preview · Create (label, htmlCode). No edit.', api: 'GET/POST /v1/not-found-pages', perm: 'notFoundPages.read / notFoundPages.write',
+    render: () => `<div class="hdr"><div><h3>Not-found pages</h3><div class="sub">Create-only. To change a page, create a copy.</div></div>${B('+ New page', 'pri')}</div>
+      ${tbl(['Label', 'Created by', 'Created', 'Used by'], NFP.map((n, i) => tr([`<b>${n.label}</b>`, n.by, n.at, i ? '2 sites' : '3 sites'], 'nfp|' + n.id)))}
+      <div class="box"><h5 style="margin-top:0">New page</h5><div class="fld"><label>Label</label><input value="ACME branded 404 · v2" /></div><div class="fld"><label>htmlCode (≤ 256 KB, self-contained)</label><textarea>&lt;!doctype html&gt;&lt;html&gt;&lt;body style="font-family:sans-serif"&gt;&lt;h1&gt;Not found&lt;/h1&gt;…</textarea></div>${B('Create (cannot be edited later)', 'pri')}</div>` },
+  { id: 'nfp', scope: 'root', route: '/app/not-found-pages/{notFoundPageId}', name: 'Not-found page preview', shows: 'Sandboxed iframe preview, read-only code, who created it, where it is used.', actions: 'Create a copy (prefilled create form) · Delete if unused', api: 'GET /v1/not-found-pages/{id} · DELETE', perm: 'notFoundPages.read',
+    render: () => `<div class="hdr"><div><h3>${NFP[1].label}</h3><div class="sub">Created by ${NFP[1].by} on ${NFP[1].at} · read-only</div></div><div>${B('Create a copy', 'pri', 'nfps')} ${B('Delete', 'danger', '', 'disabled title="Used by 2 sites"')}</div></div>
+      <div class="cols c2"><div><h5 style="margin-top:0">Preview (sandboxed iframe)</h5><iframe sandbox="" style="width:100%;height:220px;border:1px solid var(--border);border-radius:8px;background:#fff" srcdoc="&lt;div style='font-family:sans-serif;text-align:center;padding-top:50px;color:#333'&gt;&lt;div style='font-size:48px;font-weight:800;color:#2563eb'&gt;404&lt;/div&gt;&lt;p&gt;ACME · This page is not here.&lt;/p&gt;&lt;p style='color:#888;font-size:12px'&gt;If a service is starting, try again in one minute.&lt;/p&gt;&lt;/div&gt;"></iframe>
+      <p class="hint">The agent edge serves this page with status 404 when no edge route matches, and with 503 when the proxy target is not ready. Paths under /_opm/ always go to the agent GUI (unknown ones get the agent 404).</p></div>
+      <div><h5 style="margin-top:0">htmlCode (read-only)</h5><div class="code" style="max-height:220px">&lt;!doctype html&gt;
+&lt;html&gt;&lt;body&gt;
+  &lt;div style="text-align:center"&gt;
+    &lt;div class="big"&gt;404&lt;/div&gt;
+    &lt;p&gt;ACME · This page is not here.&lt;/p&gt;
+  &lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;</div></div></div>` },
+  { id: 'tags', scope: 'root', route: '/app/tags', name: 'Tags', shows: 'List: tag slug, label, icon, color, number of deployments.', actions: 'Create · Edit label / icon (icon picker) / color · Delete', api: 'GET/POST /v1/tags · PATCH/DELETE /v1/tags/{slug}', perm: 'tags.read / tags.write',
+    render: () => `<div class="hdr"><div><h3>Tags</h3><div class="sub">A tag is a query index, a bundle, and an access scope.</div></div>${B('+ New tag', 'pri')}</div>
+      ${tbl(['Tag', 'Label', 'Icon', 'Color', 'Deployments', ''], TAGS.map((t) => tr([`<span class="tag" style="background:${t.color};color:#fff;border-color:transparent">${t.slug}</span>`, t.label, ico(t.icon), `<span class="mono">${t.color}</span>`, t.n, B('Edit')])))}` },
+  { id: 'accounts', scope: 'root', route: '/app/accounts', name: 'Accounts', shows: 'List: avatar, name, email, phone, access summary, disabled. Access rule editor.', actions: 'Create (the generated password shows in RevealValue for 60 s; View again any time) · Password: View · Set new password… (typed ACCEPT) · Reset link… · Edit access rules (needs accounts.admin) · Disable', api: 'GET/POST /v1/accounts · PATCH /v1/accounts/{uid} · POST /v1/accounts/{uid}/disable · POST /v1/accounts/{uid}/password(/reveal) · POST /v1/accounts/{uid}/password-reset(/reveal)', perm: 'accounts.read (access edit: accounts.admin)',
+    render: () => `<div class="hdr"><div><h3>Accounts</h3><div class="sub">People who can use this cloud. An admin creates every account.</div></div>${B('+ New account', 'pri')}</div>
+      ${tbl(['Person', 'Email', 'Phone', 'Access', 'State', ''], ACC.map((a) => tr([`<span class="avatar">${a.name.split(' ').map((x) => x[0]).join('')}</span>${a.name}`, a.email, a.phone || '—', a.access, a.dis ? '<span class="tag bad">disabled</span>' : '<span class="tag ok">active</span>', B('Edit access')])))}
+      <div class="box"><h5 style="margin-top:0">Access rules · Kiran Rao</h5>${tbl(['Resource', 'Actions', 'Scope'], [tr(['<span class="mono">deployment.config</span>', 'read, write', 'tags: gov']), tr(['<span class="mono">deployment.activities</span>', 'read', 'tags: gov']), tr(['<span class="mono">deployments</span>', 'read', 'tags: gov'])])}${B('+ Add rule')} ${B('Save', 'pri')}<p class="hint">Deny by default. A manager of a deployment gets every deployment.* action for that deployment.</p>
+      <h5>Password · Kiran Rao</h5><div>${rv('acc:kiran', { regen: 'Set a new generated password? Kiran\'s sessions end.', typed: true, regenLabel: 'Set new password…' })}</div><div class="hint">The last password an admin set (set 2026-10-08 by ravi@ops.example). Cleared when Kiran changes it. ${B('Reset link…', '', '', 'data-act="resetLink"')}${SECVAL['link:kiran'] ? ' ' + rv('link:kiran') + ' · valid 1 h' : ''}</div>${auditBox('reg')}</div>` },
+  // ---------- deployment scope ----------
+  { id: 'dep', scope: 'dep', route: '/app/deployments/{deploymentId}', name: 'Deployment home', shows: 'Enters the deployment scope: summary of sites, head, pending proposal, last activities.', actions: 'Go to any deployment page · Exit', api: 'GET /v1/deployments/{id} · GET /v1/deployments/{id}/status', perm: 'deployments.read',
+    render: () => { const d = depOf(); return `<h3>${d.label}</h3><div class="sub">${d.tags.map((t) => `<span class="tag">${t}</span>`).join(' ')} · from template Two-site web + database v7</div>
+      <div class="cols c3"><div class="box click" data-go="status"><b>Sites</b><div>${d.online} / ${d.sites.length} online</div></div><div class="box click" data-go="diff"><b>Head</b><div>rev ${d.head} · reported 12:01</div></div><div class="box click" data-go="diff"><b>Pending</b><div>${d.pending || '—'}</div></div></div>
+      <h5>Last activities</h5>${tbl(['Time', 'Site', 'Origin', 'Type', 'Summary'], [tr(['12:01', 'app', 'agent', 'update.applied', 'Revision 14 applied on all sites']), tr(['11:58', 'db', 'agent', 'snapshot.created', 'Pre-update snapshot 01JA…7Q (2.1 GB)']), tr(['11:52', 'app', 'agent', 'proposal.approved', 'Approved by ops@acme.example'])])}`; } },
+  { id: 'setup', scope: 'dep', route: '/app/deployments/{deploymentId}/setup', name: 'Setup', shows: 'Agent GUI access key in RevealValue (masked; View any time → visible 60 s, logged; version, rotated at / by), install command per site (24 h, single use; View again while active), token list with revoke; offline install bundle. Per enrolled site (§21 #86): the agent GUI URLs from its heartbeat (port 80 first; fallback :8080 / :7080 for old agents), the default-edge note ("Port 80: default edge (no configuration applied yet)"), edge port alerts ("port 80 is used by nginx — stop it or change edge.httpPort"), and help: open TCP 80/443/8080/7080 in the server AND the cloud firewall. Agent upgrades (§21 #90): per enrolled site installed / latest + badge (upgrade available / up to date / queued / upgrading: phase / failed / rolled back), release notes; Upgrade agent (typed site slug); Upgrade all (typed UPGRADE) with a run panel; agents below 0.10.0: button disabled + hint "rerun the install command of this site once".', actions: 'View key · Regenerate key (typed ACCEPT) · Copy · Create install command · View / Regenerate command · Revoke · Upgrade agent · Cancel request · Upgrade all · Cancel run', api: 'POST /v1/deployments/{id}/access-key/reveal · POST …/access-key/rotate · POST …/install-tokens · POST …/install-tokens/{tokenHash}/reveal · DELETE …/install-tokens/{tokenHash} · POST / DELETE …/agents/{siteSlug}/upgrade · POST …/agents/upgrade-all · POST …/agents/upgrade-all/cancel', perm: 'deployment.setup.write',
+    render: () => `<h3>Setup</h3><div class="sub">Install the agent on each site. Then open the agent GUI on the site: log in with the access key below, then answer "Who is working right now?" (email only; the agent writes that email as the actor).</div>
+      <h5>Agent GUI access key</h5><div class="box" id="akBox"><div id="akValue">${rv('ak', { big: true, regen: 'Regenerate the key? The old key stops working at each site when the site gets the new hash. Open sessions stay valid until their 6 h end.', typed: true })}</div>
+        <div class="hint" style="margin-top:6px">version ${st.akVer || 3} · rotated ${st.akAt || '2026-10-07 08:00 by ravi@ops.example'} · the cloud stores the key and its hash; sites get only the hash. View and Regenerate are logged.</div>
+        <div class="hint">Agent sites: ${['app · has hash v' + (st.akVer || 3), 'db · has hash v' + (st.akNew ? (st.akVer || 3) - 1 + ' (waits for the cloud view)' : (st.akVer || 3))].join(' · ')}</div></div>
+      <h5>Agent install command</h5>${tbl(['Site', 'State', 'Command', ''], ['app', 'db'].map((s) => tr([`<b>${s}</b>`, s === 'app' ? '<span class="tag ok">enrolled · agent 0.10.0</span>' : '<span class="tag warn">not enrolled</span>', st.cmd[s] ? `${rv('cmd:' + s, { regen: 'Make a new command? The current token is revoked.' })}<div class="hint">site ${s} · expires in 23 h 59 min · single use · View again while it is active</div>` : '—', st.cmd[s] ? B('Revoke', 'danger') : B('Create install command', 'pri', '', `data-act="cmd" data-s="${s}"`)])))}
+      <p class="hint">The token is part of the command. It enrolls this site one time, within 24 hours; after that the same command only upgrades this site (the once-only path for agents below 0.10.0). While it is active the cloud keeps it, so you can View the command again (logged). After install the site config is empty: nothing runs until a person approves the first proposal in the agent GUI.</p>${auditBox('sec')}
+      <details class="box"><summary><b>Unattended install (no terminal prompts)</b></summary><div class="hint">The install script asks on the server's terminal (Docker missing? UPGRADE / DOWNGRADE / SAME?). Without a terminal it answers "no" and prints the command to rerun. Toggles add the answers after <span class="mono">sudo</span> to the command you copy: <span class="mono">OPM_YES=1</span> (yes to every prompt) · Docker when missing: Ask / Install (<span class="mono">OPM_INSTALL_DOCKER=1</span>) / Skip (<span class="mono">OPM_INSTALL_DOCKER=0</span>). A downgrade needs <span class="mono">OPM_ALLOW_DOWNGRADE=1</span> on purpose.</div></details>
+      <p class="hint"><b>Upgrade an installed site:</b> agent 0.10+ → Upgrade agent below. Older agents, once: run the site's <b>Upgrade / reinstall command</b> (on its card, always viewable), or <span class="mono">sudo opm-agent upgrade</span> (0.8+). <b>Every enrolled site</b> has that command: View (60 s, logged) · Copy · Regenerate… · options Unattended (<span class="mono">OPM_YES=1</span>) and Agent version (<span class="mono">OPM_AGENT_VERSION=x</span>). It is the install command that enrolled the site; when that one is not stored (older sites) it says "not stored — Regenerate", which makes an upgrade-only command for this site (never enrolls a new site, no expiry; the old command stops working). The agent's <b>Clock</b> row warns when the server clock is more than 2 min off ("agent clock is 5 h ahead — fix NTP on the server"). Times on the page use the cloud's clock, so a wrong computer clock never shows "Last seen in 5 h". Rerunning the install command is also the <b>hard fallback</b> for any up- or downgrade: it asks, keeps the setup, backs up the database and rolls back by itself.</p>
+      <h5>Agent upgrades</h5><div class="hdr"><span class="hint">Latest (pinned) agent: <b class="mono">0.10.1</b> · notes: health-check fixes; Agent page. Never automatic.</span>${B('Upgrade all (1)', 'pri', '', 'title="typed UPGRADE · one site at a time · stops on the first failure"')}</div>
+      ${tbl(['Site', 'Installed / latest', 'State', ''], [tr(['<b>app</b>', '<span class="mono">0.10.0 / 0.10.1</span>', '<span class="tag warn">upgrade available</span>', B('Upgrade agent', 'pri', '', 'title="type the site slug: app"')]), tr(['<b>db</b>', '<span class="mono">0.7.2 / 0.10.1</span>', '<span class="tag warn">upgrade available</span>', B('Upgrade agent', '', '', 'disabled') + '<div class="hint">Rerun the install command of this site once to reach agent ≥ 0.10.0 (the command stays valid for upgrades); later upgrades are one click here.</div>'])])}
+      <p class="hint">Upgrade agent queues a request; the agent picks it up on its next poll, downloads and verifies the pinned version, keeps the old binary, restarts (containers keep running) and reports each phase here. Not healthy within 60 s → it rolls back by itself. The confirm shows from → to and the notes.</p>
+      <h5>Offline install bundle</h5>${B('Download bundle for an air-gapped site')} <span class="hint">Binary + signature + install script + token file.</span>` },
+  { id: 'status', scope: 'dep', route: '/app/deployments/{deploymentId}/status', name: 'Status', shows: 'Per site: online, last seen, relay, agent installed / latest + upgrade badge (links to Setup), head, staging; 30-day online heatmap.', actions: 'Open site · Refresh', api: 'GET /v1/deployments/{id}/status', perm: 'deployments.read',
+    render: () => `<h3>Status</h3><div class="sub">Online = the agent was seen in the last 90 s.</div>
+      ${tbl(['Site', 'Online', 'Last seen', 'Via', 'Agent', 'Head', 'Staging'], [tr(['<b>app</b>', '<span class="tag ok">online</span>', '12:04:31', 'direct', '0.10.0 / 0.10.1 <span class="tag warn">upgrade available</span>', 'rev 14', 'proposal 15 · ready'], 'site|app'), tr(['<b>db</b>', '<span class="tag ok">online</span>', '12:04:28', 'relay via app', '0.7.2 / 0.10.1 <span class="tag warn">upgrade available</span>', 'rev 14', 'proposal 15 · downloading 62 %'], 'site|db')])}
+      <h5>30-day online · app</h5><div class="heat">${Array.from({ length: 30 }, (_, i) => `<i class="${i === 9 ? 'w' : i === 21 ? 'b' : ''}" title="day ${i + 1}"></i>`).join('')}</div>
+      <h5>30-day online · db</h5><div class="heat">${Array.from({ length: 30 }, (_, i) => `<i class="${i === 21 ? 'b' : ''}"></i>`).join('')}</div>
+      <p class="hint">Each cell is one day. Amber = online less than 99 %. Red = offline more than 1 hour. Fine-grained uptime is in the agent GUI.</p>` },
+  { id: 'activities', scope: 'dep', route: '/app/deployments/{deploymentId}/activities', name: 'Activities', shows: 'Activity table: time, site, seq, origin, actor, type, summary, upload channel. Filters.', actions: 'Filter · Open details · Upload a bundle', api: 'GET /v1/deployments/{id}/activities?site&origin&type&from&to&cursor', perm: 'deployment.activities.read',
+    render: () => `<div class="hdr"><div><h3>Activities</h3><div class="sub">One append-only log per site. The agent uploads it when the internet is up.</div></div>${B('Upload a bundle', 'pri', 'activitiesUpload')}</div>
+      <div class="chips">${['all', 'agent', 'cloud', 'system', 'manual upload'].map((c) => `<button class="${st.act === c ? 'on' : ''}" data-act="actf" data-v="${c}">${c}</button>`).join('')}</div>
+      ${tbl(['Time', 'Site', 'Seq', 'Origin', 'Actor', 'Type', 'Summary', 'Via'], [
+        ['12:01', 'app', 412, 'agent', 'ops@acme.example', 'update.applied', 'Revision 14 applied', 'pipe'],
+        ['11:58', 'db', 205, 'agent', 'ops@acme.example', 'snapshot.created', 'Pre-update snapshot (2.1 GB)', 'pipe'],
+        ['11:40', '—', '—', 'cloud', 'ravi@ops.example', 'proposal.created', 'Proposal 14 published', '—'],
+        ['09:12', 'db', 198, 'agent', 'ops@acme.example', 'config.local-change', 'log-level info → debug', 'manual'],
+        ['08:00', 'app', 405, 'system', null, 'snapshot.created', 'Scheduled daily snapshot', 'pipe'],
+      ].filter((r) => st.act === 'all' || (st.act === 'manual upload' ? r[7] === 'manual' : r[3] === st.act)).map((r) => tr(r.map((c) => c === null ? '—' : c))))}` },
+  { id: 'activitiesUpload', scope: 'dep', route: '/app/deployments/{deploymentId}/activities/upload', name: 'Upload activities', shows: 'Drop zone for an .opmlog bundle; verify result: signature, hash chain, inserted / skipped / rejected counts.', actions: 'Choose file · Upload', api: 'POST /v1/deployments/{id}/activities/upload', perm: 'deployment.activities.write',
+    render: () => `<h3>Upload activities</h3><div class="sub">Upload an <span class="mono">.opmlog</span> bundle that a site downloaded from its agent GUI. Records that the cloud has already are never changed.</div>
+      <div class="box" style="text-align:center;padding:26px;border-style:dashed">Drop <span class="mono">acme-plant_db_198-231.opmlog</span> here · ${B('Choose file', '', '', 'data-act="upl"')}</div>
+      ${st.uploaded ? `<div class="ban ok" style="margin-top:12px"><b>Done.</b> Signature of site db ✓ · hash chain 198 → 231 ✓</div>${tbl(['Result', 'Count'], [tr(['inserted (uploadedVia = manual)', '<b>21</b>']), tr(['skipped (already present, not changed)', '<b>13</b>']), tr(['rejected', '<b>0</b>'])])}` : ''}` },
+  { id: 'variables', scope: 'dep', route: '/app/deployments/{deploymentId}/variables', name: 'Variables (draft)', shows: 'Variable table with actual values; validation errors; changed-since-head marks.', actions: 'Edit values · Add / remove variables · Save draft', api: 'PUT /v1/deployments/{id}/draft/variables (ifRevision)', perm: 'deployment.config.write',
+    render: () => `<h3>Variables</h3>${draftBan}${tbl(['Slug', 'Type', 'Value', 'Required', 'Changed'], VARS.map((v, i) => tr([`<span class="mono">${v[0]}</span>`, v[1], `<input value="${i === 2 ? '6' : v[2]}" style="width:150px" />`, v[3], i === 2 ? '<span class="tag warn">4 → 6</span>' : '—'])))}${B('Save draft', 'pri')}` },
+  { id: 'secrets', scope: 'dep', route: '/app/deployments/{deploymentId}/secrets', name: 'Secrets (draft)', shows: 'Secret names: set / not set, rotated at, generate rule. Values are hidden.', actions: 'Set value · View (needs deployment.secrets.read; 60 s, logged) · Regenerate… (generate rule only; deployment.secrets.write)', api: 'PUT /v1/deployments/{id}/draft/secrets · POST /v1/deployments/{id}/secrets/{slug}/reveal · POST /v1/deployments/{id}/secrets/{slug}/regenerate', perm: 'deployment.secrets.write (View: deployment.secrets.read)',
+    render: () => `<h3>Secrets</h3>${draftBan}${tbl(['Slug', 'Source', 'State', 'Rotated', ''], SECRETS.map((s) => tr([`<span class="mono">${s[0]}</span>`, s[1], s[2] === 'set' ? '<span class="tag ok">set</span>' : '<span class="tag bad">not set · blocks publish</span>', s[3], s[2] === 'set' ? rv('sec:' + s[0], s[1].startsWith('generate') ? { regen: 'Regenerate with the generate rule? The new value reaches the sites with the next publish.' } : {}) : B('Set value', 'pri')])))}<p class="hint">Values are stored like variables (plain, prototype). Normal reads return ••• + isSet. <b>View</b> shows a value for 60 s (any number of times) and writes the activity <span class="mono">secret.revealed</span> + an audit entry; <b>Regenerate…</b> writes <span class="mono">secret.regenerated</span>. When a site downloads a proposal with secret values, the cloud writes <span class="mono">secret.fetched</span>.</p>${auditBox('sec')}` },
+  { id: 'files', scope: 'dep', route: '/app/deployments/{deploymentId}/files', name: 'Files (draft)', shows: 'File list with hash and size; code editor for text files; upload for binary files.', actions: 'Edit · Upload · Save draft', api: 'POST /v1/blobs · PUT /v1/deployments/{id}/draft/files', perm: 'deployment.config.write',
+    render: () => `<h3>Files</h3>${draftBan}<div class="cols c2"><div>${tbl(['Slug', 'Mime', 'Render', 'Content', 'Size', 'On the server'], FILES.map((f) => tr([`<span class="mono">${f[0]}</span>`, f[1], f[5], `<span class="mono">${f[3]}</span>`, f[4], `<span class="mono small">${f[6]}</span>`])))}</div>
+      <div>${fileEditor('draft')}${B('Save draft (new blob sha256:9e0a…)', 'pri')}</div></div>` },
+  { id: 'sites', scope: 'dep', route: '/app/deployments/{deploymentId}/sites', name: 'Sites (draft)', shows: 'Site list: slug, host, containers, depends, agent enrolled; add / remove a site (cloud only).', actions: 'Open · Add site · Remove site', api: 'PUT /v1/deployments/{id}/draft/sites', perm: 'deployment.config.write',
+    render: () => `<h3>Sites</h3>${draftBan}${tbl(['Site', 'Host', 'Containers', 'Depends on', 'Agent', 'Transfers'], [tr(['<b>app</b>', '<span class="mono">{{ var.public-host }}</span> → 10.0.1.10', 'web, api, redis, worker, worker-2', 'db', '<span class="tag ok">enrolled</span>', B('Transfers', '', 'transfers|app')], 'site|app'), tr(['<b>db</b>', '<span class="tag">auto</span> → 10.0.1.11 <span class="hint">(detected)</span>', 'postgres', '—', '<span class="tag ok">enrolled</span>', B('Transfers', '', 'transfers|db')], 'site|db')])}${B('+ Add site')}<p class="hint">A new site must be installed and reachable before the agents can approve the proposal that adds it.</p>` },
+  { id: 'siteRedirect', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}', name: 'Site (redirect, draft)', shows: 'Redirects to …/containers (old ?tab= links to the matching section).', actions: '—', api: '—', perm: 'deployment.config.read', redirect: 'site', render: () => '' },
+  { id: 'site', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/containers', name: 'Site · Containers (draft)', shows: 'The site pages of the template, on the draft. Previews resolve with the values of the last head.', actions: 'Add / duplicate / remove container · Edit · Save draft', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + siteEditor(true, 'containers') },
+  { id: 'siteEdge', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/edge', name: 'Site · Edge (draft)', shows: 'Edge hosts + TLS (certificate status from the last report), routes, Test a URL with draft values.', actions: 'Edit hosts and routes · Test a URL · Save draft', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + siteEditor(true, 'edge') },
+  { id: 'siteVolumes', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/volumes', name: 'Site · Volumes (draft)', shows: 'Declared site volumes with Back up toggle and used by.', actions: 'Add · Edit · Delete (blocked while used) · Save draft', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + siteEditor(true, 'volumes') },
+  { id: 'siteDevtools', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/devtools', name: 'Site · Dev tools (draft)', shows: 'Dev-tool presets of the draft site, as on the template page; warning when the site agent is older than 0.11.0.', actions: '+ Add preset · Edit · Duplicate · Delete · Save draft', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + siteEditor(true, 'devtools') },
+  { id: 'siteSettings', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/settings', name: 'Site · Settings (draft)', shows: 'Host (auto or a value), depends, not-found page, agentPort, agentGuiAliasPort.', actions: 'Save draft', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + siteEditor(true, 'settings') },
+  { id: 'depContNew', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/containers/new', name: 'Add container (draft)', shows: 'The container editor on the draft for a new instance (?duplicate=<containerSlug> prefills a copy).', actions: 'Save draft · Cancel', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + containerPage(true, true) },
+  { id: 'depCont', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/containers/{containerSlug}', name: 'Container editor (draft)', shows: 'The container editor on the draft; previews resolve with the values of the last head (auto hosts with the detected address).', actions: 'Save draft · Duplicate · Remove', api: 'PUT /v1/deployments/{id}/draft/sites/{slug}', perm: 'deployment.config.write',
+    render: () => draftBan + containerPage(true, false) },
+  { id: 'transfers', scope: 'dep', route: '/app/deployments/{deploymentId}/sites/{siteSlug}/transfers', name: 'Transfers (send + receive, §21 #100)', shows: 'ONE page, two columns (stacked on mobile, Send first). LEFT = Send to the site (cloud → site, browser upload only): uploading from the browser · stored · waiting for the site · on the site (fetchedAt) · saved on server (path) · downloaded · deleted. RIGHT = Received from the site: arriving from the site · stored · downloaded. Store-and-forward: the site does not need to be online; nobody needs this page open. Old …/send and …/receive redirect here; the site tree in the sidebar and the Sites table link here.', actions: 'Send a file (≤ 2 GiB, 8 MiB parts, resumable) · Download (token-only) · Delete (confirm) · Refresh (auto every 15 s)', api: 'GET …/sites/{slug}/transfers?direction=to-site|to-cloud · POST …/sites/{slug}/transfers · GET /v1/deployments/{id}/transfers/{transferId}/download · DELETE …', perm: 'deployment.transfers.read (page) / .write (send, delete)',
+    render: () => `<h3>Transfers · ${P.site}</h3><div class="sub">Store-and-forward both ways — files you send appear in the agent GUI at /_opm/app/${P.site}/transfers once the agent has fetched them.</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="box"><b>Send to ${P.site}</b> ${B('Send a file', 'pri')}${tbl(['File', 'State'], [tr(['<span class="mono">firmware-2.4.1.bin</span>', 'stored · waiting for the site']), tr(['<span class="mono">calibration.csv</span>', 'on the site']), tr(['<span class="mono">license.txt</span>', 'saved on server · /opt/acme/license.txt'])])}</div><div class="box"><b>Received from ${P.site}</b>${tbl(['File', 'State', ''], [tr(['<span class="mono">app.log</span>', 'arriving from the site', '']), tr(['<span class="mono">pg_dump.sql.gz</span>', 'stored', B('Download', 'pri')])])}</div></div>` },
+  { id: 'diff', scope: 'dep', route: '/app/deployments/{deploymentId}/diff', name: 'Diff + publish', shows: 'Cloud draft vs last reported head, per section: variables, secrets (changed / not changed only), files (hash), sites, volumes, containers. Stale banner when the head moved.', actions: 'Publish proposal (needs publish) · Copy head into draft', api: 'GET /v1/deployments/{id}/diff · POST /v1/deployments/{id}/publish · POST /v1/deployments/{id}/draft/reset-to-head', perm: 'deployment.config.read (publish: deployment.config.publish)',
+    render: () => `<h3>Diff</h3><div class="sub">Cloud draft compared with the head that the sites reported (rev 14 · 01JA7Q… · 12:01).</div>
+      ${`<div class="ban bad"><b>Proposal 13 was stale.</b> The sites made a local change (rev 14, origin agent) after it was published. Copy head into draft, check the changes, and publish again. Nothing is merged silently.</div>`}
+      <div class="tabs">${['variables', 'secrets', 'files', 'sites', 'volumes', 'containers'].map((t) => `<button class="${st.diff === t ? 'on' : ''}" data-act="dtab" data-v="${t}">${t}</button>`).join('')}</div>
+      ${{ variables: tbl(['Slug', 'Head', 'Draft'], [tr(['<span class="mono">api-workers</span>', '<span class="ddel">4</span>', '<span class="dadd">6</span>'])]),
+        secrets: tbl(['Slug', 'Change'], [tr(['<span class="mono">db-password</span>', 'not changed']), tr(['<span class="mono">api-token</span>', '<span class="tag warn">changed (value hidden)</span>'])]),
+        files: tbl(['Slug', 'Head', 'Draft'], [tr(['<span class="mono">web-config</span>', '<span class="mono ddel">sha256:41de…</span>', '<span class="mono dadd">sha256:9e0a…</span>'])]),
+        sites: tbl(['Site', 'Change'], [tr(['app', 'host unchanged · depends unchanged']), tr(['db', 'no change'])]),
+        volumes: tbl(['Path', 'Head', 'Draft'], [tr(['<span class="mono">app/volumes/worker-2-cache</span>', '—', '<span class="dadd">added · backup off</span>']), tr(['<span class="mono">app/volumes/api-uploads</span>', '<span class="ddel">label "uploads"</span>', '<span class="dadd">label "API uploads"</span>'])]),
+        containers: tbl(['Site', 'Container', 'Field', 'Head', 'Draft'], [tr(['app', 'api', 'version', '<span class="ddel">v4</span>', '<span class="dadd">v5</span>']), tr(['app', 'worker', 'resources.memoryMb', '<span class="ddel">512</span>', '<span class="dadd">768</span>']), tr(['app', 'worker-2', '(added)', '—', '<span class="dadd">api:v5 · NODE_ENV=pg-listen</span>'])]) }[st.diff]}
+      <div style="margin-top:10px">${B('Publish proposal 15', 'pri')} ${B('Copy head into draft')}</div><p class="hint">Publish makes a revision with parent = the reported head. If the head moves before approval, the agents mark the proposal stale. A newer proposal supersedes older ones that are not approved.</p>` },
+  { id: 'tsync', scope: 'dep', route: '/app/deployments/{deploymentId}/template-sync', name: 'Template sync', shows: 'The deployment is detached from its template. A 3-way review: base (the template when you last synced) · the template now · your draft. Each change: Template (clean), Your change (kept, grey), Same change, Conflict, Skipped, Template default. Files show a content diff; secrets show definitions only.', actions: 'Select all clean template changes · take / keep / merged value per conflict · enter values for new required variables · Preview (validation) · Apply to draft → Review the diff → Publish · Change template… · Unlink template · Link a template…', api: 'GET /v1/deployments/{id}/template-sync/status · GET /v1/deployments/{id}/template-sync?templateId= · POST /v1/deployments/{id}/template-sync/preview · POST /v1/deployments/{id}/template-sync/apply · POST /v1/deployments/{id}/template-sync/unlink', perm: 'deployment.config.read + templates.read (apply: deployment.config.write; secret items: deployment.secrets.write)',
+    render: () => `<h3>Template sync</h3><div class="sub">Source <b>Two-site starter</b> · cloned v3 · last synced v5 · template now v7 · <b>4 changes</b> since your last sync</div>
+      ${tbl(['', 'Change', 'Kind', 'Base', 'Template', 'Yours'], [
+        tr(['<input type="checkbox" checked>', '<span class="mono">app · api · image</span>', '<span class="tag">Template</span>', 'api:v4', '<span class="dadd">api:v5</span>', 'api:v4']),
+        tr(['<input type="checkbox">', '<span class="mono">Variable region</span> (new, required)', '<span class="tag">Template</span>', '—', '<span class="dadd">added</span>', '—']),
+        tr(['<select><option>Take template</option><option>Keep mine</option><option>Merged value…</option></select>', '<span class="mono">app · api · env LOG_LEVEL</span>', '<span class="tag bad">Conflict</span>', 'info', '<span class="dadd">warn</span>', '<span class="dadd">debug</span>']),
+        tr(['', '<span class="mono">app · label</span>', '<span class="tag muted">Your change</span>', 'App', 'App', 'Plant app']),
+      ])}
+      <div style="margin-top:10px">${B('Select all clean template changes')} ${B('Preview')} ${B('Apply to draft', 'pri')}</div><p class="hint">Apply writes only the draft (baseVersion becomes v7; changes you did not take are kept as “skipped” until the template changes them again). Nothing is published: review the Diff and publish a proposal there.</p>` },
+];
+
+function tplHead(tab) {
+  const t = tplOf();
+  if (tab !== 'overview') return ''; // the sidebar is the navigation; every page starts with the breadcrumb + its own header
+  return `<div class="hdr"><div><h3>${t.label} <span class="tag">v${t.ver}</span></h3><div class="sub">template · ${t.sites.join(', ')}</div></div></div>`;
+}
+const SECTION_NAME = { containers: 'Containers', edge: 'Edge', volumes: 'Volumes', devtools: 'Dev tools', settings: 'Settings' };
+function siteEditor(isDep, sec) {
+  st.tab = sec;
+  const isDb = P.site === 'db';
+  const conts = isDb ? [['postgres', 'PostgreSQL', 'postgres:v2', '0.0.0.0:5432 → sql', 'volume postgres-pgdata → /var/lib/postgresql/data', '—']] : SITE_APP.containers;
+  const base = isDep ? 'depCont' : 'tplCont';
+  const vols = SITE_VOLS[P.site] || [];
+  return `<div class="hdr"><div><h3>${P.site} · ${SECTION_NAME[sec]}</h3><div class="sub">site <b>${P.site}</b> · ${isDb ? 'Database server' : 'Application server'} ${B('Edit label')} <span class="tag warn">● unsaved</span> <span class="tag">${P.site === 'app' ? '0 errors · 1 warning' : '0 issues'}</span></div></div><div>${sec === 'volumes' ? B('+ Add volume', '', '', 'data-act="volAdd"') + ' ' : ''}${sec === 'devtools' ? B('+ Add preset') + ' ' : ''}${B(isDep ? 'Save draft' : 'Save template (v8)', 'pri')}</div></div>
+    ${sec === 'volumes' ? `<div class="ban info">Volumes are folders on the site server (auto: <span class="mono">&lt;agentHome&gt;/volumes/&lt;name&gt;</span>, or a custom location). Back up = included in snapshots. Host paths are never backed up.</div>
+      ${tbl(['Name', 'Label', 'Description', 'On the server', 'Back up', 'Used by', ''], vols.map((v) => tr([`<span class="mono">${v[0]}</span>`, v[1] || `<span class="mono muted">${v[0]}</span>`, v[2] || '<span class="muted">—</span>', `<span class="mono small">${v[0] === 'worker-2-cache' ? './cache/worker-2' : 'auto · &lt;agentHome&gt;/volumes/' + v[0]}</span>`, `<input type="checkbox" ${v[3] ? 'checked' : ''} />`, v[4].length ? v[4].map((c) => `<a class="tag" data-go="${base}|${c}" style="cursor:pointer">${c}</a>`).join(' ') : '<span class="tag warn">V_VOLUME_UNUSED · no container mounts it</span>', B('Edit', '', '', 'data-act="volAdd"') + ' ' + B('Delete', 'danger', '', `data-act="volDel" data-v="${v[0]}"`)])))}
+      ${st.volAdd ? `<div class="box" style="margin-top:10px;border-left:3px solid var(--accent)"><h5 style="margin-top:0">Add volume (modal)</h5><div class="cols c2"><div class="fld"><label>Name (volumeSlug · fixed after create)</label><input class="mono" value="${st.volAdd === true ? '' : st.volAdd}" placeholder="postgres-data" /></div><div class="fld"><label>Label</label><input /></div><div class="fld"><label>Description</label><input /></div><div class="fld"><label><input type="checkbox" checked /> Back up (include in snapshots)</label></div><div class="fld"><label>Location on the server</label><select><option>Auto (recommended) · &lt;agentHome&gt;/volumes/&lt;name&gt;</option><option>Custom path…</option></select><span class="hint">./ = agent home, or an absolute path</span></div></div>${B('Add volume', 'pri', '', 'data-act="volAdd"')} ${B('Cancel', '', '', 'data-act="volAdd"')}</div>` : ''}
+      ${st.volDel ? (() => { const v = vols.find((x) => x[0] === st.volDel) || ['', '', '', true, []]; return v[4].length ? `<div class="box" style="margin-top:10px;border-left:3px solid var(--bad)"><h5 style="margin-top:0">Volume ${v[0]} is used by</h5><ul>${v[4].map((c) => `<li><a data-go="${base}|${c}" style="cursor:pointer">${c}</a></li>`).join('')}</ul><p class="hint">Pick another source in these containers first. A used volume cannot be deleted.</p>${B('Close', '', '', 'data-act="volDel"')}</div>` : `<div class="box" style="margin-top:10px;border-left:3px solid var(--bad)"><h5 style="margin-top:0">Delete volume ${v[0]}?</h5><p class="hint">It leaves the config. The folder stays on the server (orphan, never deleted automatically).</p>${B('Delete', 'danger', '', 'data-act="volDel"')} ${B('Cancel', '', '', 'data-act="volDel"')}</div>`; })() : ''}
+      <p class="hint">Changes go into the browser change set and are committed with Commit… (§21 #105). A volume is never renamed (a new name = a new volume; the old folder stays on disk).</p>` : ''}
+    ${st.tab === 'containers' || st.tab === 'env' ? tbl(['Name (DNS name)', 'Service', 'Image', 'Published ports', 'Mounts', 'Depends on', ''], conts.map((c) => tr([`<b class="mono">${c[0]}</b>`, c[1], `<span class="mono">${c[2]}</span>`, c[3], c[4], c[5], B('Edit', '', base + '|' + c[0]) + ' ' + B('Duplicate', '', base + 'New|' + c[0]) + ' ' + B('Remove', 'danger')], base + '|' + c[0]))) + B('+ Add container', 'pri', base + 'New') + `<p class="hint">A container is one instance of an image. The same image may run many times (here <b>worker</b> and <b>worker-2</b> run api:v5 with different env). The name (containerSlug) is the DNS name on the site network (opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;), the name in expressions (<span class="mono">site.app.port.worker-2.metrics</span>) and in edge routes. A container starts after each dependency is "completed". HTTP goes through the site's Edge page; publish host ports only for non-HTTP traffic (80 / 443 belong to the edge).</p>` : ''}
+    ${st.tab === 'devtools' ? `<div class="ban info">The agent GUI lists these presets ready to use under Dev tools. Credentials: a secret (recommended), a container env, an expression, or a typed Value (plain text in the config). Operators can always add manual connections on the agent.</div>${isDep && isDb ? '<div class="ban warn">Site db runs agent 0.9.0; dev tool presets need agent 0.11.0 or newer — upgrade the agent first, otherwise the site refuses the revision.</div>' : ''}
+      ${isDb ? tbl(['Preset', 'Kind', 'Target', 'Auth', ''], [tr(['<b>Plant database</b> <span class="mono muted">p:postgres</span>', 'PostgreSQL', '<span class="mono">10.0.0.12:5432</span>', 'user postgres · password: secret <span class="mono">pg-password</span> · db acme', B('Edit') + ' ' + B('Duplicate') + ' ' + B('Delete', 'danger')]), tr(['<b>Redis cache</b> <span class="mono muted">p:redis</span> <span class="tag">read-only</span>', 'Redis', '<span class="mono">redis:tcp</span>', 'no auth · db 0', B('Edit') + ' ' + B('Duplicate') + ' ' + B('Delete', 'danger')])]) : '<p class="muted">No presets on this site. <b>+ Add preset</b> → kind (HTTP client, PostgreSQL, SQLite, Cassandra, Redis, MQTT) → drawer. Without presets the key is omitted from the config.</p>'}
+      <p class="hint">Password / token: None · Value (plain text in the config, warning) · Secret · Container env · Expression. Diff tab "Dev tools", Template sync group "Site ${P.site} · Dev tools".</p>` : ''}
+    ${st.tab === 'edge' ? `<div class="sub">Edge of site <b>${P.site}</b> · embedded Caddy in the agent · ${isDb ? 'no routes: every path except /_opm/ gets the not-found page' : 'hostnames, TLS and routes'}</div><div id="edgeMount"></div>` : ''}
+    ${st.tab === 'settings' ? `<div class="cols c2"><div class="fld"><label>Host (address of this site)</label><label style="color:var(--text)"><input type="checkbox" ${isDb ? 'checked' : ''} /> Auto-detect (recommended)</label>${isDb ? `<span class="hint">auto · ${isDep ? 'detected: 10.0.1.11' : 'detected on install'}</span>` : `<input value="{{ var.public-host }}" /><span class="hint">IP, DNS name or {{ var.… }}. A variable without a value → warning V_HOST_AUTO, the site uses its auto address.</span>`}</div><div class="fld"><label>Site depends</label><select><option>${isDb ? '— none —' : 'db'}</option></select></div><div class="fld"><label>Not-found page (edge: no route 404, not ready 503)</label><select><option>ACME branded 404</option><option>Plain 404 · light</option><option>none (built-in)</option></select></div><div class="fld"><label>Agent port (agentPort · mesh + fallback GUI)</label><input id="cfAgentPort" value="7080" /></div><div class="fld"><label>Agent GUI alias port (agentGuiAliasPort · empty = off)</label><input id="cfAliasPort" value="8080" /></div><div class="fld"><label>Edge ports</label><input disabled value="http ${EDGE_STATE[P.site].httpPort} · https ${EDGE_STATE[P.site].httpsPort == null ? 'off' : EDGE_STATE[P.site].httpsPort} (Edge page)" /></div></div><p class="hint">Host is optional: leave Auto-detect on when you do not know the address before the install. This site starts its containers only after every listed site is ready. Cycles are rejected. agentGuiAliasPort serves only the agent GUI (/_opm/), from the agent itself (not Caddy), so the GUI stays reachable when 80/443 cannot be bound. It must differ from agentPort, the edge ports and every container hostPort (1024–65535). The site can change the host, agentPort, agentGuiAliasPort, the not-found page and the edge locally (local proposal).</p>` : ''}
+`;
+}
+function containerPage(isDep, isNew) {
+  const dup = isNew && st.dupOf;
+  const name = isNew ? (dup ? dup + '-2' : 'api-2') : P.cont;
+  const ro = isNew ? '' : 'disabled';
+  const portRow = (pn, cp, pub, hp, ip, edge) => tr([`<span class="mono">${pn}</span> <span class="muted">${cp}/tcp</span>`, `<input type="checkbox" ${pub ? 'checked' : ''} />`, `<input class="mono" style="width:150px" value="${hp}" placeholder="not published" />`, `<select><option ${ip === '0.0.0.0' ? 'selected' : ''}>0.0.0.0 · all addresses</option><option ${ip === '127.0.0.1' ? 'selected' : ''}>127.0.0.1 · this machine</option></select>`, `<input type="checkbox" ${edge ? 'checked' : ''} />`]);
+  const vols = SITE_VOLS[P.site] || [];
+  const srcSel = (cur, extra) => `<select><optgroup label="Data volumes">${vols.map((v) => { const others = v[4].filter((c) => c !== name); return `<option ${cur === v[0] ? 'selected' : ''}>${v[0]}${others.length ? ' · shared with ' + others.join(', ') : ''}</option>`; }).join('')}<option>+ New data volume… (${name}-${extra})</option></optgroup><optgroup label="Files">${FILES.map((f) => `<option>file ${f[0]}</option>`).join('')}</optgroup><optgroup label="Secrets"><option>secret db-password</option><option>secret api-token</option></optgroup><option>Advanced: host path…</option><option ${cur === '' ? 'selected' : ''}>Not mounted</option></select>`;
+  const sharedBy = (v) => { const u = (vols.find((x) => x[0] === v) || [0, 0, 0, 0, []])[4].filter((c) => c !== name); return u.length ? ` <span class="tag">shared copy · also used by ${u.join(', ')}</span>` : ''; };
+  const volRow = (iv, imgPath, cur, ro) => tr([`image volume <span class="mono">${iv}</span> · <span class="mono muted">${imgPath}</span>`, srcSel(cur, iv) + (cur === null ? ' <span class="tag warn">Not mounted — pick a data volume (V_VOLUME_NOT_MOUNTED)</span>' : '') + (cur ? sharedBy(cur) : ''), `<label class="small"><input type="checkbox" ${ro ? 'checked' : ''} /> Read-only</label>`, `<span class="mono">${imgPath}</span> <a class="small" style="cursor:pointer">Edit path</a>`]);
+  return `<div class="hdr"><div><h3>${isNew ? (dup ? `Duplicate of ${dup}` : 'Add container') : 'Container · ' + name} <span class="muted">· site ${P.site}</span></h3><div class="sub mono">${isNew ? '…/containers/new' + (dup ? '?duplicate=' + dup : '') : '…/containers/' + name}</div></div><div>${B('Back to containers', '', isDep ? 'site|' + P.site : 'tplSite|' + P.site)} ${isNew ? '' : B('Duplicate', '', (isDep ? 'depContNew|' : 'tplContNew|') + name) + ' ' + B('Remove container', 'danger')} ${B(isDep ? 'Save draft' : 'Save template (v8)', 'pri')}</div></div>
+  <div class="cols" style="grid-template-columns:minmax(0,1fr) 230px"><div>
+    <h5>1 · Service and name</h5><div class="cols c3"><div class="fld"><label>Service</label><select ${ro}><option>API (api)</option><option>Web (web)</option><option>Redis (redis)</option></select></div><div class="fld"><label>Version</label><select ${ro}><option>v5 · ready</option><option>v4 · ready</option></select></div><div class="fld"><label>Name (containerSlug)</label><input class="mono" value="${name}" ${ro} /><span class="hint">${isNew ? 'Suggested: the service slug, then -2, -3 … Unique on the site, not "new".' : 'Fixed after create. Duplicate to use another name.'}</span></div></div>
+    <h5>2 · Ports</h5>${tbl(['Image port', 'Published', 'Host port', 'Bind address', 'Edge may proxy'], [portRow('http', 8080, false, '', '0.0.0.0', true), portRow('metrics', 9100, !dup, dup ? '' : '9100', '127.0.0.1', false)])}<p class="hint">Host port: a number or {{ var.… }}; empty = not published (other containers of the site still reach it at <span class="mono">${name}:8080</span>). 80 / 443 and the edge ports belong to the edge.${dup ? ' A duplicate starts with no host ports.' : ''}</p>
+    <h5>3 · Volumes</h5>${tbl(['Image volume', 'Source', 'Access', 'Inside the container'], [volRow('uploads', '/srv/uploads', 'api-uploads', false), volRow('cache', '/cache', isNew ? null : (vols.some((v) => v[0] === name + '-cache') ? name + '-cache' : null), false), tr(['extra mount', '<select><option>file web-config</option></select> <span class="tag">shared copy · also used by web</span>', '<span class="tag">read-only</span>', 'mounted read-only at <span class="mono">/etc/api/config.json</span> <a class="small" style="cursor:pointer">Edit path</a>'])])}${B('+ Extra mount')}<p class="hint">Data volumes are declared on the site (<a data-go="${isDep ? 'siteVolumes' : 'tplSiteVolumes'}|${P.site}" style="cursor:pointer">Volumes</a>); a volume picked by two containers is ONE shared folder on the site (at the volume location, default <span class="mono">&lt;agentHome&gt;/volumes/&lt;volumeSlug&gt;/</span>). <b>+ New data volume…</b> opens the Add volume modal prefilled with <span class="mono">${name}-&lt;volume&gt;</span>, declares it and selects it. Volume and host path: read-write by default (Read-only toggle). File / secret: always read-only (badge). Host path: an absolute literal path on the machine, never backed up. Not mounted: the image volume stays inside the container (lost on recreate). <b>Edit path</b> reveals the expression input (Reset = the image path).</p>
+    <h5>4 · Env</h5>${tbl(['Image env', 'Default', 'Value in this container'], [tr(['<span class="mono">NODE_ENV</span> <span class="tag">choice</span>', 'integration', '<select><option>pg-listen</option><option>integration</option><option>worker</option></select>']), tr(['<span class="mono">DB_PASSWORD</span> <span class="tag warn">secret</span>', '—', '<select><option>secret: db-password</option></select>']), tr(['<span class="mono">API_BASE</span>', '—', '<input class="mono" style="width:280px" value="http://{{ site.app.host }}:{{ site.app.port.api.http }}" /> <span class="hint">→ http://10.0.1.10:8080</span>'])])}${B('+ Extra env')}
+    <h5>5 · Runtime</h5><div class="cols c3"><div class="fld"><label>Command (empty = image)</label><input class="mono" placeholder="node main.js" /></div><div class="fld"><label>Entrypoint (empty = image)</label><input class="mono" /></div><div class="fld"><label>Restart</label><select><option>always</option><option>on-failure</option><option>never</option></select></div><div class="fld"><label>Depends on (containers of this site)</label><select><option>api</option><option>redis</option></select><span class="hint">Site depends: db (<a data-go="${isDep ? 'siteSettings' : 'tplSiteSettings'}|${P.site}" style="cursor:pointer">site Settings</a>)</span></div><div class="fld"><label>CPUs / Memory MB</label><input value="1 · 512" /></div><div class="fld"><label>Health check</label><select><option>image health check</option><option>override…</option></select></div></div>
+  </div><div class="box"><h5 style="margin-top:0">Summary</h5><div class="kv"><div>name</div><div class="mono">${name}</div><div>image</div><div class="mono">api:v5</div><div>published</div><div class="mono">${dup ? '—' : '127.0.0.1:9100 → metrics'}</div><div>Mounts</div><div class="mono small">/srv/uploads ← volume api-uploads (server: &lt;agentHome&gt;/volumes/api-uploads)<br>/etc/api/config.json ← file web-config (server: ./config/web.json)</div></div>${isNew ? '<div class="ban warn" style="margin-top:8px">V_VOLUME_NOT_MOUNTED · image volume cache is not mounted: its data is lost when the container is recreated.</div>' : '<div class="ban ok" style="margin-top:8px">No issues for this container.</div>'}</div></div>`;
+}
+function fileEditor(what) {
+  const pv = st.fpv;
+  return `<h5 style="margin-top:0">web-config · ${what}</h5><label class="hint" style="display:block;margin-bottom:4px"><input type="checkbox" checked /> Resolve {{ }} expressions (render: expressions)</label><div class="code">{
+  "title": "ACME plant",
+  "apiBase": "http://<b style="color:var(--accent)">{{ site.app.host }}</b>:<b style="color:var(--accent)">{{ site.app.port.api.http }}</b>",
+  "site": "<b style="color:var(--accent)">{{ self.slug }}</b>",
+  "dbPassword": "<b style="color:var(--accent)">{{ secret.db-password }}</b>",
+  "template": "<b style="color:var(--accent)">{{ "{{" }}</b> user }}"
+}</div><p class="hint">Blocks are highlighted, paths autocomplete, errors show at line:col while you type. A literal {{ is written {{ "{{" }}.</p><p class="hint">No <span class="mono">container.*</span> / <span class="mono">file.*</span> here: files are shared by all containers on the site — use a variable instead (E_NOT_ALLOWED).</p>${B('Preview for site…', '', '', 'data-act="fpv"')}${pv ? `<div class="box" style="margin:6px 0"><div class="hint">site <b>app</b> (rendered once; shared by web, worker-2 · written 0400 because it uses a secret)</div><div class="code">{
+  "title": "ACME plant",
+  "apiBase": "http://10.0.1.10:8080",
+  "site": "app",
+  "dbPassword": "•••",
+  "template": "{{ user }}"
+}</div><div class="ban ok">Valid JSON (V_FILE_JSON ok).</div></div>` : ''}<div class="ban bad small" style="margin:6px 0">Example load error: <b>download failed: 403 Forbidden</b> (the page shows the real reason; contents ≤ 8 MiB come directly, larger ones from a signed URL).</div>`;
+}
+
+// ---------- prototype ----------
+const RMAP = Object.fromEntries(R.map((r) => [r.id, r]));
+let cur = 'deployments';
+const ROOTNAV = [['deployments', 'Deployments'], ['templates', 'Templates'], ['services', 'Services'], ['registries', 'Registries'], ['nfps', 'Not-found pages'], ['tags', 'Tags'], ['accounts', 'Accounts']];
+const DEPNAV = [['dep', 'Overview'], ['setup', 'Setup'], ['status', 'Status'], ['activities', 'Activities'], ['variables', 'Variables'], ['secrets', 'Secrets'], ['files', 'Files'], ['sites', 'Sites'], ['diff', 'Diff'], ['tsync', 'Template sync']];
+const TPLNAV = [['template', 'Overview', ''], ['tplVars', 'Variables', 4], ['tplSecrets', 'Secrets', 2], ['tplFiles', 'Files', 2], ['tplSites', 'Sites', '']];
+const ROOTOF = { service: 'services', regImage: 'services', image: 'services', imageUsed: 'services', serviceUsed: 'services', nfp: 'nfps', activitiesUpload: 'activities', transfers: 'sites' };
+// site sections: [section, template route id, deployment route id]
+const SECS = [['containers', 'tplSite', 'site'], ['edge', 'tplSiteEdge', 'siteEdge'], ['volumes', 'tplSiteVolumes', 'siteVolumes'], ['settings', 'tplSiteSettings', 'siteSettings']];
+const SITE_IDS = ['tplSite', 'tplSiteEdge', 'tplSiteVolumes', 'tplSiteSettings', 'tplSiteRedirect', 'site', 'siteEdge', 'siteVolumes', 'siteSettings', 'siteRedirect', 'transfers'];
+const contsOf = (s) => (s === 'db' ? ['postgres'] : s === 'main' ? ['api'] : SITE_APP.containers.map((c) => c[0]));
+st.open = {}; // expanded sites of the tree (the app keeps this per template / deployment in localStorage, inside try/catch)
+function sitesTree(isDep, sites) {
+  const ci = isDep ? 'depCont' : 'tplCont';
+  return sites.map((sl) => {
+    const open = st.open[sl] ?? (sl === P.site);
+    const here = P.site === sl;
+    const warn = sl === 'app' ? '<span class="bdg w">1 ⚠</span>' : '';
+    const head = `<button class="t1" data-act="tree" data-v="${sl}">${open ? '▾' : '▸'} ${sl}${warn}</button>`;
+    if (!open) return head;
+    const conts = contsOf(sl);
+    const sec = (k, n, extra) => { const id = SECS.find((x) => x[0] === k)[isDep ? 2 : 1]; return `<button class="t2 ${cur === id && here ? 'on' : ''}" data-go="${id}|${sl}">${n}${extra || ''}</button>`; };
+    return head + sec('containers', 'Containers', `<span class="bdg">${conts.length}</span>`) + conts.map((c) => `<button class="t3 ${cur === ci && here && P.cont === c ? 'on' : ''}" data-go="${ci}|${c}" data-site="${sl}">${c}</button>`).join('') + sec('edge', 'Edge') + sec('volumes', 'Volumes', `<span class="bdg ${sl === 'app' ? 'w' : ''}">${(SITE_VOLS[sl] || []).length}</span>`) + sec('settings', 'Settings');
+  }).join('') + `<button class="t1" data-go="${isDep ? 'sites' : 'tplSites'}">+ Add site</button>`;
+}
+const sideFoot = () => `<div class="foot"><span><span class="avatar">RS</span> ${ME.email}</span><a style="cursor:pointer">My profile</a><a data-go="login" style="cursor:pointer">Log out</a><a style="cursor:pointer">◐ Theme: light / dark</a></div>`;
+function crumbs(r) {
+  const d = depOf(), t = tplOf();
+  const base = r.scope === 'dep' ? ['Deployments', d.label] : ['Templates', t.label];
+  const name = { template: 'Overview', tplVars: 'Variables', tplSecrets: 'Secrets', tplFiles: 'Files', tplSites: 'Sites', dep: 'Overview', setup: 'Setup', status: 'Status', activities: 'Activities', activitiesUpload: 'Activities › Upload', variables: 'Variables', secrets: 'Secrets', files: 'Files', sites: 'Sites', diff: 'Diff', tsync: 'Template sync' }[cur];
+  let tail = name ? [name] : [];
+  const sec = SECS.find((x) => x[1] === cur || x[2] === cur);
+  if (sec) tail = [P.site, SECTION_NAME[sec[0]]];
+  if (['tplCont', 'depCont'].includes(cur)) tail = [P.site, 'Containers', P.cont];
+  if (['tplContNew', 'depContNew'].includes(cur)) tail = [P.site, 'Containers', 'new'];
+  if (cur === 'transfers') tail = [P.site, 'Transfers'];
+  const all = base.concat(tail);
+  return `<div class="pcrumb"><button type="button" class="wbtn" title="Sidebar (a drawer at 390 px; the toggle sits in this row)">☰</button>${all.map((x, i) => (i === all.length - 1 ? `<b>${x}</b>` : `<span>${x}</span>`)).join(' › ')}</div>`;
+}
+function go(spec) {
+  st.reveal = {}; st.regen = null; // RevealValue masks again on page change
+  st.ip = false;
+  let [id, arg] = spec.split('|');
+  const r = RMAP[id];
+  if (!r) return;
+  if (arg) {
+    if (id === 'template') P.tpl = arg;
+    if (id === 'service') { P.svc = arg; P.img = svcOf().images[0].version; }
+    if (id === 'image') P.img = arg;
+    if (id === 'nfp') P.nfp = arg;
+    if (id === 'dep') P.dep = arg;
+    if (SITE_IDS.includes(id)) P.site = arg;
+    if (['tplCont', 'depCont'].includes(id)) P.cont = arg;
+  }
+  if (['tplContNew', 'depContNew'].includes(id)) st.dupOf = arg || null;
+  if (r.redirect) return go(r.redirect);
+  cur = id;
+  render();
+}
+function render() {
+  const r = RMAP[cur];
+  document.getElementById('addr').innerHTML = `https://app.opm.example<b>${path(r.route)}${cur.endsWith('ContNew') && st.dupOf ? '?duplicate=' + st.dupOf : ''}</b>`;
+  document.getElementById('jump').value = cur;
+  const wrap = document.getElementById('pwrap');
+  let side = '', nav = '';
+  if (!r.noside) {
+    if (r.scope === 'root' && !r.tsub) side = `<div class="pside"><div class="logo">On-Prem Manager</div><div class="scope">Root scope</div>${ROOTNAV.map(([k, n]) => `<button class="${(ROOTOF[cur] || cur) === k ? 'on' : ''}" data-go="${k}">${n}</button>`).join('')}${sideFoot()}</div>`;
+    else if (r.tsub) { const t = tplOf(); side = `<div class="pside"><button class="back" data-go="templates">← All templates</button><div class="logo">${t.label} <span class="muted small">v${t.ver}</span></div><div class="scope">Template scope</div>${TPLNAV.map(([k, n, c]) => `<button class="${cur === k ? 'on' : ''}" data-go="${k}">${n}${c !== '' ? `<span class="bdg">${c}</span>` : ''}</button>`).join('')}${sitesTree(false, t.sites)}${sideFoot()}</div>`;
+      nav = crumbs(r); }
+    else { const d = depOf(); side = `<div class="pside"><button class="back" data-go="deployments">← All deployments</button><div class="logo">${d.label}</div><div class="scope">Deployment scope · head rev ${d.head}</div>${DEPNAV.map(([k, n]) => `<button class="${(ROOTOF[cur] || cur) === k ? 'on' : ''}" data-go="${k}">${n}</button>` + (k === 'sites' ? sitesTree(true, d.sites) : '')).join('')}${sideFoot()}</div>`;
+      nav = crumbs(r); }
+  }
+  wrap.innerHTML = `<div class="pbody ${r.noside ? 'noside' : ''}">${side}<div><div class="pmain">${nav}${r.render()}</div></div></div>`;
+  const em = document.getElementById('edgeMount');
+  if (em) mountEdge(em, EDGE_STATE[P.site] || EDGE_STATE.app, { containers: (P.site === 'db' ? ['postgres'] : ['web', 'api', 'redis', 'worker', 'worker-2']).map((x) => ({ slug: x, hostPorts: x === 'postgres' ? [5432] : [] })), agentPort: 7080, agentGuiAliasPort: 8080, files: FILES.map((f) => f[0]), secrets: SECRETS.map((x) => x[0]).concat(['tls-key']) });
+  wrap.querySelectorAll('[data-go]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); if (el.dataset.site) P.site = el.dataset.site; go(el.dataset.go); }));
+  wrap.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const a = el.dataset.act, v = el.dataset.v;
+    if (a === 'newdep') st.newdep = !st.newdep;
+    if (a === 'newsvc') { st.newsvc = !st.newsvc; st.ip = false; }
+    if (a === 'ip') st.ip = !st.ip;
+    if (a === 'ipTab') st.ipTab = v;
+    if (a === 'diffReg') st.diffReg = !st.diffReg;
+    if (a === 'regTest') st.regTest = !st.regTest;
+    const now = () => new Date().toISOString().slice(11, 19);
+    const showFor = (k) => { st.reveal[k] = Date.now() + REVEAL_MS; setTimeout(render, REVEAL_MS + 100); };
+    const newKey = () => { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let k = ''; for (let i = 0; i < 24; i++) k += A[Math.floor(Math.random() * 32)]; return k.match(/.{4}/g).join('-'); };
+    const cmdOf = () => `curl -fsSL -H "Authorization: Bearer opi_${Math.random().toString(36).slice(2, 8)}…" https://api.opm.example/v1/install/script | sudo sh`;
+    if (a === 'cmd') { const s2 = el.dataset.s; st.cmd[s2] = true; SECVAL['cmd:' + s2] = cmdOf(); showFor('cmd:' + s2); st.audit.unshift({ kind: 'sec', ts: now(), type: 'install-token.created (+ audit deployment.install-command-created)', target: s2 }); }
+    if (a === 'depCreated') { st.newdep = false; go('setup'); showFor('ak'); st.audit.unshift({ kind: 'sec', ts: now(), type: 'deployment.created (key shown 60 s; View any time)', target: 'Harbor depot' }); }
+    if (a === 'regen') st.regen = v;
+    if (a === 'regenNo') st.regen = null;
+    if (a === 'regenYes') {
+      const typed = document.getElementById('regenTyped');
+      if (typed && typed.value !== 'ACCEPT') { typed.focus(); typed.style.borderColor = 'var(--bad)'; return; }
+      st.regen = null;
+      if (v === 'ak') { SECVAL.ak = newKey(); st.akVer = (st.akVer || 3) + 1; st.akAt = 'now by ' + ME.email; st.akNew = true; st.audit.unshift({ kind: 'sec', ts: now(), type: 'access-key.rotated (+ audit deployment.access-key-rotated)', target: 'v' + st.akVer }); }
+      else if (v.startsWith('cmd:')) { SECVAL[v] = cmdOf(); st.audit.unshift({ kind: 'sec', ts: now(), type: 'install-token.revoked + install-token.created (replaceActive)', target: v.slice(4) }); }
+      else if (v.startsWith('sec:')) { SECVAL[v] = Array.from({ length: 32 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[Math.floor(Math.random() * 57)]).join(''); st.audit.unshift({ kind: 'sec', ts: now(), type: 'secret.regenerated (+ draft.updated, audit deployment.secret-regenerated)', target: v.slice(4) }); }
+      else if (v.startsWith('acc:')) { SECVAL[v] = Array.from({ length: 20 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[Math.floor(Math.random() * 57)]).join(''); st.audit.unshift({ kind: 'reg', ts: now(), type: 'account.password-set', target: 'accounts/' + v.slice(4) }); }
+      showFor(v);
+    }
+    if (a === 'resetLink') { SECVAL['link:kiran'] = 'https://opm-cloud.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=' + Math.random().toString(36).slice(2, 14); showFor('link:kiran'); st.audit.unshift({ kind: 'reg', ts: now(), type: 'account.reset-link-created', target: 'accounts/kiran' }); }
+    if (a === 'upl') st.uploaded = true;
+    if (a === 'actf') st.act = v;
+    if (a === 'dtab') st.diff = v;
+    if (a === 'stab') st.tab = v;
+    if (a === 'tree') st.open[v] = !(st.open[v] ?? (v === P.site));
+    if (a === 'volAdd') { st.volAdd = st.volAdd ? false : true; st.volDel = null; }
+    if (a === 'volDel') { st.volDel = v || null; st.volAdd = false; }
+    if (a === 'fpv') st.fpv = !st.fpv;
+    if (a === 'reveal') {
+      showFor(v);
+      const T = { reg: ['reg', 'registry.password-revealed'], sec: ['sec', 'secret.revealed { where: "cloud" } + audit deployment.secret-revealed'], cmd: ['sec', 'install-token.revealed + audit deployment.install-command-revealed'], acc: ['reg', 'account.password-revealed'], link: ['reg', 'account.reset-link-revealed'] };
+      const [kind, type] = v === 'ak' ? ['sec', 'access-key.revealed + audit deployment.access-key-revealed'] : T[v.split(':')[0]];
+      st.audit.unshift({ kind, ts: now(), type, target: v === 'ak' ? 'v' + (st.akVer || 3) : v.slice(v.indexOf(':') + 1) });
+    }
+    render();
+  }));
+}
+const jump = document.getElementById('jump');
+R.forEach((r) => jump.appendChild(h('option', { value: r.id }, `${r.route} · ${r.name}`)));
+jump.onchange = () => { go(jump.value); };
+
+// ---------- route tree ----------
+(function tree() {
+  const svg = document.getElementById('rtSvg');
+  const root = R.filter((r) => r.scope === 'root'), dep = R.filter((r) => r.scope === 'dep');
+  const rowH = 22, H = Math.max(root.length, dep.length) * rowH + 60;
+  svg.setAttribute('viewBox', `0 0 980 ${H}`);
+  svg.style.minWidth = '760px';
+  const col = (list, x, title, base) => {
+    svg.appendChild(svgEl('text', { x, y: 24, 'font-size': 13, 'font-weight': 650 }, title));
+    list.forEach((r, i) => {
+      const y = 50 + i * rowH;
+      const rel = base ? r.route.replace(base, '') || '/' : r.route;
+      const depth = (rel.match(/\//g) || []).length - (base ? 0 : 1);
+      const ix = x + Math.max(0, depth - 1) * 18;
+      svg.appendChild(svgEl('line', { x1: x - 8, x2: ix - 4, y1: y - 4, y2: y - 4, class: 'lane-line' }));
+      const t = svgEl('text', { x: ix, y, 'font-size': 12, class: 'rt mono' }, (base ? '…' : '') + rel);
+      t.addEventListener('click', () => { go(r.id); document.getElementById('prototype').scrollIntoView({ behavior: 'smooth' }); });
+      svg.appendChild(t);
+      svg.appendChild(svgEl('text', { x: x + 330, y, 'font-size': 11, class: 'muted' }, r.name));
+    });
+    svg.appendChild(svgEl('line', { x1: x - 8, x2: x - 8, y1: 34, y2: 50 + (list.length - 1) * rowH - 4, class: 'lane-line' }));
+  };
+  col(root, 20, 'Root scope', '');
+  col(dep, 520, 'Deployment scope · /app/deployments/{deploymentId}', '/app/deployments/{deploymentId}');
+})();
+
+// ---------- table ----------
+function table() {
+  const q = document.getElementById('rtFilter').value.toLowerCase();
+  document.querySelector('#rtTbl tbody').innerHTML = R.filter((r) => !q || JSON.stringify([r.route, r.name, r.shows, r.actions, r.api, r.perm]).toLowerCase().includes(q)).map((r) =>
+    `<tr><td><a class="mono" style="cursor:pointer" data-open="${r.id}">${r.route}</a></td><td>${r.scope === 'root' ? 'root' : 'deployment'}</td><td>${r.name}</td><td>${r.shows}</td><td>${r.actions}</td><td class="small mono">${r.api}</td><td class="small mono">${r.perm}</td></tr>`).join('');
+  document.querySelectorAll('#rtTbl [data-open]').forEach((a) => (a.onclick = () => { go(a.dataset.open); document.getElementById('prototype').scrollIntoView({ behavior: 'smooth' }); }));
+}
+document.getElementById('rtFilter').oninput = table;
+document.getElementById('kRoutes').textContent = R.length;
+document.getElementById('kRoot').textContent = R.filter((r) => r.scope === 'root').length;
+document.getElementById('kDep').textContent = R.filter((r) => r.scope === 'dep').length;
+table();
+render();
+</script>
+</body>
+</html>

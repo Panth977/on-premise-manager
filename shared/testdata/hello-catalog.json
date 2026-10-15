@@ -1,0 +1,177 @@
+{
+ "description": "Validation context for hello-config.json (services, images, not-found pages). Services keyed by serviceSlug; images by <serviceSlug>:<version>.",
+ "services": {
+  "hello-web": {
+   "serviceSlug": "hello-web",
+   "label": "Hello web",
+   "icon": "lucide:globe"
+  },
+  "hello-api": {
+   "serviceSlug": "hello-api",
+   "label": "Hello API",
+   "icon": "lucide:server"
+  },
+  "redis": {
+   "serviceSlug": "redis",
+   "label": "Redis",
+   "icon": "lucide:database"
+  }
+ },
+ "images": {
+  "hello-web:v1": {
+   "kind": "service",
+   "ports": [
+    {
+     "name": "http",
+     "port": 8080,
+     "protocol": "tcp",
+     "description": "HTTP"
+    }
+   ],
+   "env": [
+    {
+     "name": "THEME",
+     "value": "green",
+     "required": false,
+     "secret": false,
+     "description": "Page colour: green | yellow | blue | red"
+    },
+    {
+     "name": "API_BASE",
+     "value": "/api",
+     "required": false,
+     "secret": false,
+     "description": "Path prefix of the API as seen by the browser"
+    },
+    {
+     "name": "BANNER_FILE",
+     "required": false,
+     "secret": false,
+     "description": "Path of a text file shown under the title"
+    },
+    {
+     "name": "PORT",
+     "value": "8080",
+     "required": false,
+     "secret": false,
+     "description": "Listen port"
+    }
+   ],
+   "volumes": [],
+   "healthcheck": {
+    "type": "http",
+    "portName": "http",
+    "path": "/healthz",
+    "expectStatus": 200,
+    "intervalSec": 2,
+    "timeoutSec": 2,
+    "retries": 3,
+    "startPeriodSec": 2
+   }
+  },
+  "hello-api:v1": {
+   "kind": "service",
+   "ports": [
+    {
+     "name": "http",
+     "port": 8080,
+     "protocol": "tcp",
+     "description": "HTTP"
+    }
+   ],
+   "env": [
+    {
+     "name": "REDIS_ADDR",
+     "required": false,
+     "secret": false,
+     "description": "host:port of redis; empty = store the counter in DATA_DIR/count"
+    },
+    {
+     "name": "API_TOKEN",
+     "required": true,
+     "secret": true,
+     "description": "Token (only its length is shown at GET /info)"
+    },
+    {
+     "name": "GREETING",
+     "value": "hello",
+     "required": false,
+     "secret": false,
+     "description": "Text returned by GET /info"
+    },
+    {
+     "name": "FAIL_HEALTH",
+     "value": "0",
+     "required": false,
+     "secret": false,
+     "description": "1 = /healthz answers 500 (rollback test)"
+    },
+    {
+     "name": "DATA_DIR",
+     "value": "/data",
+     "required": false,
+     "secret": false,
+     "description": "Directory of the file store"
+    },
+    {
+     "name": "PORT",
+     "value": "8080",
+     "required": false,
+     "secret": false,
+     "description": "Listen port"
+    }
+   ],
+   "volumes": [
+    {
+     "name": "data",
+     "mountPath": "/data",
+     "description": "File store of the counter"
+    }
+   ],
+   "healthcheck": {
+    "type": "http",
+    "portName": "http",
+    "path": "/healthz",
+    "expectStatus": 200,
+    "intervalSec": 2,
+    "timeoutSec": 2,
+    "retries": 3,
+    "startPeriodSec": 2
+   }
+  },
+  "redis:v1": {
+   "kind": "service",
+   "ports": [
+    {
+     "name": "tcp",
+     "port": 6379,
+     "protocol": "tcp",
+     "description": "Redis protocol"
+    }
+   ],
+   "env": [],
+   "volumes": [
+    {
+     "name": "data",
+     "mountPath": "/data",
+     "description": "AOF + RDB files"
+    }
+   ],
+   "healthcheck": {
+    "type": "exec",
+    "command": [
+     "redis-cli",
+     "ping"
+    ],
+    "expectExitCode": 0,
+    "intervalSec": 2,
+    "timeoutSec": 2,
+    "retries": 3,
+    "startPeriodSec": 2
+   }
+  }
+ },
+ "notFoundPageIds": [
+  "NfpHello000000000001"
+ ]
+}

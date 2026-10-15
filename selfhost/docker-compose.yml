@@ -1,0 +1,47 @@
+# opm-cloud on one VM (SPEC §21 #108, docs-v2/self-host.md).
+#   cd selfhost && docker compose up -d --build
+#   docker compose exec opm-cloud opm-cloud create-admin --email you@example.com
+# The volume opm-data (/data) IS the whole cloud (SQLite files, blobs, secrets): back it up with `opm-cloud backup`
+# (OPM_DATA=./data binds a host directory instead; it must be writable by uid 10001).
+# HTTPS: set OPM_DOMAIN (+ OPM_PUBLIC_URL=https://<domain>) and start with `--profile https` (Caddy, automatic TLS).
+services:
+  opm-cloud:
+    build:
+      context: ..
+      dockerfile: selfhost/Dockerfile
+    # CI image (.github/workflows/opm-cloud.yml): OPM_CLOUD_IMAGE=ghcr.io/panth977/on-premise-manager:<branch|tag>
+    image: ${OPM_CLOUD_IMAGE:-opm-cloud:local}
+    restart: unless-stopped
+    environment:
+      OPM_PUBLIC_URL: ${OPM_PUBLIC_URL:-http://localhost:8790}
+      OPM_CONSOLE_URL: ${OPM_CONSOLE_URL:-}
+      OPM_SMTP_URL: ${OPM_SMTP_URL:-}
+      OPM_SMTP_FROM: ${OPM_SMTP_FROM:-}
+      OPM_OIDC_ISSUER: ${OPM_OIDC_ISSUER:-}
+      OPM_OIDC_CLIENT_ID: ${OPM_OIDC_CLIENT_ID:-}
+      OPM_OIDC_CLIENT_SECRET: ${OPM_OIDC_CLIENT_SECRET:-}
+      OPM_OIDC_LABEL: ${OPM_OIDC_LABEL:-}
+      OPM_OIDC_ALLOWED_DOMAIN: ${OPM_OIDC_ALLOWED_DOMAIN:-}
+      OPM_RELEASE_PUBLIC_KEY: ${OPM_RELEASE_PUBLIC_KEY:-}
+    ports:
+      - "${OPM_BIND:-127.0.0.1}:${OPM_HOST_PORT:-8790}:8790"
+    volumes:
+      - ${OPM_DATA:-opm-data}:/data
+      # optional: agent binaries from `make dist` for `opm-cloud upload-agent --dir /agent-dist`
+      - ${OPM_AGENT_DIST:-../agent/dist}:/agent-dist:ro
+  caddy:
+    profiles: ["https"]
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      OPM_DOMAIN: ${OPM_DOMAIN:-opm.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [opm-cloud]
+volumes:
+  opm-data:
+  caddy-data:

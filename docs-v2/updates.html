@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Config, Proposals & Updates</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="assets/app.js"></script>
+<style>
+  .gate { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .gate { grid-template-columns: minmax(0, 1fr); } }
+  .gate label { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 8px 0; cursor: pointer; }
+  .bigbtn { font: inherit; font-size: 15px; font-weight: 650; padding: 10px 22px; border-radius: 8px; border: 0; background: var(--ok); color: #fff; cursor: pointer; }
+  .bigbtn:disabled { opacity: 0.4; cursor: default; }
+  .acc input { font: inherit; font-family: var(--mono); font-size: 15px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); width: 160px; }
+  .tl { list-style: none; padding: 0; margin: 10px 0; }
+  .tl li { padding: 6px 10px; border-left: 3px solid var(--border); margin: 4px 0; font-size: 13.5px; background: var(--surface); border-radius: 0 6px 6px 0; }
+  .tl li.ok { border-left-color: var(--ok); }
+  .tl li.bad { border-left-color: var(--bad); background: var(--bad-soft); }
+  .tl li.rb { border-left-color: var(--warn); background: var(--warn-soft); }
+  .tl li.skip { opacity: 0.45; }
+  .dagctl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .dagctl { grid-template-columns: minmax(0, 1fr); } }
+  .dagctl label { display: block; font-size: 13px; margin: 4px 0; cursor: pointer; }
+  .order { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side"><div class="brand">On-Prem Manager<small>Docs v2 · prototype spec</small></div><nav></nav></aside>
+<main>
+<div class="eyebrow">Change flow</div>
+<h1>Config, proposals &amp; updates</h1>
+<div class="callout note" id="commit-only-105"><b>Agent 0.14.1: one action — Commit (SPEC §21 #105)</b><p>There is no working copy and no draft any more. Every edit stays <b>in your browser</b> (kept in local storage, so a reload loses nothing) until you press <b>Commit…</b> and give a message — that writes the commit directly. The bar on every config page shows <i>N changes (not committed)</i> · Discard · Review · Commit…; drawers and dialogs <b>Apply</b> into it, there is no Save button. If someone else committed meanwhile, your changes are rebased onto the new head (automatically when nothing conflicts). On a site, a Commit in the agent GUI also <b>applies</b> the changes to the containers (a failed apply writes no commit); there, "uncommitted" means only changes made on the server outside the agent — commit those first. Details: <a href="branches-commits.md">branches-commits.md §15</a>.</p></div>
+<div class="callout note" id="branches-104"><b>Agent 0.14: branches replace proposals (SPEC §21 #104)</b><p>Templates, deployments and every site are now <b>branches of commits</b>. Edits go into a working copy; <b>Commit…</b> (a message is required) makes a commit. The newest deployment commit is what the sites should run — there is no proposal and no approve countdown any more. In the agent GUI <b>Branch</b> page a person on the site <b>merges</b> the cloud commit (all of it, or cherry-picked items; deletions show as "remove locally"); the apply engine below (snapshot, start order, readiness, rollback) still runs it. Changes made on the server by hand show as uncommitted and must be committed or discarded first. Agents older than 0.14 still get the commit as a proposal. Full design: <a href="branches-commits.md">branches-commits.md</a>. The rest of this page describes the apply engine and the pre-0.14 proposal flow.</p></div>
+<p class="lede">The config is one document for the whole deployment. Every change makes a new revision. A revision waits as a proposal in the agent GUI. A person approves it once, for all sites. The agent takes a snapshot first. If any step fails, every site rolls back.</p>
+
+<h2 id="template">Template changes never flow by themselves</h2>
+<p>A deployment made from a template is a <b>copy</b>. Editing the template (variables, files, sites, containers) or deleting it never changes the deployment, and nothing updates in the background. To bring template changes in, open <b>Template sync</b> in the deployment: it compares the template when you last synced (the base), the template now, and your draft. You tick the template changes you want, choose for every conflict (take template, keep mine, or a merged value), preview the validation and click <b>Apply to draft</b>. That only edits the cloud draft. You still review the Diff and publish a proposal, and a person still approves it on a site, like any other change. Changes you did not take stay listed as “skipped” until the template changes them again.</p>
+
+<h2 id="chain">The revision chain</h2>
+<div class="diagram">
+  <svg viewBox="0 0 900 250" role="img" aria-label="Revision chain">
+    <defs><marker id="ra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+    <text x="20" y="30" font-size="12" font-weight="600" class="muted">HEAD ON ALL SITES (linear)</text>
+    <g font-size="12">
+      <rect x="20" y="50" width="130" height="60" rx="9" class="box app" /><text x="85" y="75" text-anchor="middle" font-weight="650">seq 1</text><text x="85" y="94" text-anchor="middle" class="muted" font-size="10.5">origin cloud</text>
+      <rect x="190" y="50" width="130" height="60" rx="9" class="box app" /><text x="255" y="75" text-anchor="middle" font-weight="650">seq 2</text><text x="255" y="94" text-anchor="middle" class="muted" font-size="10.5">origin cloud</text>
+      <rect x="360" y="50" width="130" height="60" rx="9" class="box agent" /><text x="425" y="75" text-anchor="middle" font-weight="650">seq 3</text><text x="425" y="94" text-anchor="middle" class="muted" font-size="10.5">origin agent (local)</text>
+      <rect x="530" y="50" width="150" height="60" rx="9" class="box" style="stroke:var(--ok);stroke-width:2.4" /><text x="605" y="75" text-anchor="middle" font-weight="650">seq 4 · head</text><text x="605" y="94" text-anchor="middle" class="muted" font-size="10.5">origin cloud</text>
+    </g>
+    <g class="ln ln-cloud" marker-end="url(#ra)"><path d="M150,80 H188" /><path d="M320,80 H358" /><path d="M490,80 H528" /></g>
+    <g font-size="12">
+      <rect x="720" y="20" width="165" height="54" rx="9" class="box" style="stroke:var(--ok)" /><text x="802" y="43" text-anchor="middle" font-weight="650">proposal P · parent 4</text><text x="802" y="61" text-anchor="middle" class="muted" font-size="10.5">valid → can be approved</text>
+      <rect x="720" y="130" width="165" height="54" rx="9" class="box" style="stroke:var(--warn)" /><text x="802" y="153" text-anchor="middle" font-weight="650">proposal Q · parent 3</text><text x="802" y="171" text-anchor="middle" class="muted" font-size="10.5">stale (head moved)</text>
+    </g>
+    <path d="M680,70 C700,60 705,50 718,47" class="ln ln-agent" marker-end="url(#ra)" />
+    <path d="M490,100 C560,170 650,165 718,157" class="ln ln-cut" marker-end="url(#ra)" />
+    <text x="20" y="225" font-size="11" class="muted">revId = ULID · seq = parent.seq + 1 · hash = sha256 of the RFC 8785 canonical JSON of the config</text>
+  </svg>
+</div>
+<div class="tbl-wrap"><table>
+<tr><th>Rule</th><th>What happens</th></tr>
+<tr><td>Linear on the sites</td><td>Every agent stores the same head. A new revision is always a child of the head.</td></tr>
+<tr><td>Cloud publish</td><td>Diff page → "Publish proposal" → revision <code>{ parentRevId: deployment.head.revId, origin: "cloud", config: draft }</code> + proposal status <code>published</code>. Agents get it on the next poll.</td></tr>
+<tr><td>Stale</td><td>The sites' head is no longer the parent (a local change happened). The agents mark the proposal <code>stale</code>. The cloud shows "rebase needed".</td></tr>
+<tr><td>Rebase</td><td>Diff page → "Copy head into draft" → edit again → publish again. Nothing merges silently.</td></tr>
+<tr><td>Superseded</td><td>A newer cloud proposal marks older proposals that are not approved as <code>superseded</code>.</td></tr>
+<tr><td>Local proposal</td><td>An edit in the agent GUI makes a revision with <code>origin: "agent"</code> and <code>actor: email</code>. It uses the same gate and apply steps.</td></tr>
+</table></div>
+
+<h2 id="staging">Staging on every site</h2>
+<p>Staging is automatic and needs no approval. It runs on every site of the current and of the proposed config. Each site reports its staging state to the proposal.</p>
+<div class="diagram">
+  <svg viewBox="0 0 900 170" role="img" aria-label="Staging pipeline">
+    <defs><marker id="sa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
+    <g font-size="12">
+      <rect x="10" y="40" width="150" height="70" rx="9" class="box" /><text x="85" y="66" text-anchor="middle" font-weight="650">1 · validate</text><text x="85" y="84" text-anchor="middle" font-size="10.5" class="muted">schema + every</text><text x="85" y="98" text-anchor="middle" font-size="10.5" class="muted">expression resolves</text>
+      <rect x="190" y="40" width="150" height="70" rx="9" class="box" /><text x="265" y="66" text-anchor="middle" font-weight="650">2 · image layers</text><text x="265" y="84" text-anchor="middle" font-size="10.5" class="muted">missing only, from the</text><text x="265" y="98" text-anchor="middle" font-size="10.5" class="muted">cloud catalog</text>
+      <rect x="370" y="40" width="150" height="70" rx="9" class="box" /><text x="445" y="66" text-anchor="middle" font-weight="650">3 · docker load</text><text x="445" y="84" text-anchor="middle" font-size="10.5" class="muted">load only,</text><text x="445" y="98" text-anchor="middle" font-size="10.5" class="muted">do not run</text>
+      <rect x="550" y="40" width="150" height="70" rx="9" class="box" /><text x="625" y="66" text-anchor="middle" font-weight="650">4 · file blobs</text><text x="625" y="84" text-anchor="middle" font-size="10.5" class="muted">missing sha256 blobs</text><text x="625" y="98" text-anchor="middle" font-size="10.5" class="muted">from the cloud</text>
+      <rect x="730" y="40" width="160" height="70" rx="9" class="box" style="stroke:var(--ok)" /><text x="810" y="66" text-anchor="middle" font-weight="650">5 · dry run</text><text x="810" y="84" text-anchor="middle" font-size="10.5" class="muted">container specs, ports free,</text><text x="810" y="98" text-anchor="middle" font-size="10.5" class="muted">mounts possible → ready</text>
+    </g>
+    <g class="ln ln-cloud" marker-end="url(#sa)"><path d="M160,75 H188" /><path d="M340,75 H368" /><path d="M520,75 H548" /><path d="M700,75 H728" /></g>
+    <text x="10" y="145" font-size="11" class="muted">Per-site staging state: pending → downloading (progress 0..1) → ready, or failed with an error. The agent never sees registry passwords.</text>
+  </svg>
+</div>
+<div class="callout note"><b>Where the blobs come from (steps 2 and 4)</b><p>Each site gets a missing image layer or file blob from a peer first (local network). If no peer has it, one internet site (the fetcher, by rendezvous hash) downloads it from the cloud, and the others copy it from that site. Every copy passes a sha256 check. The staging table shows the source per blob: <code>cloud</code> or <code>peer &lt;slug&gt;</code>. Each site with internet polls the cloud on its own; a site without internet gets the newest cloud view from its peers (latest fetch wins). See <a href="agent.html#distribution">Smart distribution</a>. Gate condition (b) does not change: every site must still be reachable.</p></div>
+
+<h2 id="gate">The gate: when the Approve button shows</h2>
+<p>The Approve button is visible only when all four conditions are true. Tick them to see the button.</p>
+<div class="gate">
+  <div class="card">
+    <h4>Conditions (all must be true)</h4>
+    <label><input type="checkbox" class="gc" /> <span><b>a · parent = head</b> on every site (the proposal is not stale)</span></label>
+    <label><input type="checkbox" class="gc" /> <span><b>b · every site reachable</b>: every site of the current AND of the proposed config is enrolled and answered over the mesh in the last 30 s (a new site must be installed first)</span></label>
+    <label><input type="checkbox" class="gc" /> <span><b>c · staging ready</b> on every such site</span></label>
+    <label><input type="checkbox" class="gc" /> <span><b>d · no other update</b> is running</span></label>
+  </div>
+  <div class="card">
+    <h4>/_opm/app/updates</h4>
+    <p class="small muted" id="gateMsg"></p>
+    <div id="gateArea"></div>
+  </div>
+</div>
+
+<h2 id="apply">Approve, then apply</h2>
+<p>Approve → a 60-second countdown (you can cancel; hold <b>⏩ Hold to fast-forward</b> to run it ×2, then ×4 — never shorter than 15 s, the agent counts it; a fast-forwarded approval is recorded as "fast-forwarded (×4, 18 s real)") → a dialog asks you to type <code>ACCEPT</code>. The dialog shows the declared actor (the email from the "Who is working right now?" popup); that email is written as <code>approvedBy</code>. The agent where you approved becomes the coordinator.</p>
+<div id="seqApply"></div>
+
+<div class="callout note"><b>Volume starter content</b><p>Staging also fetches the starter content of site volumes (files and archives, like file blobs) and checks it. It fails when a volume changed between folder and single file while it holds data ("use a new volume name"). During APPLY the agent writes starter content into new or empty volumes, before the containers start. It never writes into a volume that has data. The review shows "seed changed — applies only to new / empty volumes" when you change the starter content of an existing volume. See <a href="backups.html#seed">Starter content</a>.</p></div>
+
+<h2 id="order">Apply order</h2>
+<p>Sites start in <code>depends</code> order. Inside a site, containers start in <code>depends</code> order. A cycle is a validation error, so staging fails. Change the dependencies below.</p>
+<div class="dagctl">
+  <div class="card"><h4>Site depends</h4><div id="siteDeps"></div></div>
+  <div class="card"><h4>Container depends (site app)</h4><div id="ctrDeps"></div></div>
+</div>
+<div class="diagram"><svg id="dagSvg" viewBox="0 0 900 260" role="img" aria-label="Dependency graph"></svg></div>
+<div class="callout" id="orderOut"></div>
+
+<h2 id="rollback">Automatic rollback</h2>
+<p>If any step from snapshot to verify fails, every site restores the pre-update snapshot. Pick where the update fails.</p>
+<div class="controls"><div class="seg" id="failSeg"><button data-v="none" class="on">No failure</button><button data-v="snapshot">Snapshot fails (disk full)</button><button data-v="apply">Apply fails (api on app)</button><button data-v="edge">Edge reload fails (bad cert file)</button><button data-v="verify">Verify fails (web not ready in 300 s)</button></div></div>
+<ol class="tl" id="failOut"></ol>
+<h3 id="failed-logs">Why did it fail? Container logs</h3>
+<ul>
+  <li><b>Before</b> the rollback touches a container that failed APPLY or VERIFY, the agent saves: the last 200 log lines (secrets hidden), the exit code, "OOM killed", the restart count, the port map, and every health check (time, pass / fail, inside the start period or counted, message).</li>
+  <li><b>Agent GUI → Updates</b>: the result of a failed update has a <b>Failed containers</b> section. Open a container to see its error, health history and log lines.</li>
+  <li><b>Cloud → Activities</b>: the <code>update.failed</code> activity carries the same summary and the last 40 log lines; its drawer shows them under "Failed containers".</li>
+  <li><b>On the server</b>: the failed container is stopped and kept as <code>&lt;name&gt;-failed-&lt;unix time&gt;</code>, so <code>docker logs &lt;that name&gt;</code> works. It is removed after the next successful update or after 24 h.</li>
+  <li><b>Running containers</b>: Agent GUI → a site → <b>Status</b> → Container logs: tail 200 / 1000 / 5000, search, <b>follow</b>, <b>Download</b>.</li>
+  <li>A container that keeps crashing shows "container is restarting: last exit code N, M restarts". Look at its log lines for the reason (for example a missing variable or a database it cannot reach).</li>
+</ul>
+
+<h2 id="local">Local changes</h2>
+<div class="grid g2">
+  <div class="card"><h4><span class="tag ok">allowed</span> in the agent GUI</h4><ul>
+    <li>Variable values, secret values, file contents</li>
+    <li>Container env values (value or secretRef)</li>
+    <li>Container mount sources, port, command, restart, resources, depends, enabled</li>
+    <li>agentPort, agentGuiAliasPort, notFoundPageId, site depends, host</li>
+    <li>Site volumes: add, edit (label, description, Back up), remove an unused one</li>
+    <li>The edge: hosts, TLS modes, routes</li>
+  </ul></div>
+  <div class="card"><h4><span class="tag bad">cloud only</span></h4><ul>
+    <li>Add, remove, duplicate or rename a container (containerSlug)</li>
+    <li>Change a container's serviceSlug or image version</li>
+    <li>Add or remove a site</li>
+    <li>Add or remove a variable, secret or file definition</li>
+    <li>Dev-tool presets (<code>SiteConfig.devTools</code>, agent 0.11.0): the agent copies the head's presets into a local proposal; a different value → <code>V_LOCAL_DEVTOOLS</code>. On the site, <b>Duplicate to edit locally</b> makes a manual connection instead (<a href="agent-gui.html#devtools">Dev tools</a>; not a proposal).</li>
+  </ul></div>
+</div>
+<ol class="steps">
+  <li><b>Edit</b>Edit on <code>/_opm/app/variables</code>, <code>/secrets</code>, <code>/files</code>, <code>/sites</code> or <code>/_opm/app/{siteSlug}/config</code>. The page shows the diff.</li>
+  <li><b>Create local proposal</b>The agent makes a revision with <code>origin: "agent"</code>, <code>actor: email</code>, parent = head.</li>
+  <li><b>Same gate</b>The proposal shows on <code>/_opm/app/updates</code> with the same four conditions, 60 s and ACCEPT.</li>
+  <li><b>Report</b>After apply, the agents report the new head (<code>POST /v1/agent/head</code>). The cloud Diff page shows head ≠ draft.</li>
+</ol>
+
+<h2 id="states">Proposal states</h2>
+<div class="diagram">
+  <svg id="stSvg" viewBox="0 0 900 300" role="img" aria-label="Proposal states"></svg>
+</div>
+<div class="tbl-wrap"><table>
+<tr><th>Status</th><th>Meaning</th></tr>
+<tr><td><code>published</code></td><td>Created in the cloud (or locally). Agents know it.</td></tr>
+<tr><td><code>staging</code></td><td>At least one site downloads or validates.</td></tr>
+<tr><td><code>ready</code></td><td>Every site is staged. The gate can open.</td></tr>
+<tr><td><code>approved</code></td><td>A person typed ACCEPT. <code>approvedBy</code> (the declared actor email) and <code>approvedAt</code> are set.</td></tr>
+<tr><td><code>applying</code></td><td>Lock, snapshot, apply, verify run.</td></tr>
+<tr><td><code>applied</code></td><td>Head = this revision on every site.</td></tr>
+<tr><td><code>failed-rolled-back</code></td><td>A step failed. Every site restored the snapshot. <code>result.message</code> tells why.</td></tr>
+<tr><td><code>stale</code></td><td>The head is no longer the parent. Rebase in the cloud.</td></tr>
+<tr><td><code>superseded</code></td><td>A newer cloud proposal replaced it before approval.</td></tr>
+</table></div>
+</main>
+</div>
+<script>
+// ---------- gate
+const gcs = [...document.querySelectorAll('.gc')];
+const area = document.getElementById('gateArea'), msg = document.getElementById('gateMsg');
+let timer = null, left = 0;
+function gateRender() {
+  clearInterval(timer); timer = null;
+  const ok = gcs.every((c) => c.checked);
+  msg.textContent = ok ? 'Proposal P · seq 5 · parent seq 4 · all sites staged.' : `Waiting: ${gcs.filter((c) => !c.checked).length} condition(s) not true. The Approve button is hidden.`;
+  area.innerHTML = ok ? '<button class="bigbtn" type="button" id="apBtn">Approve</button><div class="small muted" style="margin-top:6px"><label><input type="checkbox" id="fast" checked /> demo speed (6 s instead of 60 s)</label></div>' : '';
+  const b = document.getElementById('apBtn');
+  if (b) b.onclick = () => {
+    left = document.getElementById('fast').checked ? 6 : 60;
+    area.innerHTML = `<p><b>Wait <span id="cd">${left}</span> s</b> before you can confirm.</p><button class="btn" type="button" id="cancel">Cancel</button>`;
+    document.getElementById('cancel').onclick = gateRender;
+    timer = setInterval(() => {
+      left -= 1; const cd = document.getElementById('cd'); if (cd) cd.textContent = left;
+      if (left <= 0) {
+        clearInterval(timer); timer = null;
+        area.innerHTML = '<div class="acc"><p>Type <code>ACCEPT</code> to start the update on all sites. Actor: <b class="mono">ravi@acme.example</b> (declared in the "Who is working right now?" popup).</p><input id="accIn" autocomplete="off" /> <button class="btn primary" type="button" id="accBtn" disabled>Start update</button> <button class="btn" type="button" id="cancel2">Cancel</button></div>';
+        const i = document.getElementById('accIn'), ab = document.getElementById('accBtn');
+        i.oninput = () => (ab.disabled = i.value !== 'ACCEPT');
+        document.getElementById('cancel2').onclick = gateRender;
+        ab.onclick = () => { area.innerHTML = '<div class="callout ok" style="margin:0"><b>Update started</b><p>This agent is the coordinator. Status: approved → applying. See the steps below.</p></div><button class="btn" type="button" id="again">Reset demo</button>'; document.getElementById('again').onclick = () => { gcs.forEach((c) => (c.checked = false)); gateRender(); }; };
+      }
+    }, 1000);
+  };
+}
+gcs.forEach((c) => (c.onchange = gateRender));
+gateRender();
+
+// ---------- apply sequence
+sequence(document.getElementById('seqApply'), {
+  lanes: [
+    { id: 'op', label: 'Operator', sub: 'agent GUI' },
+    { id: 'co', label: 'Coordinator', sub: 'site app', cls: 'agent' },
+    { id: 'db', label: 'Other site', sub: 'site db', cls: 'agent' },
+    { id: 'cl', label: 'Cloud', sub: 'api.opm.example', cls: 'app' },
+  ],
+  steps: [
+    { from: 'op', to: 'co', label: 'Approve · wait 60 s · type ACCEPT', detail: 'The agent checks the gate again. It records <code>approvedBy = email</code>, <code>approvedAt</code>, and writes an activity <code>proposal.approved</code>.' },
+    { from: 'co', to: 'db', label: '1 · LOCK', detail: 'Every site refuses other changes until the update ends. If a site does not answer, the update stops before any change.' },
+    { from: 'co', to: 'db', label: '2 · SNAPSHOT (pre-update)', detail: 'Each site stops the containers that will change, in reverse dependency order. It saves config + image refs of all containers + the site volumes with Back up on that the changing containers mount (old and new config); host paths and back-up-off volumes are never archived.' },
+    { from: 'co', to: 'co', label: '2 · SNAPSHOT on app', detail: 'The coordinator snapshots its own site too. Free-space check first: it needs 1.2 × the estimate.' },
+    { from: 'co', to: 'db', label: '3 · APPLY site db (depends first)', detail: 'Sites follow <code>depends</code> order. Site app depends on site db, so db goes first. Inside the site, containers follow <code>depends</code> order. After the containers, the agent reloads the edge (embedded Caddy, <code>caddy.Load</code>, graceful). A failed reload keeps the old edge running, writes <code>edge.reload-failed</code> and fails the step → automatic rollback on all sites.' },
+    { from: 'co', to: 'co', label: '3 · APPLY site app', detail: 'Recreate changed containers, start new ones, remove deleted ones.' },
+    { from: 'co', to: 'db', label: '4 · VERIFY', detail: 'Every container must be "completed" within 300 s: health check passes (or runs 10 s without a restart), or a job exits 0.' },
+    { from: 'co', to: 'db', label: '5 · COMMIT · head = seq 5', detail: 'Every site sets the new head and unlocks. Proposal status = <code>applied</code>.' },
+    { from: 'co', to: 'cl', label: 'POST /v1/agent/head + activities', detail: 'The cloud updates <code>deployment.head</code>. The Diff page compares the draft with this head.' },
+  ],
+});
+
+// ---------- DAG demo
+const SDEPS = { 'app→db': true, 'db→app': false };
+const CTRS = ['redis', 'api', 'web', 'worker'];
+const CDEPS = { 'api→redis': true, 'web→api': true, 'worker→api': true, 'redis→web': false };
+function topo(nodes, links) { // links: [from(depends on) to] meaning from waits for to
+  const indeg = {}, adj = {};
+  nodes.forEach((n) => { indeg[n] = 0; adj[n] = []; });
+  links.forEach(([a, b]) => { adj[b].push(a); indeg[a] += 1; });
+  const q = nodes.filter((n) => indeg[n] === 0), out = [];
+  while (q.length) { const n = q.shift(); out.push(n); adj[n].forEach((m) => { if (--indeg[m] === 0) q.push(m); }); }
+  return out.length === nodes.length ? out : null;
+}
+function boxes(id, obj) {
+  const el = document.getElementById(id);
+  el.innerHTML = Object.keys(obj).map((k) => `<label><input type="checkbox" data-k="${k}" ${obj[k] ? 'checked' : ''}/> <code>${k.replace('→', '</code> depends on <code>')}</code></label>`).join('');
+  el.querySelectorAll('input').forEach((i) => (i.onchange = () => { obj[i.dataset.k] = i.checked; drawDag(); }));
+}
+function drawDag() {
+  const svg = document.getElementById('dagSvg');
+  svg.innerHTML = '';
+  const defs = svgEl('defs'); const mk = svgEl('marker', { id: 'dg', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto' }); mk.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' })); defs.appendChild(mk); svg.appendChild(defs);
+  const P = { db: [120, 120], app: [470, 120] };
+  const C = { redis: [380, 80], api: [500, 80], web: [620, 80], worker: [560, 175] };
+  svg.appendChild(svgEl('rect', { x: 20, y: 30, width: 200, height: 200, rx: 12, class: 'zone zone-site' }));
+  svg.appendChild(svgEl('text', { x: 34, y: 52, 'font-size': 12, 'font-weight': 600, class: 'muted' }, 'site db'));
+  svg.appendChild(svgEl('rect', { x: 330, y: 30, width: 380, height: 200, rx: 12, class: 'zone zone-site' }));
+  svg.appendChild(svgEl('text', { x: 344, y: 52, 'font-size': 12, 'font-weight': 600, class: 'muted' }, 'site app'));
+  const node = (x, y, t, cls) => { svg.appendChild(svgEl('rect', { x: x - 50, y: y - 20, width: 100, height: 40, rx: 8, class: 'box ' + cls })); svg.appendChild(svgEl('text', { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600 }, t)); };
+  node(120, 130, 'postgres', 'cs');
+  CTRS.forEach((c) => node(C[c][0], C[c][1], c, 'app'));
+  const arrow = (a, b, cls) => svg.appendChild(svgEl('path', { d: `M${a[0]},${a[1]} L${b[0]},${b[1]}`, class: 'ln ' + cls, 'marker-end': 'url(#dg)' }));
+  Object.entries(CDEPS).forEach(([k, on]) => { if (!on) return; const [a, b] = k.split('→'); const A = C[a], B = C[b]; const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy); arrow([A[0] + dx / L * 50, A[1] + dy / L * 20], [B[0] - dx / L * 52, B[1] - dy / L * 22], 'ln-agent'); });
+  if (SDEPS['app→db']) arrow([330, 150], [222, 150], 'ln-repl');
+  if (SDEPS['db→app']) arrow([222, 190], [330, 190], 'ln-repl');
+  svg.appendChild(svgEl('text', { x: 20, y: 252, 'font-size': 11, class: 'muted' }, 'An arrow points from a container (or site) to what it waits for.'));
+  const so = topo(['app', 'db'], Object.entries(SDEPS).filter(([, v]) => v).map(([k]) => k.split('→')));
+  const co = topo(CTRS, Object.entries(CDEPS).filter(([, v]) => v).map(([k]) => k.split('→')));
+  const out = document.getElementById('orderOut');
+  if (!so || !co) { out.className = 'callout bad'; out.innerHTML = `<b>Validation error: dependency cycle</b><p>${!so ? 'Sites app and db depend on each other.' : 'Containers on site app have a cycle.'} Staging fails. The proposal cannot be approved.</p>`; return; }
+  out.className = 'callout ok';
+  out.innerHTML = '<b>Apply order</b><div class="order">' + so.map((s) => `<span class="tag">site ${s}</span> ` + (s === 'db' ? '<span class="tag cs">postgres</span>' : co.map((c) => `<span class="tag app">${c}</span>`).join(' → '))).join(' <b>→</b> ') + '</div>';
+}
+boxes('siteDeps', SDEPS); boxes('ctrDeps', CDEPS); drawDag();
+
+// ---------- failure simulator
+const STEPS = [
+  ['lock', 'LOCK all sites'],
+  ['snapshot', 'SNAPSHOT on db and app (pre-update)'],
+  ['apply', 'APPLY site db, then site app (depends order); inside a site the containers start in the start order (referenced first), readiness waits in parallel'],
+  ['edge', 'EDGE reload on each site (caddy.Load, graceful)'],
+  ['verify', 'VERIFY: every container completed within 300 s'],
+  ['commit', 'COMMIT: head = seq 5 on every site'],
+];
+function failRender(f) {
+  const o = document.getElementById('failOut');
+  let html = '', failed = false;
+  STEPS.forEach(([k, t]) => {
+    if (failed) { html += `<li class="skip">${t} — not run</li>`; return; }
+    if (k === f) {
+      failed = true;
+      const why = { snapshot: 'site db: free space 3.1 GB < 1.2 × estimate 4.0 GB', apply: 'site app: container api exited 1 on start', verify: 'site app: web health check http :80/ did not pass in 300 s', edge: 'site app: edge.reload-failed: tls files: key tls-key does not match cert tls-cert (Caddy kept the old config)' }[k];
+      html += `<li class="bad"><b>${t} — failed</b><br><span class="small">${why}</span></li>`;
+      if (k === 'snapshot') html += '<li class="rb">ROLLBACK: nothing changed yet. Restart the stopped containers. Unlock.</li>';
+      else html += '<li class="rb">ROLLBACK on every site: previous config, previous images, restore the snapshot volumes, restart in depends order. Unlock.</li>';
+      html += '<li class="rb">Proposal status = <code>failed-rolled-back</code> · <code>result.message</code> = the reason above · activity <code>update.rolled-back</code></li>';
+      return;
+    }
+    html += `<li class="ok">${t} — ok</li>`;
+  });
+  if (!failed) html += '<li class="ok">Proposal status = <code>applied</code> · activity <code>update.applied</code></li>';
+  o.innerHTML = html;
+}
+seg(document.getElementById('failSeg'), failRender);
+
+// ---------- state machine
+(function () {
+  const svg = document.getElementById('stSvg');
+  const defs = svgEl('defs'); const mk = svgEl('marker', { id: 'sm', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto' }); mk.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: 'ah' })); defs.appendChild(mk); svg.appendChild(defs);
+  const N = { published: [70, 80], staging: [220, 80], ready: [370, 80], approved: [520, 80], applying: [670, 80], applied: [820, 40], 'failed-rolled-back': [800, 140], stale: [220, 230], superseded: [420, 230] };
+  const E = [['published', 'staging'], ['staging', 'ready'], ['ready', 'approved'], ['approved', 'applying'], ['applying', 'applied'], ['applying', 'failed-rolled-back'], ['published', 'stale'], ['staging', 'stale'], ['ready', 'stale'], ['published', 'superseded'], ['ready', 'superseded']];
+  E.forEach(([a, b]) => { const A = N[a], B = N[b]; const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy); svg.appendChild(svgEl('path', { d: `M${A[0] + dx / L * 60},${A[1] + dy / L * 18} L${B[0] - dx / L * 66},${B[1] - dy / L * 20}`, class: 'ln ' + (b === 'stale' || b === 'superseded' || b === 'failed-rolled-back' ? 'ln-cut' : 'ln-cloud'), 'marker-end': 'url(#sm)' })); });
+  Object.entries(N).forEach(([k, [x, y]]) => {
+    const w = Math.max(110, k.length * 8 + 20);
+    const col = k === 'applied' ? 'var(--ok)' : k === 'failed-rolled-back' || k === 'stale' || k === 'superseded' ? 'var(--warn)' : 'var(--border)';
+    svg.appendChild(svgEl('rect', { x: x - w / 2, y: y - 18, width: w, height: 36, rx: 18, class: 'box', style: `stroke:${col}` }));
+    svg.appendChild(svgEl('text', { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600, class: 'mono' }, k));
+  });
+  svg.appendChild(svgEl('text', { x: 20, y: 290, 'font-size': 11, class: 'muted' }, 'Solid arrows: normal path. Dashed: the proposal ends without being applied, or rolls back.'));
+})();
+</script>
+</body>
+</html>

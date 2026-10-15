@@ -1,0 +1,853 @@
+{
+ "_comment": "SPEC-final §21 #93 — shared/src/depends.ts and agent/internal/validate/depends.go read this file. literal: literalHostMentions(text, slugs); infer: inferDepends + startOrder; dns: dnsFailureHint(lines, slugs, subject) + dnsFailureMessage.",
+ "literal": [
+  {
+   "text": "MQTT_URL=mqtt://mqtt:1883",
+   "slugs": [
+    "mqtt",
+    "redis"
+   ],
+   "expect": [
+    "mqtt"
+   ]
+  },
+  {
+   "text": "REDIS=redis://redis",
+   "slugs": [
+    "mqtt",
+    "redis"
+   ],
+   "expect": [
+    "redis"
+   ]
+  },
+  {
+   "text": "host: \"mqtt\"\nport: 1883",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": [
+    "mqtt"
+   ]
+  },
+  {
+   "text": "{\"broker\": \"mqtt\", \"cache\": \"redis:6379\"}",
+   "slugs": [
+    "redis",
+    "mqtt"
+   ],
+   "expect": [
+    "mqtt",
+    "redis"
+   ]
+  },
+  {
+   "text": "MQTT_HOST=mqtt",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": [
+    "mqtt"
+   ]
+  },
+  {
+   "text": "LISTEN_PG_INTERNAL_CHANGES=redis",
+   "slugs": [
+    "redis"
+   ],
+   "expect": []
+  },
+  {
+   "text": "MODE=mqtt",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "url=http://mqtt.example.com:1883",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "url=http://my-mqtt:1883",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "url=http://mqtt-2:1883",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "url=http://mqtt-2:1883",
+   "slugs": [
+    "mqtt",
+    "mqtt-2"
+   ],
+   "expect": [
+    "mqtt-2"
+   ]
+  },
+  {
+   "text": "amqp://user:p4ss@rabbit:5672/vhost",
+   "slugs": [
+    "rabbit"
+   ],
+   "expect": [
+    "rabbit"
+   ]
+  },
+  {
+   "text": "see [1] and [mqtt] docs",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "server = postgres",
+   "slugs": [
+    "postgres"
+   ],
+   "expect": [
+    "postgres"
+   ]
+  },
+  {
+   "text": "DATABASE_URL=postgres://u:p@postgres:5432/db",
+   "slugs": [
+    "postgres"
+   ],
+   "expect": [
+    "postgres"
+   ]
+  },
+  {
+   "text": "time 10:30 mqtt:abc",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  },
+  {
+   "text": "mqtt:1883",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": [
+    "mqtt"
+   ]
+  },
+  {
+   "text": "",
+   "slugs": [
+    "mqtt"
+   ],
+   "expect": []
+  }
+ ],
+ "infer": [
+  {
+   "name": "user's site: no depends, literal + expression references",
+   "site": {
+    "containers": [
+     {
+      "containerSlug": "cassandra",
+      "serviceSlug": "cassandra",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "redis",
+      "serviceSlug": "redis",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "mqtt",
+      "serviceSlug": "mqtt",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "northwind-backend-admin",
+      "serviceSlug": "northwind-backend",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "SERVER_URL",
+        "value": "http://{{ var.server-ip }}/x/ez-admin",
+        "secretRef": null
+       },
+       {
+        "name": "MQTT_URL",
+        "value": "mqtt://mqtt:1883",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "northwind-backend-worker",
+      "serviceSlug": "northwind-backend",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "REDIS_HOST",
+        "value": "{{ containers.redis.host }}",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "northwind-backend-migrate",
+      "serviceSlug": "northwind-backend",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "SERVER_URL",
+        "value": "http://northwind-backend-migrate:8080",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     }
+    ]
+   },
+   "images": {},
+   "files": [],
+   "fileContents": {},
+   "expect": {
+    "cassandra": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    },
+    "redis": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    },
+    "mqtt": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    },
+    "northwind-backend-admin": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": [
+      {
+       "containerSlug": "mqtt",
+       "from": [
+        "env MQTT_URL"
+       ]
+      }
+     ]
+    },
+    "northwind-backend-worker": {
+     "explicit": [],
+     "implicit": [
+      {
+       "containerSlug": "redis",
+       "from": [
+        "env REDIS_HOST"
+       ]
+      }
+     ],
+     "suggested": []
+    },
+    "northwind-backend-migrate": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    }
+   },
+   "order": [
+    "cassandra",
+    "redis",
+    "mqtt",
+    "northwind-backend-admin",
+    "northwind-backend-worker",
+    "northwind-backend-migrate"
+   ],
+   "cycle": []
+  },
+  {
+   "name": "referenced containers start first even when declared later; image env defaults + rendered files",
+   "site": {
+    "containers": [
+     {
+      "containerSlug": "api",
+      "serviceSlug": "api",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [
+       {
+        "imageVolume": null,
+        "mountPath": "/etc/app-conf",
+        "source": {
+         "kind": "file",
+         "fileSlug": "app-conf"
+        },
+        "readOnly": true
+       }
+      ],
+      "depends": []
+     },
+     {
+      "containerSlug": "web",
+      "serviceSlug": "web",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "API",
+        "value": "http://{{ containers.api.host }}:{{ containers.api.port.http }}",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "worker",
+      "serviceSlug": "worker",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "mqtt",
+      "serviceSlug": "mqtt",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "db",
+      "serviceSlug": "db",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     }
+    ]
+   },
+   "images": {
+    "worker:v1": {
+     "env": [
+      {
+       "name": "BROKER",
+       "value": "{{ containers.mqtt.host }}",
+       "required": false,
+       "secret": false
+      }
+     ]
+    }
+   },
+   "files": [
+    {
+     "fileSlug": "app-conf",
+     "editor": "text",
+     "render": "expressions"
+    }
+   ],
+   "fileContents": {
+    "app-conf": "db:\n  host: \"db\"\nmqtt: {{ containers.mqtt.host }}\n"
+   },
+   "expect": {
+    "api": {
+     "explicit": [],
+     "implicit": [
+      {
+       "containerSlug": "mqtt",
+       "from": [
+        "file app-conf"
+       ]
+      }
+     ],
+     "suggested": [
+      {
+       "containerSlug": "db",
+       "from": [
+        "file app-conf"
+       ]
+      }
+     ]
+    },
+    "web": {
+     "explicit": [],
+     "implicit": [
+      {
+       "containerSlug": "api",
+       "from": [
+        "env API"
+       ]
+      }
+     ],
+     "suggested": []
+    },
+    "worker": {
+     "explicit": [],
+     "implicit": [
+      {
+       "containerSlug": "mqtt",
+       "from": [
+        "image env BROKER"
+       ]
+      }
+     ],
+     "suggested": []
+    },
+    "mqtt": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    },
+    "db": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    }
+   },
+   "order": [
+    "mqtt",
+    "worker",
+    "db",
+    "api",
+    "web"
+   ],
+   "cycle": []
+  },
+  {
+   "name": "explicit depends win (not repeated as implicit / suggested); disabled targets ignored",
+   "site": {
+    "containers": [
+     {
+      "containerSlug": "app",
+      "serviceSlug": "app",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "DB",
+        "value": "postgres://{{ containers.db.host }}:5432",
+        "secretRef": null
+       },
+       {
+        "name": "CACHE",
+        "value": "redis://cache:6379",
+        "secretRef": null
+       },
+       {
+        "name": "OLD",
+        "value": "{{ containers.old.host }}",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": [
+       {
+        "containerSlug": "db"
+       }
+      ]
+     },
+     {
+      "containerSlug": "db",
+      "serviceSlug": "db",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "cache",
+      "serviceSlug": "cache",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "old",
+      "serviceSlug": "old",
+      "version": "v1",
+      "enabled": false,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     }
+    ]
+   },
+   "images": {},
+   "files": [],
+   "fileContents": {},
+   "expect": {
+    "app": {
+     "explicit": [
+      "db"
+     ],
+     "implicit": [],
+     "suggested": [
+      {
+       "containerSlug": "cache",
+       "from": [
+        "env CACHE"
+       ]
+      }
+     ]
+    },
+    "db": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    },
+    "cache": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    }
+   },
+   "order": [
+    "db",
+    "cache",
+    "app"
+   ],
+   "cycle": []
+  },
+  {
+   "name": "reference cycle → declared order + warning",
+   "site": {
+    "containers": [
+     {
+      "containerSlug": "a",
+      "serviceSlug": "a",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "PEER",
+        "value": "{{ containers.b.host }}",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "b",
+      "serviceSlug": "b",
+      "version": "v1",
+      "enabled": true,
+      "env": [
+       {
+        "name": "PEER",
+        "value": "http://a:80",
+        "secretRef": null
+       }
+      ],
+      "volumes": [],
+      "depends": []
+     },
+     {
+      "containerSlug": "c",
+      "serviceSlug": "c",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     }
+    ]
+   },
+   "images": {},
+   "files": [],
+   "fileContents": {},
+   "expect": {
+    "a": {
+     "explicit": [],
+     "implicit": [
+      {
+       "containerSlug": "b",
+       "from": [
+        "env PEER"
+       ]
+      }
+     ],
+     "suggested": []
+    },
+    "b": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": [
+      {
+       "containerSlug": "a",
+       "from": [
+        "env PEER"
+       ]
+      }
+     ]
+    },
+    "c": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    }
+   },
+   "order": [
+    "c",
+    "a",
+    "b"
+   ],
+   "cycle": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "name": "file with render none: literal only; binary files ignored",
+   "site": {
+    "containers": [
+     {
+      "containerSlug": "app",
+      "serviceSlug": "app",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [
+       {
+        "imageVolume": null,
+        "mountPath": "/etc/raw",
+        "source": {
+         "kind": "file",
+         "fileSlug": "raw"
+        },
+        "readOnly": true
+       },
+       {
+        "imageVolume": null,
+        "mountPath": "/etc/bin",
+        "source": {
+         "kind": "file",
+         "fileSlug": "bin"
+        },
+        "readOnly": true
+       }
+      ],
+      "depends": []
+     },
+     {
+      "containerSlug": "mqtt",
+      "serviceSlug": "mqtt",
+      "version": "v1",
+      "enabled": true,
+      "env": [],
+      "volumes": [],
+      "depends": []
+     }
+    ]
+   },
+   "images": {},
+   "files": [
+    {
+     "fileSlug": "raw",
+     "editor": "text",
+     "render": "none"
+    },
+    {
+     "fileSlug": "bin",
+     "editor": "binary",
+     "render": "none"
+    }
+   ],
+   "fileContents": {
+    "raw": "broker={{ containers.mqtt.host }} url=tcp://mqtt:1883",
+    "bin": "mqtt://mqtt:1883"
+   },
+   "expect": {
+    "app": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": [
+      {
+       "containerSlug": "mqtt",
+       "from": [
+        "file raw"
+       ]
+      }
+     ]
+    },
+    "mqtt": {
+     "explicit": [],
+     "implicit": [],
+     "suggested": []
+    }
+   },
+   "order": [
+    "mqtt",
+    "app"
+   ],
+   "cycle": []
+  }
+ ],
+ "dns": [
+  {
+   "name": "deno getaddrinfo with ANSI (the user's log)",
+   "subject": "northwind-backend-admin",
+   "slugs": [
+    "mqtt",
+    "redis",
+    "northwind-backend-admin"
+   ],
+   "lines": [
+    "2026-10-08T06:04:06.708689948Z stderr MQTT connection error: Error: getaddrinfo EAI_AGAIN mqtt",
+    "2026-10-08T06:04:06.716654716Z stderr \u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: getaddrinfo EAI_AGAIN mqtt"
+   ],
+   "expect": {
+    "containerSlug": "mqtt",
+    "code": "EAI_AGAIN"
+   },
+   "message": "northwind-backend-admin could not resolve `mqtt` (EAI_AGAIN) — is mqtt running/healthy? add it to Depends on"
+  },
+  {
+   "name": "node ENOTFOUND",
+   "subject": "api",
+   "slugs": [
+    "api",
+    "redis"
+   ],
+   "lines": [
+    "Error: getaddrinfo ENOTFOUND redis"
+   ],
+   "expect": {
+    "containerSlug": "redis",
+    "code": "ENOTFOUND"
+   },
+   "message": "api could not resolve `redis` (ENOTFOUND) — is redis running/healthy? add it to Depends on"
+  },
+  {
+   "name": "go no such host",
+   "subject": "api",
+   "slugs": [
+    "api",
+    "db"
+   ],
+   "lines": [
+    "dial tcp: lookup db on 127.0.0.11:53: no such host"
+   ],
+   "expect": {
+    "containerSlug": "db",
+    "code": "no such host"
+   },
+   "message": "api could not resolve `db` (no such host) — is db running/healthy? add it to Depends on"
+  },
+  {
+   "name": "curl",
+   "subject": "web",
+   "slugs": [
+    "web",
+    "api"
+   ],
+   "lines": [
+    "curl: (6) Could not resolve host: api"
+   ],
+   "expect": {
+    "containerSlug": "api",
+    "code": "Could not resolve host"
+   },
+   "message": "web could not resolve `api` (Could not resolve host) — is api running/healthy? add it to Depends on"
+  },
+  {
+   "name": "python hostless + host on a nearby line",
+   "subject": "worker",
+   "slugs": [
+    "worker",
+    "mqtt"
+   ],
+   "lines": [
+    "connecting to host='mqtt' port=1883",
+    "socket.gaierror: [Errno -2] Name or service not known"
+   ],
+   "expect": {
+    "containerSlug": "mqtt",
+    "code": "Name or service not known"
+   },
+   "message": "worker could not resolve `mqtt` (Name or service not known) — is mqtt running/healthy? add it to Depends on"
+  },
+  {
+   "name": "external host is not a site container",
+   "subject": "api",
+   "slugs": [
+    "api",
+    "db"
+   ],
+   "lines": [
+    "getaddrinfo EAI_AGAIN api.github.com"
+   ],
+   "expect": null,
+   "message": null
+  },
+  {
+   "name": "own name is not a hint",
+   "subject": "api",
+   "slugs": [
+    "api"
+   ],
+   "lines": [
+    "getaddrinfo ENOTFOUND api"
+   ],
+   "expect": null,
+   "message": null
+  },
+  {
+   "name": "newest line wins",
+   "subject": "api",
+   "slugs": [
+    "api",
+    "db",
+    "redis"
+   ],
+   "lines": [
+    "getaddrinfo ENOTFOUND db",
+    "getaddrinfo EAI_AGAIN redis"
+   ],
+   "expect": {
+    "containerSlug": "redis",
+    "code": "EAI_AGAIN"
+   },
+   "message": "api could not resolve `redis` (EAI_AGAIN) — is redis running/healthy? add it to Depends on"
+  }
+ ]
+}

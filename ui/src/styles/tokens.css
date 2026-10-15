@@ -1,0 +1,201 @@
+/*
+ * OPM design tokens — THE one place for colours, type, spacing, radii, shadows, motion of BOTH GUIs (cloud console
+ * frontend/ and agent GUI agent/gui/, SPEC §21 #102). Imported by each app's app.css; each app adds only its own
+ * extras in its local tokens file (z-index scale, ANSI / log palette, bundled fonts).
+ * Light is the default; dark applies with [data-theme="dark"] or the OS preference when no theme is forced.
+ */
+:root {
+  /* type */
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --lh: 1.5;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* spacing (4px grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* radii */
+  --r-sm: 5px;
+  --r-md: 7px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-full: 999px;
+
+  /* sizes */
+  --sidebar-w: 236px;
+  --topbar-h: 52px;
+  --control-h: 32px;
+  --control-h-sm: 26px;
+  --drawer-w: 480px;
+  --drawer-w-wide: 720px;
+
+  /* motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  /* light palette */
+  --bg: #f7f7f8;
+  --bg-sunken: #f0f0f2;
+  --surface: #ffffff;
+  --surface-2: #fafafb;
+  --surface-hover: #f4f4f6;
+  --surface-active: #ececf0;
+  --border: #e4e4e8;
+  --border-strong: #d2d2d8;
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #8a8a93;
+  --text-inverse: #ffffff;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef2ff;
+  --accent-soft-2: #e0e7ff;
+  --accent-text: #4338ca;
+  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.28);
+
+  --green: #16a34a;
+  --green-soft: #dcfce7;
+  --green-text: #15803d;
+  --amber: #d97706;
+  --amber-soft: #fef3c7;
+  --amber-text: #b45309;
+  --red: #dc2626;
+  --red-hover: #b91c1c;
+  --red-soft: #fee2e2;
+  --red-text: #b91c1c;
+  --blue: #2563eb;
+  --blue-soft: #dbeafe;
+  --blue-text: #1d4ed8;
+  --violet: #7c3aed;
+  --violet-soft: #ede9fe;
+  --violet-text: #6d28d9;
+  --gray-soft: #f1f1f4;
+  --gray-text: #52525b;
+
+  --heat-none: #e7e7ea;
+  --code-bg: #f6f6f8;
+  --overlay: rgba(15, 15, 20, 0.42);
+  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06);
+  --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.06), 0 1px 2px rgba(16, 16, 24, 0.04);
+  --shadow-lg: 0 12px 32px rgba(16, 16, 24, 0.14), 0 2px 6px rgba(16, 16, 24, 0.06);
+  --skeleton: linear-gradient(90deg, #ececef 0%, #f6f6f8 50%, #ececef 100%);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0e0e11;
+  --bg-sunken: #0a0a0c;
+  --surface: #16161a;
+  --surface-2: #1a1a1f;
+  --surface-hover: #1f1f25;
+  --surface-active: #26262d;
+  --border: #2a2a31;
+  --border-strong: #3a3a43;
+  --text: #ededf0;
+  --text-2: #a8a8b3;
+  --text-3: #73737e;
+  --text-inverse: #0e0e11;
+
+  --accent: #6d68f5;
+  --accent-hover: #827ef8;
+  --accent-soft: #1e1d3a;
+  --accent-soft-2: #28264d;
+  --accent-text: #a5a1ff;
+  --focus-ring: 0 0 0 3px rgba(130, 126, 248, 0.38);
+
+  --green: #22c55e;
+  --green-soft: #0f2a1a;
+  --green-text: #4ade80;
+  --amber: #f59e0b;
+  --amber-soft: #2d2208;
+  --amber-text: #fbbf24;
+  --red: #ef4444;
+  --red-hover: #f87171;
+  --red-soft: #2e1313;
+  --red-text: #f87171;
+  --blue: #3b82f6;
+  --blue-soft: #0f1d36;
+  --blue-text: #60a5fa;
+  --violet: #8b5cf6;
+  --violet-soft: #1f1736;
+  --violet-text: #a78bfa;
+  --gray-soft: #222228;
+  --gray-text: #a8a8b3;
+
+  --heat-none: #2a2a31;
+  --code-bg: #121216;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --skeleton: linear-gradient(90deg, #1d1d22 0%, #26262c 50%, #1d1d22 100%);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0e0e11;
+    --bg-sunken: #0a0a0c;
+    --surface: #16161a;
+    --surface-2: #1a1a1f;
+    --surface-hover: #1f1f25;
+    --surface-active: #26262d;
+    --border: #2a2a31;
+    --border-strong: #3a3a43;
+    --text: #ededf0;
+    --text-2: #a8a8b3;
+    --text-3: #73737e;
+    --text-inverse: #0e0e11;
+
+    --accent: #6d68f5;
+    --accent-hover: #827ef8;
+    --accent-soft: #1e1d3a;
+    --accent-soft-2: #28264d;
+    --accent-text: #a5a1ff;
+    --focus-ring: 0 0 0 3px rgba(130, 126, 248, 0.38);
+
+    --green: #22c55e;
+    --green-soft: #0f2a1a;
+    --green-text: #4ade80;
+    --amber: #f59e0b;
+    --amber-soft: #2d2208;
+    --amber-text: #fbbf24;
+    --red: #ef4444;
+    --red-hover: #f87171;
+    --red-soft: #2e1313;
+    --red-text: #f87171;
+    --blue: #3b82f6;
+    --blue-soft: #0f1d36;
+    --blue-text: #60a5fa;
+    --violet: #8b5cf6;
+    --violet-soft: #1f1736;
+    --violet-text: #a78bfa;
+    --gray-soft: #222228;
+    --gray-text: #a8a8b3;
+
+    --heat-none: #2a2a31;
+    --code-bg: #121216;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --skeleton: linear-gradient(90deg, #1d1d22 0%, #26262c 50%, #1d1d22 100%);
+    color-scheme: dark;
+  }
+}

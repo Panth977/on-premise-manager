@@ -23,7 +23,7 @@ await build({
   define: { 'process.env.OPM_CLOUD_VERSION': JSON.stringify(version) },
   logLevel: 'info',
 });
-for (const f of ['opm-export.wasm', 'opm-render-linux-amd64', 'opm-render-linux-arm64', 'opm-tools.json']) {
+for (const f of ['opm-export.wasm', 'opm-tools.json']) {
   const src = path.join(here, 'functions/lib', f);
   if (existsSync(src)) copyFileSync(src, path.join(out, f));
   else console.warn(`build-server: functions/lib/${f} missing (run npm run build first) — the GitHub mirror cannot export without it`);

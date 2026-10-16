@@ -405,7 +405,7 @@ test('migrate-v2: old-shape data → dry run changes nothing → apply → verif
   // the user's image
   const ui = (await adb.collection('services').doc('northwind-backend').collection('images').doc('v1').get()).data()!;
   assert.equal(ui.reference, 'docker.io/northwind/backend:3.0.9');
-  assert.equal(ui.source.repository, 'northwind/northwind');
+  assert.equal(ui.source.repository, 'northwind/backend');
   assert.ok(['pending', 'copying', 'failed'].includes(ui.import.status), 'reset to pending (the trigger may already run it)');
   const ne = ui.env.find((e: { name: string }) => e.name === 'NODE_ENV');
   assert.deepEqual(ne.options, ['integration', 'dc', 'worker', 'pg-listen', 'terminal', 'migrate']);

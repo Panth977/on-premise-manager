@@ -402,11 +402,6 @@ function view(db: MockDb): GithubMirrorView {
           .at(-1) ?? null,
     },
     exportFormat: MIRROR_EXPORT_FORMAT,
-    tool: {
-      version: "0.15.0-mock",
-      amd64: "sha256:" + hex40("amd64") + hex40("amd64").slice(0, 24),
-      arm64: "sha256:" + hex40("arm64") + hex40("arm64").slice(0, 24),
-    },
     updatedAt: d.updatedAt,
     updatedBy: d.updatedBy,
   };

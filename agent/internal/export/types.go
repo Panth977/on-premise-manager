@@ -1,18 +1,22 @@
-// Package export is the §21 #106 compose export: one OPM commit → a deterministic git tree that runs the same sites with
-// `docker compose up` WITHOUT the agent (Go mirror of shared/src/github-mirror.ts ExportRequest / ExportResult; the JSON
-// is identical). It is pure (no Docker, no filesystem): the cloud runs it as opm-export.wasm, the VM runs the same code
-// as `opm-render init` (runtime mode) for the values that exist only there (secrets, auto host, required variables).
+// Package export is the compose export (§21 #106, #115 Docker-only): one OPM commit → a deterministic git tree that runs
+// the same sites with Docker alone: `./deploy.sh` (busybox renders the values that exist only on the machine) and
+// `docker compose up`, with Caddy as the edge and Portainer as the Docker GUI. No OPM code runs on the machine. Go mirror
+// of shared/src/github-mirror.ts ExportRequest / ExportResult (the JSON is identical). It is pure (no Docker, no
+// filesystem): the cloud runs it as opm-export.wasm.
 package export
 
 import "opm/agent/internal/model"
 
 // Format is MIRROR_EXPORT_FORMAT.
-const Format = 1
+const Format = 2
 
-// Helper images (digest-pinned; caddy = the agent's embedded Caddy version).
+// Helper images, all official and digest-pinned. busybox musl = a static binary (it also runs the health checks inside
+// any image); caddy = the agent's embedded Caddy version; Portainer CE LTS = the Docker GUI.
 const (
-	InitImage = "busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
-	EdgeImage = "caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772"
+	InitImage      = "busybox:1.37-musl@sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092"
+	EdgeImage      = "caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772"
+	MosquittoImage = "eclipse-mosquitto:2.0.22@sha256:199ea8ef2e35ec2b1b37e59cfd1dbae538ed4dfa4a2251a121a52215a6248a21"
+	PortainerImage = "portainer/portainer-ce:2.45.2@sha256:03f94a406496dc84d37b552795fc424ccad8d0d7200353b6a82915f6e8f73ab0"
 	// MaxFileBytes is MIRROR_MAX_FILE_BYTES: bigger files are never pushed (listed in .opm-skipped.txt).
 	MaxFileBytes = 100 * 1024 * 1024
 )
@@ -30,7 +34,8 @@ type Request struct {
 	Texts        map[string]string                     `json:"texts"`
 	Sites        []string                              `json:"sites"`
 	Persist      map[string]map[string]PersistSnapshot `json:"persist"`
-	Tool         Tool                                  `json:"tool"`
+	// Repository is the mirror repository "owner/name" ("" = unknown): the READMEs show the exact clone URL.
+	Repository string `json:"repository"`
 }
 
 // BranchInfo is TS ExportRequest.branch.
@@ -79,32 +84,14 @@ type PersistSnapshot struct {
 	Tree      model.VolumeTree `json:"tree"`
 }
 
-// Tool is TS ExportRequest.tool.
-type Tool struct {
-	Version string   `json:"version"`
-	Amd64   *ToolBin `json:"amd64"`
-	Arm64   *ToolBin `json:"arm64"`
-}
-
-// ToolBin is one opm-render binary.
-type ToolBin struct {
-	Sha256 string `json:"sha256"`
-	Size   int64  `json:"size"`
-}
-
-// File is TS ExportFile (exactly one of Text / Base64 / Blob / Tool). Perm is the file mode written by opm-render init
-// for runtime outputs (not part of the wire format).
+// File is TS ExportFile (exactly one of Text / Base64 / Blob).
 type File struct {
 	Path   string  `json:"path"`
 	Mode   string  `json:"mode"` // 100644 | 100755
 	Text   *string `json:"text,omitempty"`
 	Base64 *string `json:"base64,omitempty"`
 	Blob   *string `json:"blob,omitempty"`
-	Tool   *string `json:"tool,omitempty"`
 	Size   int64   `json:"size"`
-	Perm   uint32  `json:"-"`
-	// From (runtime mode): copy this file of the site directory (git checkout) instead of Text.
-	From string `json:"-"`
 }
 
 // Note is TS ExportNote.
@@ -131,10 +118,5 @@ type Result struct {
 	Env    []EnvVar `json:"env"`
 }
 
-// Mode selects the export: the git tree (default) or, on the VM, the deferred outputs of ONE site rendered with the
-// real values (Values: env name → value, e.g. OPM_SECRET_MQTT_PASSWORD).
-type Mode struct {
-	Runtime bool
-	Site    string
-	Values  map[string]string
-}
+// Mode is reserved for export variants (the git tree is the only one).
+type Mode struct{}

@@ -24,7 +24,7 @@ package edgecfg
 //     per read / write deadlines ≈ the idle timeouts).
 //   - upstream dial "<containerSlug>:<containerPort>" (in.Upstreams = portName → CONTAINER port; 0 / missing → 503).
 //   - no /_opm route (the agent GUI is not part of the export); admin off; storage file_system /data.
-//   - TLS files mode → load_files /opm-runtime/tls/<host>.crt|.key (StandardOptions.TLSDir; written by opm-render init);
+//   - TLS files mode → load_files <TLSDir>/<host>.crt|.key (StandardOptions.TLSDir; the compose export renders them with setup.sh);
 //     on-demand internal "*" → no permission module (internal issuer only); hosts with TLS none get a connection policy
 //     that selects no certificate (handshake fails, like the agent's opm_any deny).
 //   - dns-01: the provider config as given in in.DNSConfigs (the exporter passes {env.OPM_SECRET_…} placeholders) — needs a
@@ -49,7 +49,7 @@ const StandardCaddyImage = "caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f1
 type StandardOptions struct {
 	// StorageRoot of Caddy (default /data — the edge-data volume).
 	StorageRoot string
-	// TLSDir: where the files-mode certificate + key of each host are (default /opm-runtime/tls): <dir>/<host>.crt, .key.
+	// TLSDir: where the files-mode certificate + key of each host are (default /etc/caddy/tls): <dir>/<host>.crt, .key.
 	TLSDir string
 	// UpstreamHost: dial host of a container (default the containerSlug = its service name / network alias).
 	UpstreamHost func(containerSlug string) string
@@ -61,7 +61,7 @@ func BuildStandard(src *Input, o StandardOptions) (map[string]any, []Note) {
 		o.StorageRoot = "/data"
 	}
 	if o.TLSDir == "" {
-		o.TLSDir = "/opm-runtime/tls"
+		o.TLSDir = "/etc/caddy/tls"
 	}
 	if o.UpstreamHost == nil {
 		o.UpstreamHost = func(s string) string { return s }

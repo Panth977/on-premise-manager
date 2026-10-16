@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -176,29 +178,13 @@ func captureContainers(t *testing.T, names []string, network string, configuredP
 				c.Env[kv[:i]] = kv[i+1:]
 			}
 		}
-		// the entrypoint wrapper (derived env): the process environment is the truth
-		if len(c.Entrypoint) > 0 && c.Entrypoint[0] == "/.opm/opm-render" {
-			if b, err := exec.Command("docker", "exec", n, "/.opm/opm-render", "environ", "1").Output(); err == nil {
-				for _, kv := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-					if i := strings.IndexByte(kv, '='); i > 0 && kv[:i] != "HOME" { // HOME: added by the runtime to the process, not config
-						c.Env[kv[:i]] = kv[i+1:]
-					}
-				}
-			}
-			for i, a := range c.Entrypoint {
-				if a == "--" {
-					c.Entrypoint = append([]string{}, c.Entrypoint[i+1:]...)
-					break
-				}
-			}
-		}
 		delete(c.Env, "PATH")
 		delete(c.Env, "HOSTNAME")
 		for _, m := range js["Mounts"].([]any) {
 			mm := m.(map[string]any)
 			dst := fmt.Sprint(mm["Destination"])
-			if dst == "/.opm" || strings.HasPrefix(dst, "/opm-env/") {
-				continue // the compose probe tool / derived-env file (documented)
+			if dst == export.ToolsDir {
+				continue // the compose health-check tool (static busybox, documented)
 			}
 			mode := "rw"
 			if rw, _ := mm["RW"].(bool); !rw {
@@ -501,35 +487,33 @@ func TestComposeEquivalenceDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools := map[string][]byte{}
-	bin := filepath.Join(t.TempDir(), "opm-render")
-	b := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -buildid=", "-o", bin, "./cmd/opm-render")
-	b.Dir = filepath.Join(repo, "agent")
-	b.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
-	if out, err := b.CombinedOutput(); err != nil {
-		t.Fatalf("build opm-render: %v %s", err, out)
-	}
-	tools["linux-"+runtime.GOARCH], _ = os.ReadFile(bin)
 	tree := filepath.Join(outDir, "tree")
-	if err := exporttest.WriteTree(res, tree, fx.Blobs, tools); err != nil {
+	if err := exporttest.WriteTree(res, tree, fx.Blobs); err != nil {
 		t.Fatal(err)
 	}
 	siteDir := filepath.Join(tree, "sites", siteSlug)
+	// site.env exactly as an operator writes it (no quotes); Portainer on a free port with its admin password
+	portainerPort := freePort(t)
+	const portainerPassword = "eq-portainer-Pass#2026"
 	var envf strings.Builder
 	for _, k := range []string{"OPM_SECRET_API_TOKEN", "OPM_SECRET_DB_PASSWORD", "OPM_SECRET_MQTT_PASSWORD"} {
-		envf.WriteString(k + "='" + fx.Env[k] + "'\n")
+		envf.WriteString(k + "=" + fx.Env[k] + "\n")
 	}
-	_ = os.WriteFile(filepath.Join(siteDir, ".env"), []byte(envf.String()), 0o600)
-	compose := func(args ...string) string {
+	envf.WriteString("PORTAINER_ADMIN_PASSWORD=" + portainerPassword + "\nPORTAINER_HTTPS_PORT=" + strconv.Itoa(portainerPort) + "\n")
+	_ = os.WriteFile(filepath.Join(siteDir, "site.env"), []byte(envf.String()), 0o600)
+	deploy := func(args ...string) string {
 		t.Helper()
-		c := exec.Command(cbin, append(append([]string{}, cargs...), args...)...)
+		c := exec.Command("sh", append([]string{"./deploy.sh"}, args...)...)
 		c.Dir = siteDir
+		if cbin != "docker" { // deploy.sh finds `docker compose` or docker-compose itself; OPM_COMPOSE_BIN is for this test only
+			c.Env = append(os.Environ(), "PATH="+filepath.Dir(cbin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}
 		out, err := c.CombinedOutput()
 		if err != nil {
 			logs := exec.Command(cbin, append(append([]string{}, cargs...), "logs", "--no-color")...)
 			logs.Dir = siteDir
 			lo, _ := logs.CombinedOutput()
-			t.Fatalf("docker compose %v: %v\n%s\nlogs:\n%s", args, err, out, lo)
+			t.Fatalf("./deploy.sh %v: %v\n%s\nlogs:\n%s", args, err, out, lo)
 		}
 		return string(out)
 	}
@@ -539,7 +523,7 @@ func TestComposeEquivalenceDocker(t *testing.T) {
 		_ = c.Run()
 	}()
 	t0 := time.Now()
-	compose("up", "-d", "--wait", "--wait-timeout", "240")
+	t.Logf("./deploy.sh:\n%s", deploy("--wait", "--wait-timeout", "240"))
 	evOut, _ := exec.Command("docker", "events", "--since", t0.Add(-time.Second).Format(time.RFC3339Nano), "--until", time.Now().Add(time.Second).Format(time.RFC3339Nano),
 		"--filter", "type=container", "--format", "{{json .}}").Output()
 	starts, healthy := map[string]int64{}, map[string]int64{}
@@ -562,7 +546,7 @@ func TestComposeEquivalenceDocker(t *testing.T) {
 			healthy[n] = e.TimeNano
 		}
 	}
-	t.Logf("compose up --wait: %v", time.Since(t0).Round(time.Second))
+	t.Logf("deploy.sh (compose up --wait): %v", time.Since(t0).Round(time.Second))
 	composeState := eqState{Containers: captureContainers(t, names, network, configured), Edge: captureEdge(t, s.httpP, reqs),
 		MQTT: map[string]bool{"secret-password": mqttLogin(mqttPort, "northwind", exporttest.MQTTPassword), "wrong-password": mqttLogin(mqttPort, "northwind", "nope")}}
 
@@ -583,17 +567,30 @@ func TestComposeEquivalenceDocker(t *testing.T) {
 		}
 		fmt.Fprintf(&report, "| %s | %s |\n", aspect, res)
 	}
+	// the Mosquitto password file: mosquitto_passwd (official image) salts at random, so its bytes differ from the
+	// agent's; the format is compared here and the password itself by the MQTT logins below
+	reHash := regexp.MustCompile(`(northwind:\$7\$101\$)[A-Za-z0-9+/]+\$[A-Za-z0-9+/=]+`)
+	for _, st := range []*eqState{&agentState, &composeState} {
+		c := st.Containers[fx.Slugs.MQTT]
+		if v, ok := c.Mounts["/mosquitto/config/pwfile"]; ok {
+			c.Mounts["/mosquitto/config/pwfile"] = regexp.MustCompile(`:[0-9a-f]{16};`).ReplaceAllString(v, ":<salted hash>;")
+		}
+		st.Containers[fx.Slugs.MQTT] = c
+	}
+	if b, err := exec.Command("docker", "exec", fx.Slugs.MQTT, "cat", "/mosquitto/config/pwfile").Output(); err != nil || !reHash.Match(b) {
+		t.Errorf("compose pwfile %q %v", b, err)
+	}
 	for _, n := range names {
 		ac, cc := agentState.Containers[n], composeState.Containers[n]
 		check(n+" image id", ac.Image, cc.Image, "")
-		check(n+" env", ac.Env, cc.Env, map[bool]string{true: "derived TOKEN_HASH read from /proc/1/environ (entrypoint wrapper)", false: ""}[n == fx.Slugs.Web])
-		check(n+" entrypoint + cmd", []any{ac.Entrypoint, ac.Cmd}, []any{cc.Entrypoint, cc.Cmd}, map[bool]string{true: "wrapper prefix removed", false: ""}[n == fx.Slugs.Web])
+		check(n+" env", ac.Env, cc.Env, map[bool]string{true: "derived TOKEN_HASH computed by deploy.sh (busybox sha256sum)", false: ""}[n == fx.Slugs.Web])
+		check(n+" entrypoint + cmd", []any{ac.Entrypoint, ac.Cmd}, []any{cc.Entrypoint, cc.Cmd}, "")
 		check(n+" user / workdir", []string{ac.User, ac.WorkingDir}, []string{cc.User, cc.WorkingDir}, "")
-		check(n+" mounts (target, ro/rw, content + modes)", ac.Mounts, cc.Mounts, "probe tool /.opm + /opm-env excluded")
+		check(n+" mounts (target, ro/rw, content + modes)", ac.Mounts, cc.Mounts, map[bool]string{true: "health-check tool /.tools excluded; pwfile: salted hash", false: "health-check tool /.tools excluded"}[n == fx.Slugs.MQTT])
 		check(n+" network aliases", ac.Aliases, cc.Aliases, "")
 		check(n+" published ports", ac.Ports, cc.Ports, "agent loopback-ephemeral publications excluded")
 		check(n+" restart / cpus / memory / stop timeout / extra hosts", []any{ac.Restart, ac.NanoCpus, ac.Memory, ac.StopSec, ac.ExtraHosts}, []any{cc.Restart, cc.NanoCpus, cc.Memory, cc.StopSec, cc.ExtraHosts}, "")
-		check(n+" opm labels", ac.Labels, cc.Labels, "compose labels + opm.rev / spec_hash excluded")
+		check(n+" no OPM labels on the compose side (no agent manages it)", map[string]string{}, cc.Labels, fmt.Sprintf("agent: %d opm.* labels", len(ac.Labels)))
 	}
 	order := func(st eqState) []string {
 		m, w, w2 := st.Containers[fx.Slugs.MQTT], st.Containers[fx.Slugs.Web], st.Containers[fx.Slugs.Web2]
@@ -614,17 +611,57 @@ func TestComposeEquivalenceDocker(t *testing.T) {
 	if !composeState.MQTT["secret-password"] || composeState.MQTT["wrong-password"] {
 		t.Errorf("mqtt logins: %v", composeState.MQTT)
 	}
+	// Portainer: up with the admin password of site.env (no first-run setup, no 5-minute timeout)
+	pcl := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} //nolint:gosec // Portainer's self-signed certificate
+	portainerOK := false
+	for i := 0; i < 60 && !portainerOK; i++ {
+		body, _ := json.Marshal(map[string]string{"username": "admin", "password": portainerPassword})
+		if resp, err := pcl.Post(fmt.Sprintf("https://127.0.0.1:%d/api/auth", portainerPort), "application/json", bytes.NewReader(body)); err == nil {
+			var r struct {
+				JWT string `json:"jwt"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&r)
+			resp.Body.Close()
+			portainerOK = resp.StatusCode == 200 && r.JWT != ""
+		}
+		if !portainerOK {
+			time.Sleep(time.Second)
+		}
+	}
+	check("portainer: admin login with the site.env password", true, portainerOK, "compose only (the Docker GUI)")
 
 	// second `up`: no re-seed (seed-once rule)
-	vol := "opm-" + "compose-equiv" + "-" + siteSlug + "_data"
+	vol := "compose-equiv-" + siteSlug + "_data"
 	if out, err := exec.Command("docker", "run", "--rm", "-v", vol+":/d", "busybox:1.36", "sh", "-c", "echo changed > /d/hello.txt").CombinedOutput(); err != nil {
 		t.Fatalf("edit volume: %v %s", err, out)
 	}
-	compose("up", "-d", "--wait", "--wait-timeout", "120")
+	deploy("--wait", "--wait-timeout", "120")
 	got := copyOut(t, fx.Slugs.Web2, "/data/hello.txt")
 	s2 := sha256.Sum256([]byte("changed\n"))
 	reseed := !strings.Contains(got, hex.EncodeToString(s2[:8]))
 	check("second up keeps edited volume data (no re-seed)", false, reseed, "")
+
+	// an update that only changes a mounted file (a merged cloud commit): deploy.sh recreates exactly the services that
+	// mount it (label files.sha256), like the agent restarts a container whose files changed
+	startedOf := func(n string) string {
+		out, _ := exec.Command("docker", "inspect", "-f", "{{.State.StartedAt}}", n).Output()
+		return strings.TrimSpace(string(out))
+	}
+	before := map[string]string{}
+	for _, n := range names {
+		before[n] = startedOf(n)
+	}
+	cfgPath := filepath.Join(siteDir, "files", "app-config")
+	old, _ := os.ReadFile(cfgPath)
+	newCfg := strings.Replace(string(old), "{", `{"updated":true,`, 1)
+	if err := os.WriteFile(cfgPath, []byte(newCfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deploy("--wait", "--wait-timeout", "120")
+	gotCfg, _ := exec.Command("docker", "exec", fx.Slugs.Web, export.ToolsDir+"/busybox", "cat", "/etc/app/config.json").Output() // testsrv has no shell tools
+	check("update: the changed file reaches the container", newCfg, string(gotCfg), "")
+	check("update: only the service mounting it is recreated", []bool{false, true, false},
+		[]bool{startedOf(fx.Slugs.MQTT) != before[fx.Slugs.MQTT], startedOf(fx.Slugs.Web) != before[fx.Slugs.Web], startedOf(fx.Slugs.Web2) != before[fx.Slugs.Web2]}, "mqtt, web, web-2")
 
 	raw, _ := json.MarshalIndent(map[string]any{"agent": agentState, "compose": composeState}, "", "  ")
 	_ = os.WriteFile(filepath.Join(outDir, "capture.json"), raw, 0o644)

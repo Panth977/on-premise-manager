@@ -12,6 +12,10 @@ networks. OPM works like Portainer, plus a git-style commit history for every se
   in Docker show up as uncommitted drift, or are auto-committed.
 - **Offline friendly**: sites without internet reach the cloud through a peer site, or through the browser of the
   person using the agent GUI (the internet tunnel).
+- **Docker-only last resort**: the cloud can mirror every branch to a GitHub repository. Each mirrored branch runs its
+  sites with no OPM code at all: plain `docker compose`, Caddy as the router and Portainer as the GUI. For when a client
+  allows neither the agent nor the cloud. Each machine keeps its own git branch, merges new cloud commits and runs
+  `./deploy.sh`. See [docs-v2/github-mirror.md](docs-v2/github-mirror.md).
 
 ## Layout
 

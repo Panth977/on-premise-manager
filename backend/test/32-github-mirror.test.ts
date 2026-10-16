@@ -5,7 +5,7 @@
  *   one git commit per OPM commit (same message + trailers, author, date), ORDER per branch, IDEMPOTENCY (re-enqueue,
  *   crash between ref update and state write), retry / backoff on 5xx, pause on 401 and on rate limits, Sync now,
  *   Resync everything = the same shas, persist snapshots on the agent branch, drift → uncommitted branch reset / delete,
- *   heartbeat catch-up, > max file size skipped (.opm-skipped.txt), a pushed tree = `git write-tree` of the same files.
+ *   heartbeat catch-up, > max file size skipped (.skipped.txt), a pushed tree = `git write-tree` of the same files.
  * The tree comes from the real exporter (functions/lib/opm-export.wasm) when it is built, else from the emulator-only
  * stub (githubMirror/config._stubExporter): queue / push behaviour is the same.
  */
@@ -192,10 +192,9 @@ test('enable: empty repo initialized, every OPM commit = one git commit (message
   }
   // tree content
   const files = fake.checkout(repo, tplBranch);
-  for (const p of ['README.md', 'opm/config.json', 'opm/export.json', '.gitignore']) assert.ok(files.has(p), p);
-  const cfg = JSON.parse(files.get('opm/config.json')!.bytes.toString());
-  assert.equal(cfg.commit.id, tplCommits.at(-1)!.commitId);
-  assert.ok(cfg.config.secrets.every((s: { value: unknown }) => s.value === null), 'no secret value in git');
+  for (const p of ['README.md', '.gitignore']) assert.ok(files.has(p), p);
+  assert.ok(files.get('README.md')!.bytes.toString().includes(tplCommits.at(-1)!.commitId), 'the README names the commit');
+  assert.ok(![...files.keys()].some((p) => p.startsWith('opm/')), 'no OPM files in a Docker-only tree (§21 #115)');
   assert.ok([...files.keys()].some((p) => p.startsWith('sites/')), 'sites exported');
   // deployment branch: secret values never pushed
   const depFiles = fake.checkout(repo, depBranch);
@@ -315,15 +314,15 @@ test('Resync everything: rebuilt from OPM history with the same shas', async () 
   assert.ok((await admin.real.listAuditLog({ query: { action: 'github.resynced' } })).items.length >= 1);
 });
 
-test('files above the size limit are skipped with .opm-skipped.txt + a note', async () => {
+test('files above the size limit are skipped with .skipped.txt + a note', async () => {
   const { admin, depId, depBranch } = ctx;
   const repo = fake.repo(OWNER, REPO);
   await cfgRef.set({ _maxFileBytes: 8 }, { merge: true }); // the hello banner File is larger
   await editDeployment(admin, depId, theme('orange'), 'theme orange');
   await synced(admin, depBranch, 7);
   const files = fake.checkout(repo, depBranch);
-  const skippedFile = [...files.keys()].find((p) => p.endsWith('.opm-skipped.txt'));
-  assert.ok(skippedFile, 'a .opm-skipped.txt');
+  const skippedFile = [...files.keys()].find((p) => p.endsWith('.skipped.txt'));
+  assert.ok(skippedFile, 'a .skipped.txt');
   assert.match(files.get(skippedFile!)!.bytes.toString(), /bytes/);
   const r = (await row(admin, depBranch))!;
   assert.ok(r.notes.some((n) => n.code === 'SKIPPED_LARGE'));

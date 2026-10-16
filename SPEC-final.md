@@ -5968,27 +5968,12 @@ Pass = every check above green; results file lists timings and the activity coun
         synced / resynced / push-failed).
     (d) **Exporter** = Go `agent/internal/export` (pure), built on the agent's own builders (`driver.Build` per container,
         `edgecfg.InputFromConfig` + `edgecfg.BuildStandard` for the edge, `validate` depends / start order). It runs in Cloud
-        Functions as `opm-export.wasm` (wasip1, node:wasi) and on the VM as `opm/bin/opm-render init` (static linux
-        amd64 / arm64, reproducible) which re-runs the SAME export with the .env values and writes only the deferred
-        outputs. The backend build compiles all three from `agent/`, so they always match the deployed backend. Deferred
-        inputs (secrets, auto hosts, other sites' auto hosts, required template variables) are detected by resolving twice
-        with two sentinel sets: unchanged = literal in git; equal after `${VAR}` substitution = compose interpolation;
-        otherwise rendered by opm-init (Files, starter entries, edge) or set by an entrypoint wrapper (derived env).
-    (e) **Tree**: README.md, .gitignore, opm/config.json (config without secret values + commit metadata), opm/export.json,
-        opm/bin/*, sites/<site>/{docker-compose.yml, .env.example, files/ (`*.opm-template` = rendered at up), volumes/<v>/
-        (starter content; agent branches: the latest persist snapshot; > 100 MB skipped + .opm-skipped.txt), edge/caddy.json,
-        edge/pages/, edge/Dockerfile only for dns-01}. Deterministic (JCS key order, sorted files).
-    (f) **Compose**: service = container (service name = container_name = alias = containerSlug), network
-        `opm_<dep>_<site>` with the agent's aliases, image pinned by digest, resolved env / entrypoint / cmd / user / workdir,
-        published ports, mounts (folder volumes = named volumes, single-file volumes = .opm-data, Files + secret files from
-        .opm-runtime with the agent's modes, host paths), restart, cpus / memory, stop grace, extra host, labels, disabled =
-        profile; health http / tcp = in-container probe (`/.opm/opm-render probe`), exec = CMD, log = none (note);
-        depends_on: opm-init completed, then explicit + implicit depends (healthy / completed for jobs / started);
-        `opm-init` (busybox, pinned) = .env check + render + seed-once (`.opm-seeded`) + probe tool; `opm-edge` =
-        `caddy:2.11.7` pinned, standard modules only (nginx order compiled to ordered routes with case-sensitive raw-path
-        matching, rewrites through a named route ≤ 10 then 500, 413 by Content-Length + request_body, websocket-off 400,
-        dial error → the 503 page, TLS internal / ACME http-01 / tls-alpn-01 / files via load_files; dns-01 → note +
-        Dockerfile).
+        Functions as `opm-export.wasm` (wasip1, node:wasi), compiled by the backend build from `agent/`. Deferred inputs
+        (secrets, auto hosts, other sites' auto hosts, required template variables) are detected by resolving twice with
+        two sentinel sets; filters on them are evaluated symbolically (§21 #115), so every output that depends on them is
+        the config text with placeholders: `${NAME}` in the compose file, `@@{NAME}@@` in templates.
+    (e) **Tree** and (f) **Compose**: superseded by §21 #115 (the Docker-only tree: site.env + deploy.sh, Caddy edge,
+        Portainer, no OPM binary).
     (g) **Queue**: Firestore `githubMirror/config/{queue,branches,blobs}`; enqueue by triggers on new template / deployment /
         agent-branch commits and persist snapshot versions, by the drift push and by heartbeats (agent head not mirrored →
         catch-up); worker = queue trigger + schedule every 5 min + inline Sync now; per-branch lease, ordered, idempotent
@@ -6373,6 +6358,46 @@ Pass = every check above green; results file lists timings and the activity coun
     no agent upgrade needed): `noRedirectFor(headers, relayedBy)` = relayed OR the request carries `Origin` (only a browser
     sends it; the agent never does) → 200/206 stream from the API (open CORS). Direct agent downloads keep the redirect.
     Uploads (to-cloud transfers) still never use the tunnel (§9.10).
+115. **Docker-only sites: the GitHub branches run without any OPM code** (user: "github repo is not supposed to use the
+    agent/on-premise anything … in last resort … fetch the github repo there, then manually docker install, and docker
+    compose up … auto setup portainer as our GUI for docker and caddy for routing … in its readme there should be exact
+    steps … first pull, then create a new branch, complete everything then push … for each site; then for new changes
+    just run the git cmd to merge from cloud and docker compose update"). Replaces the opm-render runtime of #106 (d–f).
+    (a) **Branch per machine**: `deployment/<slug>/site/<site>` (templates: `template/<slug>/site/<site>`), created on the
+        machine from the cloud branch, merged with new cloud commits, pushed by the machine; the mirror never writes,
+        rebuilds or deletes it. The site README gives the exact commands (Docker install, clone, `git switch -c`, site.env,
+        deploy, push; update = fetch + merge + deploy + push; local change, roll back, volume backup, troubleshooting).
+    (b) **Tree** (export format 2): README.md, .gitignore (`site.env`, `.env`, `.runtime/`, `.data/`), and per site
+        README.md, deploy.sh, site.env.example, docker-compose.yml, setup.sh, init.sh, files/ (`<slug>` byte for byte,
+        `<slug>.template` with placeholders), templates/{steps,secrets,volumes}/, volumes/<v>/ (starter content; archives
+        `<v>.seed.tar.gz`; > 100 MB skipped + `<v>.skipped.txt`), edge/{caddy.json | caddy.template.json, pages/, tls/,
+        Dockerfile for dns-01}. No `opm/` folder, no binary, no `opm.*` label. `ExportRequest.tool` is gone,
+        `ExportRequest.repository` ("owner/name") puts the clone URL into the READMEs.
+    (c) **Symbolic filters**: `expr.Symbolic` (a hook that answers only for strings holding the exporter's sentinels)
+        turns `filter(value with a deferred input)` into a derived value `OPM_D_<12 hex of sha256(filter, args, input)>`
+        recorded as a step (input = a template with `${NAME}`). Steps are computed by setup.sh with busybox (upper /
+        lower ASCII, trim ASCII white space, base64, url, sha256, sha512, int, json) and `mosquitto_passwd` in the
+        official `eclipse-mosquitto:2.0.22` image (random salt; recomputed only when the input changes). `default` and
+        `join` are not symbolic (a sentinel is never empty; join of texts stays text).
+    (d) **deploy.sh** (same for every site, plain sh, official images only): `setup.sh values` (busybox
+        `1.37-musl`, the calling user: site.env `NAME=value` as written, surrounding quotes stripped; required values +
+        `PORTAINER_ADMIN_PASSWORD` ≥ 12 characters unless `PORTAINER=off`), `setup.sh steps` (+ the mosquitto rounds),
+        `setup.sh render` (templates → `.runtime/` with the agent's modes; an unchanged file is not touched, a changed one
+        is renamed into place; `.env` = every value double-quoted (`\\`, `\"`, `$$`, `\n`), `FILES_SHA_<SERVICE>` = sha256
+        of the files a service mounts, `COMPOSE_PROFILES`), then `docker compose up -d --remove-orphans` (extra arguments
+        passed on; `--render-only` stops before it).
+    (e) **Compose**: values `${NAME:?run ./deploy.sh}` from `.env` (plain `docker compose ps / logs` work); label
+        `files.sha256: ${FILES_SHA_<SERVICE>:-}` on every service that mounts files and on the edge, so a changed file
+        recreates exactly those services (the agent restarts them); health http / tcp with the static busybox of the
+        `tools` volume at `/.tools` (`wget -S` status line / `nc -z`, the container's own address), exec = CMD (expected
+        exit code ≠ 0: busybox sh); `init` (busybox) = seed-once (`.opm-seeded`) + installs the busybox; `edge` =
+        `caddy:2.11.7` (TLS files at `/etc/caddy/tls`); `portainer` = `portainer/portainer-ce:2.45.2` (LTS) in profile
+        `portainer`, `--admin-password-file`, port `${PORTAINER_HTTPS_PORT:-9443}`, Docker socket, volume `portainer-data`.
+        Project name `<slug>-<site>`; helper names `init` / `edge` / `portainer` (suffix `-2` … when a container takes one).
+    (f) **Proof**: `TestComposeEquivalenceDocker` (real agent vs `./deploy.sh` on the same Docker): 0 differences, plus
+        Portainer login with the site.env password, no re-seed on a second deploy, and a File change that recreates only
+        the service mounting it. `TestExportFixture` runs `deploy.sh --render-only` and `docker compose config` on real
+        Docker. `agent/cmd/opm-render` is removed; the backend build compiles only `opm-export.wasm`.
 
 ## Appendix B. Activity catalog
 

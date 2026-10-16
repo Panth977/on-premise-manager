@@ -30,7 +30,6 @@ import { col, db, nowIso } from './fire.js';
 import { env } from './env.js';
 import { ensureSlug } from './slugs.js';
 import { GITHUB_API_DEFAULT, GithubClient } from './github.js';
-import { toolInfo } from './mirror-export.js';
 
 export const mcol = {
   config: () => db().collection('githubMirror').doc('config'),
@@ -92,7 +91,6 @@ export async function mirrorView(m: StoredMirror): Promise<GithubMirrorView> {
     const p = d.data().pushedAt as string | null;
     if (p && (!lastPushAt || p > lastPushAt)) lastPushAt = p;
   }
-  const t = toolInfo();
   return {
     configured: isConfigured(m),
     enabled: m.enabled,
@@ -109,7 +107,6 @@ export async function mirrorView(m: StoredMirror): Promise<GithubMirrorView> {
     pauseReason: m.pauseReason,
     summary: { branches: branches.size, synced, queued, errors, pendingItems: pending.size, lastPushAt },
     exportFormat: MIRROR_EXPORT_FORMAT,
-    tool: { version: t.version, amd64: t.amd64 ? `sha256:${t.amd64.sha256}` : null, arm64: t.arm64 ? `sha256:${t.arm64.sha256}` : null },
     updatedAt: m.updatedAt || null,
     updatedBy: m.updatedBy || null,
   };

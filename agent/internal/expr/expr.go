@@ -960,7 +960,20 @@ func trunc(f float64) float64 {
 	return t
 }
 
+// Symbolic (compose export only): called before a filter runs on a text value. ok = the hook took over and out is the
+// value to use instead (the exporter returns a placeholder that names the filter step, so the step runs later on the
+// machine). It answers ok = false for every value without the exporter's placeholders, so a normal evaluation never
+// changes.
+var Symbolic func(filter string, args []any, in string) (out string, ok bool)
+
 func applyFilter(f FilterNode, v any, ctx *Context) (any, *Error) {
+	if Symbolic != nil && f.Name != "default" && f.Name != "join" {
+		if s, isText := v.(string); isText {
+			if out, ok := Symbolic(f.Name, f.Args, s); ok {
+				return out, nil
+			}
+		}
+	}
 	typeErr := func() *Error { return errf(EType, f.Pos, `filter "%s" cannot take %s`, f.Name, typeName(v)) }
 	switch f.Name {
 	case "default":

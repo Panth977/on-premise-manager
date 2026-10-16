@@ -45,7 +45,7 @@ import { auditSystem } from './audit.js';
 import { commitsOf, decodeCommit, bcol } from './branches.js';
 import { GithubClient, GithubError, gitBlobSha, type TreeEntry } from './github.js';
 import { clientOf, isActive, loadMirror, mcol, repoKeyOf, targetOf, touchBranch, invalidateMirrorCache, type MirrorTarget, type StoredMirror } from './mirror.js';
-import { buildRequest, exportTree, newExportCtx, personOf, toolBytes, type ExportCtx } from './mirror-export.js';
+import { buildRequest, exportTree, newExportCtx, personOf, type ExportCtx } from './mirror-export.js';
 import { readTree, vcCol } from '../routes/volume-content.js';
 
 const LEASE_MS = 3 * 60_000;
@@ -137,7 +137,7 @@ async function pushTree(p: Push, res: ExportResult): Promise<{ tree: string; not
       const hex = hexOf(f.blob);
       sha = await gitShaFor(p, hex, async () => { const b = await blobs().get(`files/${hex}`); if (!b) throw Object.assign(new Error(`files/${hex} is not stored`), { code: 404 }); return b; });
     } else {
-      const bytes = f.text !== undefined ? Buffer.from(f.text, 'utf8') : f.base64 !== undefined ? Buffer.from(f.base64, 'base64') : f.tool ? toolBytes(f.tool) : Buffer.alloc(0);
+      const bytes = f.text !== undefined ? Buffer.from(f.text, 'utf8') : f.base64 !== undefined ? Buffer.from(f.base64, 'base64') : Buffer.alloc(0);
       sha = await gitShaFor(p, sha256Hex(bytes), async () => bytes);
     }
     entries.push({ path: f.path, mode: f.mode, type: 'blob', sha });
@@ -145,7 +145,7 @@ async function pushTree(p: Push, res: ExportResult): Promise<{ tree: string; not
   for (const [dir, list] of skipped) {
     const text = `# Files OPM did not push to GitHub (larger than ${max} bytes; GitHub refuses files over 100 MB).\n# They exist in OPM (cloud Storage / the site) only.\n${list.sort().join('\n')}\n`;
     const b = Buffer.from(text, 'utf8');
-    entries.push({ path: `${dir ? `${dir}/` : ''}.opm-skipped.txt`, mode: '100644', type: 'blob', sha: await gitShaFor(p, sha256Hex(b), async () => b) });
+    entries.push({ path: `${dir ? `${dir}/` : ''}.skipped.txt`, mode: '100644', type: 'blob', sha: await gitShaFor(p, sha256Hex(b), async () => b) });
   }
   entries.sort((a, b) => compareUtf16(a.path, b.path));
   return { tree: await p.cl.createTree(entries), notes };
@@ -154,7 +154,7 @@ async function pushTree(p: Push, res: ExportResult): Promise<{ tree: string; not
 async function ensureInitialized(p: Push) {
   if (p.m.initializedAt) return;
   if (await p.cl.isEmpty()) {
-    const readme = `# OPM mirror\n\nThis repository is written by the On-Prem Manager (OPM) GitHub mirror (push only).\n\nBranches:\n\n- \`template/<slug>\` — a template\n- \`deployment/<slug>/cloud\` — a deployment (what its sites should run)\n- \`deployment/<slug>/agent/<site>\` — the commits of one site (+ persist-to-cloud volume snapshots)\n- \`deployment/<slug>/uncommitted/<site>\` — changes made on that site outside OPM, not committed yet\n\nEvery branch holds a docker compose setup per site: \`git clone -b <branch> … && cd sites/<site> && cp .env.example .env\` (fill it) \`&& docker compose up\`. See the README of each branch.\n`;
+    const readme = `# OPM mirror\n\nThis repository is written by the On-Prem Manager (OPM) GitHub mirror.\n\nBranches:\n\n- \`template/<slug>\` — a template\n- \`deployment/<slug>/cloud\` — a deployment (what its sites should run)\n- \`deployment/<slug>/agent/<site>\` — the commits of one site (+ persist-to-cloud volume snapshots)\n- \`deployment/<slug>/uncommitted/<site>\` — changes made on that site outside OPM, not committed yet\n- \`deployment/<slug>/site/<site>\` — a site run with Docker only: written by that machine, never by the mirror\n\nEvery branch runs each site with Docker alone (docker compose + Caddy + Portainer, no agent): the last resort when the agent is not allowed. Open \`sites/<site>/README.md\` of a branch for the exact steps: clone, \`git switch -c deployment/<slug>/site/<site>\`, fill \`site.env\`, \`./deploy.sh\`, push; later \`git merge\` the cloud branch and \`./deploy.sh\` again.\n`;
     await p.cl.putContents('README.md', Buffer.from(readme, 'utf8'), 'OPM mirror: initialize the repository', MIRROR_DEFAULT_BRANCH, { name: 'OPM', email: 'opm@users.noreply.opm' });
   }
   const at = nowIso();
@@ -201,6 +201,7 @@ async function buildEntry(p: Push, t: MirrorTarget, hist: Entry[], e: Entry, com
   if (e.type === 'commit') {
     const c = await load(e.id);
     const req = await buildRequest(p.x, {
+      repository: `${p.m.owner}/${p.m.repo}`,
       branch: branchMeta(t),
       commit: { id: c.commitId, seq: c.seq, kind: c.kind, message: c.message, author: personOf(c.author, t.ref.siteSlug), createdAt: c.createdAt, hash: c.hash, parentId: c.parentId },
       deploymentId: depIdFor(t),
@@ -224,6 +225,7 @@ async function buildEntry(p: Push, t: MirrorTarget, hist: Entry[], e: Entry, com
   const who = mirrorSitePerson(e.site!);
   const msg = `Volume snapshot ${e.site}/${e.volume} #${e.seq} (${e.fileCount ?? 0} files)`;
   const req = await buildRequest(p.x, {
+      repository: `${p.m.owner}/${p.m.repo}`,
     branch: branchMeta(t),
     commit: { id: e.id, seq: e.seq, kind: 'volume-snapshot', message: msg, author: who, createdAt: e.createdAt, hash: e.treeHash ?? null, parentId: c.commitId },
     deploymentId: depIdFor(t),
@@ -328,6 +330,7 @@ async function pushDrift(p: Push, t: MirrorTarget): Promise<number> {
   const who = mirrorSitePerson(site);
   const msg = `Uncommitted changes on ${site} (${drift.items.length} items) — not committed in OPM\n\n${drift.items.slice(0, 50).map((i) => `- ${i.key}`).join('\n')}${drift.items.length > 50 ? `\n- … ${drift.items.length - 50} more` : ''}${drift.notes.length ? `\n\n${drift.notes.length} drift note(s) (not expressible as config)` : ''}`;
   const req = await buildRequest(p.x, {
+      repository: `${p.m.owner}/${p.m.repo}`,
     branch: branchMeta(t),
     commit: { id: drift.fingerprint, seq: null, kind: 'drift', message: msg, author: who, createdAt: drift.scannedAt, hash: null, parentId: drift.headCommitId },
     deploymentId: dep,

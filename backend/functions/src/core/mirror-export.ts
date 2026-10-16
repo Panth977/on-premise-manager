@@ -3,10 +3,9 @@
  * (`opm-export.wasm`, GOOS=wasip1, built by backend/build.mjs from agent/cmd/opm-export) through node:wasi:
  * stdin = ExportRequest JSON, stdout = ExportResult JSON. The compiled module is cached per instance.
  *
- * Tool binaries put into every tree (opm/bin): functions/lib/opm-render-linux-{amd64,arm64} (+ opm-tools.json).
+ * The tree runs with Docker alone (§21 #115): no OPM binary or file goes into it.
  * EMULATOR ONLY: githubMirror/config._stubExporter = true uses a small TS stand-in (queue / push tests without Go).
  */
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, mkdtempSync, writeFileSync, openSync, closeSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -47,36 +46,6 @@ export function artefactPath(name: string): string | null {
   }
   return null;
 }
-export interface ToolInfo {
-  version: string;
-  amd64: { sha256: string; size: number } | null;
-  arm64: { sha256: string; size: number } | null;
-}
-let tool: ToolInfo | null = null;
-export function toolInfo(): ToolInfo {
-  if (tool) return tool;
-  const one = (arch: string) => {
-    const p = artefactPath(`opm-render-linux-${arch}`);
-    if (!p) return null;
-    const b = readFileSync(p);
-    return { sha256: createHash('sha256').update(b).digest('hex'), size: b.length };
-  };
-  let version = 'none';
-  const meta = artefactPath('opm-tools.json');
-  if (meta)
-    try {
-      version = String((JSON.parse(readFileSync(meta, 'utf8')) as { version?: string }).version ?? 'unknown');
-    } catch {
-      /* keep */
-    }
-  tool = { version, amd64: one('amd64'), arm64: one('arm64') };
-  return tool;
-}
-export function toolBytes(arch: 'linux-amd64' | 'linux-arm64'): Buffer {
-  const p = artefactPath(`opm-render-${arch}`);
-  if (!p) throw new Error(`opm-render-${arch} is not built (backend/build.mjs needs Go and agent/cmd/opm-render)`);
-  return readFileSync(p);
-}
 export const exporterAvailable = () => artefactPath('opm-export.wasm') !== null;
 
 // ───────────────────────────────────────── run the WASM exporter
@@ -116,26 +85,22 @@ export async function runExporter(req: ExportRequest): Promise<ExportResult> {
   }
 }
 
-/** EMULATOR ONLY stand-in: a deterministic minimal tree (README, opm/config.json, opm/export.json, Files, seeds, snapshots). */
+/** EMULATOR ONLY stand-in: a deterministic minimal tree (README, compose, site.env.example, Files, seeds, snapshots). */
 export function stubExport(req: ExportRequest): ExportResult {
   if (!env.emulator) throw new Error('the stub exporter exists only in the emulator');
   const files: ExportFile[] = [];
   const text = (p: string, t: string) => files.push({ path: p, mode: '100644', text: t, size: Buffer.byteLength(t) });
-  const pretty = (v: unknown) => JSON.stringify(JSON.parse(canonicalize(v)), null, 2) + '\n';
-  text('README.md', `# ${req.branch.label}\n\nOPM ${req.branch.kind} branch ${req.branch.gitBranch} (stub export)\n`);
-  text('.gitignore', '**/.env\n**/.opm-runtime/\n**/.opm-data/\n');
-  text('opm/config.json', pretty({ format: req.format, branch: req.branch, commit: req.commit, config: req.config }));
-  text('opm/export.json', pretty(req));
-  if (req.tool.amd64) files.push({ path: 'opm/bin/opm-render-linux-amd64', mode: '100755', tool: 'linux-amd64', size: req.tool.amd64.size });
+  text('README.md', `# ${req.branch.label}\n\nGit branch \`${req.branch.gitBranch}\` = the ${req.branch.kind} at commit \`${req.commit.id}\` (stub export)\n`);
+  text('.gitignore', '**/site.env\n**/.env\n**/.runtime/\n**/.data/\n');
   for (const site of req.sites) {
     const s = req.config.sites.find((x) => x.siteSlug === site);
     if (!s) continue;
-    text(`sites/${site}/docker-compose.yml`, `name: opm-${req.branch.entitySlug}-${site}\nservices:\n${s.config.containers.map((c) => `  ${c.containerSlug}:\n    image: ${req.images[imageKey(c.serviceSlug, c.version)]?.pull ?? `${c.serviceSlug}:${c.version}`}\n`).join('')}`);
-    text(`sites/${site}/.env.example`, req.config.secrets.map((x) => `OPM_SECRET_${x.secretSlug.toUpperCase().replace(/-/g, '_')}=\n`).join(''));
+    text(`sites/${site}/docker-compose.yml`, `name: ${req.branch.entitySlug}-${site}\nservices:\n${s.config.containers.map((c) => `  ${c.containerSlug}:\n    image: ${req.images[imageKey(c.serviceSlug, c.version)]?.pull ?? `${c.serviceSlug}:${c.version}`}\n`).join('')}`);
+    text(`sites/${site}/site.env.example`, req.config.secrets.map((x) => `OPM_SECRET_${x.secretSlug.toUpperCase().replace(/-/g, '_')}=\n`).join(''));
     for (const f of req.config.files)
       if (f.content) {
         const hex = hexOf(f.content.sha256);
-        if (f.render === 'expressions') text(`sites/${site}/files/${f.fileSlug}.opm-template`, req.texts[hex] ?? '');
+        if (f.render === 'expressions') text(`sites/${site}/files/${f.fileSlug}.template`, req.texts[hex] ?? '');
         else files.push({ path: `sites/${site}/files/${f.fileSlug}`, mode: '100644', blob: hex, size: f.content.sizeBytes });
       }
     for (const v of s.config.volumes ?? []) {
@@ -223,6 +188,8 @@ export interface ExportInput {
   catalog: RevisionCatalog | null;
   sites: string[];
   persist: Record<string, Record<string, ExportPersistSnapshot>>;
+  /** "owner/name" of the mirror repository (the READMEs show the clone URL) */
+  repository?: string;
 }
 export async function buildRequest(x: ExportCtx, i: ExportInput): Promise<ExportRequest> {
   x.cat ??= await loadCatalog();
@@ -268,7 +235,6 @@ export async function buildRequest(x: ExportCtx, i: ExportInput): Promise<Export
     if (!x.texts.has(hex)) x.texts.set(hex, (await readText(`files/${hex}`)) ?? '');
     texts[hex] = x.texts.get(hex)!;
   }
-  const t = toolInfo();
   return {
     format: MIRROR_EXPORT_FORMAT,
     branch: i.branch,
@@ -281,7 +247,7 @@ export async function buildRequest(x: ExportCtx, i: ExportInput): Promise<Export
     texts,
     sites: i.sites,
     persist: i.persist,
-    tool: { version: t.version, amd64: t.amd64 ? { sha256: `sha256:${t.amd64.sha256}`, size: t.amd64.size } : null, arm64: t.arm64 ? { sha256: `sha256:${t.arm64.sha256}`, size: t.arm64.size } : null },
+    repository: i.repository ?? '',
   };
 }
 export async function exportTree(req: ExportRequest, stub: boolean): Promise<ExportResult> {

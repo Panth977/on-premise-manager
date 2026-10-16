@@ -7,7 +7,7 @@ export GOTOOLCHAIN ?= auto
 export CGO_ENABLED = 0
 PLATFORMS := linux/amd64 linux/arm64 darwin/arm64
 
-.PHONY: all build dist vet test test-short gui clean opm-render opm-export-wasm
+.PHONY: all build dist vet test test-short gui clean opm-export-wasm
 all: vet test dist
 
 build:
@@ -24,16 +24,9 @@ dist:
 	@# §21 #91 build metadata (version, schema, minSchema, commit, builtAt) for agent/<v>/release.json
 	@go build -trimpath -ldflags '$(LDFLAGS)' -o dist/.opm-agent-host ./cmd/opm-agent && dist/.opm-agent-host version --release-json > dist/release.json && rm -f dist/.opm-agent-host
 	@echo "wrote dist/release.json"; cat dist/release.json
-	@$(MAKE) --no-print-directory opm-render opm-export-wasm
+	@$(MAKE) --no-print-directory opm-export-wasm
 
-# §21 #106 compose export helpers (reproducible: -trimpath, no build id, no VCS stamp)
-RENDER_LDFLAGS := -s -w -buildid= -X main.Version=$(VERSION)
-opm-render:
-	@mkdir -p dist
-	@for arch in amd64 arm64; do out=dist/opm-render-linux-$$arch; echo "build $$out"; \
-	  GOOS=linux GOARCH=$$arch go build -trimpath -buildvcs=false -ldflags '$(RENDER_LDFLAGS)' -o $$out ./cmd/opm-render || exit 1; \
-	  shasum -a 256 $$out | cut -d' ' -f1 > $$out.sha256; done
-
+# the compose export (GitHub mirror) as wasm for the cloud (§21 #106)
 opm-export-wasm:
 	@mkdir -p dist
 	GOOS=wasip1 GOARCH=wasm go build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' -o dist/opm-export.wasm ./cmd/opm-export

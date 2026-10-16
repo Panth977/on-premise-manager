@@ -21,8 +21,8 @@ await build({
 
 // ───────────────────────────────────────── §21 #106 Go artefacts of the GitHub mirror (built from ../agent)
 //   functions/lib/opm-export.wasm               the exporter (GOOS=wasip1), run by Cloud Functions through node:wasi
-//   functions/lib/opm-render-linux-{amd64,arm64} the runtime helper committed into every branch (opm/bin)
 //   functions/lib/opm-tools.json                { version, sha256 by artefact }
+// (the exported trees run with Docker alone: no binary goes into them, §21 #115)
 // Reproducible: -trimpath, no build id, no VCS stamp. Missing Go / commands → a warning (the mirror then refuses to export).
 {
   const { execFileSync } = await import('node:child_process');
@@ -34,8 +34,6 @@ await build({
   const flags = ['build', '-trimpath', '-buildvcs=false', '-ldflags=-s -w -buildid='];
   const jobs = [
     { cmd: 'cmd/opm-export', out: 'opm-export.wasm', env: { GOOS: 'wasip1', GOARCH: 'wasm', CGO_ENABLED: '0' } },
-    { cmd: 'cmd/opm-render', out: 'opm-render-linux-amd64', env: { GOOS: 'linux', GOARCH: 'amd64', CGO_ENABLED: '0' } },
-    { cmd: 'cmd/opm-render', out: 'opm-render-linux-arm64', env: { GOOS: 'linux', GOARCH: 'arm64', CGO_ENABLED: '0' } },
   ];
   const meta = { version: '', artefacts: {} };
   if (process.env.OPM_SKIP_GO === '1') console.warn('build: OPM_SKIP_GO=1 — Go artefacts of the GitHub mirror not rebuilt');
@@ -55,6 +53,6 @@ await build({
     const p = path.join(lib, j.out);
     if (existsSync(p)) meta.artefacts[j.out] = createHash('sha256').update(readFileSync(p)).digest('hex');
   }
-  meta.version = meta.artefacts['opm-render-linux-amd64'] ? `render-${meta.artefacts['opm-render-linux-amd64'].slice(0, 12)}` : 'none';
+  meta.version = meta.artefacts['opm-export.wasm'] ? `export-${meta.artefacts['opm-export.wasm'].slice(0, 12)}` : 'none';
   writeFileSync(path.join(lib, 'opm-tools.json'), JSON.stringify(meta, null, 2) + '\n');
 }

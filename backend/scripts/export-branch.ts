@@ -28,7 +28,7 @@ async function main() {
   const cl = init(project); // installs the adapter's ports for the backend modules imported below
   process.env.OPM_EXPORT_DIR ??= path.resolve(path.dirname(new URL(import.meta.url).pathname), '../functions/lib');
   const { decodeCommit, commitsOf } = await import('../functions/src/core/branches.ts');
-  const { buildRequest, newExportCtx, runExporter, toolBytes, personOf } = await import('../functions/src/core/mirror-export.ts');
+  const { buildRequest, newExportCtx, runExporter, personOf } = await import('../functions/src/core/mirror-export.ts');
   const { db } = await import('../functions/src/core/fire.ts');
   const { slugOf } = await import('../functions/src/core/slugs.ts');
   const ref: BranchRef = tid ? { kind: 'template', templateId: tid } : site ? { kind: 'agent', deploymentId: did!, siteSlug: site } : { kind: 'deployment', deploymentId: did! };
@@ -63,7 +63,6 @@ async function main() {
     let bytes: Buffer;
     if (f.text !== undefined) bytes = Buffer.from(f.text, 'utf8');
     else if (f.base64 !== undefined) bytes = Buffer.from(f.base64, 'base64');
-    else if (f.tool) bytes = toolBytes(f.tool);
     else bytes = (await cl.bucket.file(`files/${f.blob!.replace(/^sha256:/, '')}`).download())[0];
     writeFileSync(p, bytes);
     if (f.mode === '100755') chmodSync(p, 0o755);

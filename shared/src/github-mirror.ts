@@ -1,19 +1,23 @@
 /**
- * §21 #106 — GitHub mirror: every OPM branch is mirrored (push only, OPM → GitHub) into ONE GitHub repository as git
- * branches, and every git branch holds an equivalent docker compose setup WITHOUT the agent (clone → cd sites/<site> →
- * cp .env.example .env → fill → `docker compose up`). Normative with SPEC-final §21 #106 and docs-v2/github-mirror.md.
+ * §21 #106 / #115 — GitHub mirror: every OPM branch is mirrored (push only, OPM → GitHub) into ONE GitHub repository as
+ * git branches, and every git branch runs each site with Docker alone, the last resort when the agent is not allowed:
+ * clone → `git switch -c deployment/<slug>/site/<site>` → cd sites/<site> → cp site.env.example site.env → fill →
+ * `./deploy.sh` (docker compose + Caddy edge + Portainer GUI; no OPM code on the machine). Normative with SPEC-final
+ * §21 #106 / #115 and docs-v2/github-mirror.md.
  *
  * Pieces
  *   - Branch names (`mirrorBranchName`): template/<slug>, deployment/<slug>/cloud, deployment/<slug>/agent/<site>,
- *     deployment/<slug>/uncommitted/<site>. <slug> = the stable entity slug (Template.slug / Deployment.slug: assigned at
+ *     deployment/<slug>/uncommitted/<site>. A machine run with Docker only keeps deployment/<slug>/site/<site>
+ *     (written by that machine, never by the mirror). <slug> = the stable entity slug (Template.slug / Deployment.slug: assigned at
  *     create from the label, unique, immutable — `slugifyLabel` + `uniqueSlug`).
  *   - One git commit per OPM commit (same message, author name / email, author + committer date = commit createdAt) with
  *     the trailers `OPM-Commit: <commitId>` + `OPM-Branch` + `OPM-Seq` (`mirrorCommitMessage`); agent branches also get one
  *     commit per persist-to-cloud snapshot (`OPM-Volume-Version`), uncommitted/<site> one snapshot commit of the drift
  *     (`OPM-Drift`). Nothing else is ever pushed to these branches. Deterministic trees + metadata → same git sha on a rebuild.
- *   - The tree is produced by the exporter (Go `agent/internal/export`; WASM `opm-export.wasm` in Cloud Functions; the same
- *     code runs at `docker compose up` as `opm/bin/opm-render init` for values that only exist on the VM: secrets, auto
- *     host, cross-site hosts, required variables of templates). Wire format: ExportRequest → ExportResult below.
+ *   - The tree is produced by the exporter (Go `agent/internal/export`; WASM `opm-export.wasm` in the cloud). Values that
+ *     only exist on the machine (secrets, auto host, cross-site hosts, required variables of templates) are written as
+ *     ${NAME} / @@{NAME}@@ placeholders; deploy.sh fills them in from site.env with the official busybox image (filters such
+ *     as sha256 or mosquitto_passwd become steps of setup.sh). Wire format: ExportRequest → ExportResult below.
  *   - Queue in Firestore (`githubMirror/config/queue/{itemId}`, idempotent item ids, ordered per branch, retry / backoff),
  *     pushed with the GitHub REST Git Data API (blobs / trees / commits / refs), no git binary.
  *   - Admin → GitHub page (accounts.admin): repo owner / name, token (fine-grained PAT, Contents read + write; stored like a
@@ -24,8 +28,8 @@ import { createClient, ep, type AuthProvider, type Client } from './http.js';
 import type { Config, ConfigView, Id, ListResponse, Masked, RevisionCatalog, RevealResponse, Sha256, Slug, Ts, Ulid, VolumeTree } from './types.js';
 
 // ───────────────────────────────────────────────────────────── constants
-/** Export wire / tree format (opm/export.json `format`; opm-render refuses an unknown major). */
-export const MIRROR_EXPORT_FORMAT = 1 as const;
+/** Export wire format (ExportRequest / ExportResult `format`; the wasm exporter refuses another one). 2 = Docker-only trees (§21 #115). */
+export const MIRROR_EXPORT_FORMAT = 2 as const;
 /** git trailers (one per line after a blank line, "Key: value"); OPM-Commit is THE idempotency key of a mirrored commit. */
 export const MIRROR_TRAILERS = {
   commit: 'OPM-Commit', //          commitId (ULID) of the OPM commit
@@ -212,8 +216,6 @@ export interface GithubMirrorView {
   pauseReason: string | null;
   summary: { branches: number; synced: number; queued: number; errors: number; pendingItems: number; lastPushAt: Ts | null };
   exportFormat: typeof MIRROR_EXPORT_FORMAT;
-  /** sha256 of the opm-render binaries put into every branch (opm/bin), by arch */
-  tool: { version: string; amd64: Sha256 | null; arm64: Sha256 | null };
   updatedAt: Ts | null;
   updatedBy: string | null;
 }
@@ -356,9 +358,9 @@ export interface AgentBranchDrift {
 
 // ───────────────────────────────────────────────────────────── exporter wire format (Go internal/export ⇄ backend)
 /**
- * Input of the exporter (stdin of opm-export.wasm; also written into every tree as `opm/export.json`, which
- * `opm-render init` reads on the VM). NEVER holds a secret value: `config.secrets[].value` is null everywhere and
- * `secretsSet` lists the secrets that have a value in OPM.
+ * Input of the exporter (stdin of opm-export.wasm). NEVER holds a secret value: `config.secrets[].value` is null
+ * everywhere and `secretsSet` lists the secrets that have a value in OPM. The tree it produces runs with Docker alone
+ * (§21 #115): no OPM file or binary is in it.
  */
 export interface ExportRequest {
   format: typeof MIRROR_EXPORT_FORMAT;
@@ -396,8 +398,8 @@ export interface ExportRequest {
   sites: Slug[];
   /** agent branches: the latest persist-to-cloud snapshot per site + volume at this point of the branch history */
   persist: Record<Slug, Record<string, ExportPersistSnapshot>>;
-  /** opm-render binaries put into opm/bin (the backend fills them from its build) */
-  tool: { version: string; amd64: { sha256: Sha256; size: number } | null; arm64: { sha256: Sha256; size: number } | null };
+  /** the mirror repository "owner/name" ("" = unknown): the READMEs show the exact `git clone` URL */
+  repository: string;
 }
 export interface ExportImageRef {
   /** what `image:` says: "<host>/<repository>[:<tag>]@<digest>" ("docker.io/library/redis:7.4@sha256:…"); a local
@@ -417,7 +419,7 @@ export interface ExportPersistSnapshot {
   tree: VolumeTree;
 }
 export type ExportFileMode = '100644' | '100755';
-/** One file of the tree. Exactly one of text / base64 / blob / tool. Sorted by path (UTF-16 order). */
+/** One file of the tree. Exactly one of text / base64 / blob. Sorted by path (UTF-16 order). */
 export interface ExportFile {
   path: string;
   mode: ExportFileMode;
@@ -425,8 +427,6 @@ export interface ExportFile {
   base64?: string;
   /** sha256 hex of a cloud Storage blob `files/<hex>` (File contents with render none, starter content, snapshots) */
   blob?: string;
-  /** opm-render binary of this arch (the backend's build artefact) */
-  tool?: 'linux-amd64' | 'linux-arm64';
   size: number;
 }
 export interface ExportNote {

@@ -16,10 +16,10 @@ import (
 // The deferred inputs of a site (values that exist only on the VM) and one render pass with a given value for each.
 //
 // A pass resolves EVERYTHING the agent would resolve (driver.Build per container, the files rendered once per site, the
-// starter content, the edge) with a value per deferred input: sentinel set A, sentinel set B (different text, length and
-// case), the display form "${NAME}", or the real values (runtime). An output that is the same in A and B does not
-// depend on a deferred input; an env / compose value whose A and B forms become equal once every sentinel is replaced by
-// ${NAME} is a pure substitution (compose interpolation); anything else is rendered on the VM by opm-render init.
+// starter content, the edge) with a value per deferred input: sentinel set A or sentinel set B (different text, length
+// and case). An output that is the same in A and B does not depend on a deferred input. A filter applied to a deferred
+// value is symbolic (symbolic.go), so every output that differs is the config text with the sentinels at the places of
+// the values: compose interpolation (${NAME}) or a setup.sh template (@@{NAME}@@).
 
 // deferredInput is one .env value.
 type deferredInput struct {
@@ -42,9 +42,8 @@ func envName(kind, slug string) string {
 // SiteHostEnv is this site's own address when its host is auto.
 const SiteHostEnv = "OPM_SITE_HOST"
 
-func sentinelA(name string) string  { return "«OpmA:" + name + ":aMpO»" }
-func sentinelB(name string) string  { return "‹oPMb~" + name + "~bmPo~›" }
-func displayVal(name string) string { return "${" + name + "}" }
+func sentinelA(name string) string { return "«OpmA:" + name + ":aMpO»" }
+func sentinelB(name string) string { return "‹oPMb~" + name + "~bmPo~›" }
 
 // cloneConfig deep-copies a config (JSON round trip keeps every optional key exactly).
 func cloneConfig(c *model.Config) *model.Config {
@@ -279,7 +278,7 @@ func (x *exporter) run(site string, values map[string]string) *pass {
 	if in.HTTPSPort != nil && in.AnyTLS() {
 		p.httpsPort = *in.HTTPSPort
 	}
-	cfgJSON, more := edgecfg.BuildStandard(in, edgecfg.StandardOptions{StorageRoot: "/data", TLSDir: "/opm-runtime/tls"})
+	cfgJSON, more := edgecfg.BuildStandard(in, edgecfg.StandardOptions{StorageRoot: "/data", TLSDir: EdgeTLSDir})
 	p.edge = cfgJSON
 	p.edgeNote = append(notes, more...)
 	s, err := canonical.Canonicalize(cfgJSON)

@@ -242,6 +242,19 @@
   const paused = $derived(!!mirror.data?.pausedUntil && Date.parse(mirror.data.pausedUntil) > Date.now());
   const cloneHint = $derived(mirror.data?.repoUrl ? `${mirror.data.repoUrl}.git` : 'https://github.com/<owner>/<repo>.git');
   const exampleBranch = $derived((rows.data ?? []).find((r) => r.branch.kind === 'deployment')?.gitBranch ?? 'deployment/<slug>/cloud');
+  // §21 #115 the branch a machine run with Docker only keeps (written by that machine, never by the mirror)
+  const siteBranch = $derived(exampleBranch.replace(/\/cloud$/, '/site/<site>'));
+  const runSteps = $derived(
+    [
+      `git clone ${cloneHint} opm && cd opm`,
+      `git switch -c ${siteBranch} origin/${exampleBranch}`,
+      'cd sites/<site> && cp site.env.example site.env   # fill it: secrets, this machine\'s address, Portainer password',
+      './deploy.sh',
+      `git push -u origin ${siteBranch}`,
+      '# a new cloud commit, later:',
+      `git fetch origin && git merge origin/${exampleBranch} && (cd sites/<site> && ./deploy.sh) && git push`,
+    ].join('\n'),
+  );
 </script>
 
 <svelte:head><title>GitHub · OPM</title></svelte:head>
@@ -379,22 +392,20 @@
             <li><code class="inline">deployment/&lt;slug&gt;/cloud</code> the deployment branch (what the sites should run)</li>
             <li><code class="inline">deployment/&lt;slug&gt;/agent/&lt;site&gt;</code> each site's own branch + its persist-to-cloud volume snapshots</li>
             <li><code class="inline">deployment/&lt;slug&gt;/uncommitted/&lt;site&gt;</code> manual changes found on that site, not committed yet (deleted when committed or discarded)</li>
+            <li><code class="inline">deployment/&lt;slug&gt;/site/&lt;site&gt;</code> a site run with Docker only: pushed by that machine, never written by the mirror</li>
           </ul>
           <p class="muted">Same message, author and time as in OPM, with a trailer <code class="inline">OPM-Commit: &lt;id&gt;</code>. Secret values are never pushed. The slug is the template's / deployment's fixed slug.</p>
           <div>
-            <div class="strong">Run a site without the agent</div>
+            <div class="strong">Run a site with Docker only (no agent)</div>
             <div class="codebox">
-              <pre class="code wrap" data-testid="gh-run">{`git clone -b ${exampleBranch} ${cloneHint}
-cd <repo>/sites/<site>
-cp .env.example .env    # fill secrets + this VM's address
-docker compose up -d`}</pre>
-              <CopyButton text={`git clone -b ${exampleBranch} ${cloneHint}\ncd <repo>/sites/<site>\ncp .env.example .env\ndocker compose up -d`} tip="Copy" />
+              <pre class="code wrap" data-testid="gh-run">{runSteps}</pre>
+              <CopyButton text={runSteps} tip="Copy" />
             </div>
-            <p class="xs muted">Containers, network aliases, files, starter volume content, health-ordered start and the edge (official caddy image) come up like on the agent. Needs Docker + Compose v2; private images: <code class="inline">docker login &lt;registry&gt;</code> first.</p>
+            <p class="xs muted">The last resort when the agent is not allowed: plain <code class="inline">docker compose</code>, Caddy as the edge and Portainer as the GUI (https://&lt;machine&gt;:9443), no OPM code on the machine. Containers, files, starter volume content, health-ordered start and the routes come up like on the agent. Each site's <code class="inline">sites/&lt;site&gt;/README.md</code> has the exact steps (Docker install, updates, roll back, backups).</p>
           </div>
           <div>
             <div class="strong">Not equivalent without the agent</div>
-            <p class="xs muted">drift detection, rollback + snapshots, persist to cloud, merges / approvals, the agent GUI (/_opm), dev tools, transfers, auto host detection (→ .env). Each branch's README lists the details; the Notes column shows them per branch.</p>
+            <p class="xs muted">drift detection, automatic snapshots + rollback, persist to cloud, approvals, the agent GUI (/_opm), dev tools, transfers, auto host detection (→ site.env). Git is the history and Portainer the GUI. Each branch's README lists the details; the Notes column shows them per branch.</p>
           </div>
         </div>
       </aside>

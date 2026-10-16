@@ -119,7 +119,7 @@ func startStandard(t *testing.T, label string, in *edgecfg.Input, ports map[stri
 		for n, c := range files {
 			_ = os.WriteFile(filepath.Join(fd, "tls", n), []byte(c), 0o644)
 		}
-		dockerRun(t, "cp", fd+"/.", name+":/opm-runtime")
+		dockerRun(t, "cp", fd+"/.", name+":/etc/caddy") // → /etc/caddy/tls/<host>.crt|.key (the default TLSDir)
 	}
 	dockerRun(t, "start", name)
 	hp := func(p int) int {

@@ -237,14 +237,13 @@ func Build(o Options) Fixture {
 		Branch:       export.BranchInfo{Kind: "deployment", GitBranch: "deployment/compose-equiv/cloud", EntitySlug: "compose-equiv", Label: "Compose equivalence", DeploymentID: ptr(o.DeploymentID)},
 		Commit:       export.CommitInfo{ID: "01JCOMPOSEEQUIV0000000000", Seq: &seq, Kind: "change", Message: "proof fixture\n\nmosquitto + 2 testsrv + seeded volumes + edge", Author: export.Person{Name: "Ops", Email: "ops@example.com"}, CreatedAt: "2026-10-09T10:00:00.000Z"},
 		DeploymentID: o.DeploymentID, Config: cfg, SecretsSet: []string{"api-token", "db-password", "mqtt-password"}, Catalog: cat, Images: imgs, Texts: texts,
-		Sites: []string{o.Site}, Persist: map[string]map[string]export.PersistSnapshot{}, Tool: export.Tool{Version: "test", Amd64: &export.ToolBin{Sha256: "sha256:" + hexOf([]byte("amd64")), Size: 1}, Arm64: &export.ToolBin{Sha256: "sha256:" + hexOf([]byte("arm64")), Size: 1}}}
+		Sites: []string{o.Site}, Persist: map[string]map[string]export.PersistSnapshot{}, Repository: "example/opm-mirror"}
 	_ = strconv.Itoa
 	return fx
 }
 
-// WriteTree materialises an export result into dir (like a git checkout of the branch): blobs from blobs[hex], tool
-// binaries from tools["linux-amd64"|"linux-arm64"] (missing → a stub that fails).
-func WriteTree(res export.Result, dir string, blobs map[string][]byte, tools map[string][]byte) error {
+// WriteTree materialises an export result into dir (like a git checkout of the branch): blobs from blobs[hex].
+func WriteTree(res export.Result, dir string, blobs map[string][]byte) error {
 	for _, f := range res.Files {
 		p := filepath.Join(dir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -264,12 +263,6 @@ func WriteTree(res export.Result, dir string, blobs map[string][]byte, tools map
 			x, ok := blobs[*f.Blob]
 			if !ok {
 				return fmt.Errorf("%s: blob %s missing", f.Path, *f.Blob)
-			}
-			b = x
-		case f.Tool != nil:
-			x, ok := tools[*f.Tool]
-			if !ok {
-				x = []byte("#!/bin/sh\necho opm-render " + *f.Tool + " not built >&2; exit 1\n")
 			}
 			b = x
 		}
@@ -295,8 +288,6 @@ func Tree(res export.Result) string {
 		switch {
 		case f.Blob != nil:
 			kind = "blob"
-		case f.Tool != nil:
-			kind = "tool " + *f.Tool
 		case f.Base64 != nil:
 			kind = "binary"
 		}

@@ -11,12 +11,16 @@ import (
 	"opm/agent/internal/validate"
 )
 
-// Service names of the helpers (a container may not take them: then they get a suffix).
+// Service / volume names of the helpers (a container may not take them: then they get a suffix).
 const (
-	InitService = "opm-init"
-	EdgeService = "opm-edge"
-	ToolsVolume = "opm-tools"
-	EdgeVolume  = "opm-edge-data"
+	InitService      = "init"
+	EdgeService      = "edge"
+	PortainerService = "portainer"
+	ToolsVolume      = "tools"
+	EdgeVolume       = "edge-data"
+	PortainerVolume  = "portainer-data"
+	// ToolsDir is where the tools volume (the static busybox of init.sh) is mounted in a container with a health check.
+	ToolsDir = "/.tools"
 )
 
 func helperName(base string, taken map[string]bool) string {
@@ -27,8 +31,11 @@ func helperName(base string, taken map[string]bool) string {
 	return n
 }
 
-// healthTest maps an OPM health check to a compose healthcheck (nil = none: the image HEALTHCHECK applies, like on the
-// agent) and whether the probe tool is needed.
+// shq quotes s for sh (single quotes).
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// healthTest maps an OPM health check to a compose healthcheck run with the static busybox of the tools volume (nil =
+// none: the image HEALTHCHECK applies, like on the agent) and whether the tools volume is needed.
 func healthTest(b *driver.Built) (*ymap, bool, string) {
 	h := b.Health
 	if h == nil || h.Type == "" || h.Type == "none" {
@@ -46,32 +53,39 @@ func healthTest(b *driver.Built) (*ymap, bool, string) {
 	if timeout <= 0 {
 		timeout = 5
 	}
-	t := strconv.FormatFloat(timeout, 'f', -1, 64)
+	t := strconv.Itoa(int(timeout + 0.999))
+	bb := ToolsDir + "/busybox"
+	// the container's own address (the agent checks from outside the container's loopback)
+	addr := "$(" + bb + " hostname -i | " + bb + " cut -d' ' -f1)"
 	var test yflow
-	tool := false
 	switch h.Type {
 	case "http":
 		want := int(h.ExpectStatus)
 		if want == 0 {
 			want = 200
 		}
-		test = yflow{"CMD", "/.opm/opm-render", "probe", "http", "--port", strconv.Itoa(port(h.PortName)), "--path", h.Path, "--expect", strconv.Itoa(want), "--timeout", t}
-		tool = true
+		path := h.Path
+		if path == "" {
+			path = "/"
+		}
+		// busybox wget -S prints the status line ("  HTTP/1.1 200 OK") even for 4xx / 5xx
+		script := "s=$(" + bb + " wget -S -q -T " + t + " -O /dev/null " + shq("http://") + "\"" + addr + "\"" + shq(":"+strconv.Itoa(port(h.PortName))+path) +
+			" 2>&1 | " + bb + " awk '/^ *HTTP\\//{print $2; exit}'); [ \"$s\" = " + strconv.Itoa(want) + " ]"
+		test = yflow{"CMD", bb, "sh", "-c", script}
 	case "tcp":
-		test = yflow{"CMD", "/.opm/opm-render", "probe", "tcp", "--port", strconv.Itoa(port(h.PortName)), "--timeout", t}
-		tool = true
+		test = yflow{"CMD", bb, "sh", "-c", bb + " nc -z -w " + t + " \"" + addr + "\" " + strconv.Itoa(port(h.PortName))}
 	case "exec":
 		if int(h.ExpectExitCode) == 0 {
 			test = append(yflow{"CMD"}, h.Command...)
 		} else {
-			test = append(yflow{"CMD", "/.opm/opm-render", "probe", "exec", "--expect", strconv.Itoa(int(h.ExpectExitCode)), "--"}, h.Command...)
-			tool = true
+			test = append(yflow{"CMD", bb, "sh", "-c", "\"$@\"; [ $? -eq " + strconv.Itoa(int(h.ExpectExitCode)) + " ]", "sh"}, h.Command...)
 		}
 	case "log":
 		return nil, false, fmt.Sprintf("container %s: the health check waits for the log pattern %q — compose has no log health check: dependents only wait for the start", b.ContainerSlug, h.Pattern)
 	default:
 		return nil, false, ""
 	}
+	tools := test[1] == bb
 	interval := h.IntervalSec
 	if interval <= 0 {
 		interval = 1
@@ -85,7 +99,7 @@ func healthTest(b *driver.Built) (*ymap, bool, string) {
 	}
 	m := newMap().set("test", test).set("interval", fmtSecs(interval)).set("timeout", fmtSecs(timeout)).set("retries", yraw(strconv.Itoa(retries)))
 	m.set("start_period", fmtSecs(h.StartPeriodSec))
-	return m, tool, ""
+	return m, tools, ""
 }
 
 // waitCondition: what a dependent waits for (the agent's "completed": healthy / job exited 0 / running).
@@ -117,7 +131,7 @@ func volMount(src, target string, ro bool) *ymap {
 
 // ProjectName of a site's compose project.
 func (x *exporter) projectName(site string) string {
-	return sanitizeProject("opm-" + x.req.Branch.EntitySlug + "-" + site)
+	return sanitizeProject(x.req.Branch.EntitySlug + "-" + site)
 }
 
 func sanitizeProject(s string) string {
@@ -132,27 +146,41 @@ func sanitizeProject(s string) string {
 	return b.String()
 }
 
-// compose renders sites/<site>/docker-compose.yml.
-func (x *exporter) compose(st *siteState, sc *model.Site) string {
-	site := st.site
+// helpers are the helper service / volume names of a site (computed once, used by compose and the scripts).
+type helpers struct {
+	init, edge, portainer   string
+	tools, edgeVol, portVol string
+}
+
+func (x *exporter) helpersOf(st *siteState, sc *model.Site) helpers {
 	taken := map[string]bool{}
 	for _, b := range st.a.builts {
 		if b != nil {
 			taken[b.ContainerSlug] = true
 		}
 	}
-	initName := helperName(InitService, taken)
-	taken[initName] = true
-	edgeName := helperName(EdgeService, taken)
-	taken[edgeName] = true
-	toolsVol, edgeVol := ToolsVolume, EdgeVolume
+	var h helpers
+	h.init = helperName(InitService, taken)
+	taken[h.init] = true
+	h.edge = helperName(EdgeService, taken)
+	taken[h.edge] = true
+	h.portainer = helperName(PortainerService, taken)
 	volTaken := map[string]bool{}
 	for _, v := range sc.Config.VolumeList() {
 		volTaken[v.VolumeSlug] = true
 	}
-	toolsVol = helperName(toolsVol, volTaken)
-	volTaken[toolsVol] = true
-	edgeVol = helperName(edgeVol, volTaken)
+	h.tools = helperName(ToolsVolume, volTaken)
+	volTaken[h.tools] = true
+	h.edgeVol = helperName(EdgeVolume, volTaken)
+	volTaken[h.edgeVol] = true
+	h.portVol = helperName(PortainerVolume, volTaken)
+	return h
+}
+
+// compose renders sites/<site>/docker-compose.yml.
+func (x *exporter) compose(st *siteState, sc *model.Site) string {
+	site := st.site
+	h := x.helpersOf(st, sc)
 
 	byslug := map[string]*driver.Built{}
 	for _, b := range st.a.builts {
@@ -192,7 +220,6 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 
 	services := newMap()
 	namedVols := newMap()
-	usedTools := false
 	// containers in the agent's start order (disabled ones after it)
 	seen := map[string]bool{}
 	var slugs []string
@@ -225,9 +252,7 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 		pull := img.Pull
 		if !ok || pull == "" {
 			pull, _, _ = driver.ReadableRef(a.Image)
-			x.note(site, "IMAGE_UNKNOWN", fmt.Sprintf("image %s has no registry reference in OPM: compose uses %s (it must exist on the machine)", key, pull))
-		} else if img.Private && img.RegistryHost != nil {
-			// README lists the docker login
+			x.note(site, "IMAGE_UNKNOWN", fmt.Sprintf("image %s has no registry reference: compose uses %s (it must exist on the machine)", key, pull))
 		}
 		svc.set("image", pull)
 		if p := img.Platform; p != "" {
@@ -239,8 +264,6 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 		if !a.Enabled {
 			svc.set("profiles", yflow{"disabled"})
 		}
-		// command / entrypoint (+ the derived-env wrapper)
-		derived := st.derived[slug]
 		flow := func(xs, ys []string, what string) yflow {
 			out := yflow{}
 			for i := range xs {
@@ -250,23 +273,16 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 				}
 				v, ok := x.sub(st, xs[i], y)
 				if !ok {
-					x.note(site, "VALUE_DERIVED", fmt.Sprintf("container %s: %s argument %d depends on an .env value through a filter: the first sentinel form is used", slug, what, i+1))
+					x.note(site, "VALUE_DERIVED", fmt.Sprintf("container %s: %s argument %d depends on a machine value in a way the export cannot express", slug, what, i+1))
 				}
 				out = append(out, v)
 			}
 			return out
 		}
-		entry := flow(a.Spec.Entrypoint, b.Spec.Entrypoint, "entrypoint")
-		if len(derived) > 0 {
-			wrap := yflow{"/.opm/opm-render", "exec", "--env", "/opm-env/" + slug + ".env.json", "--"}
-			entry = append(wrap, entry...)
-			usedTools = true
-			x.note(site, "ENV_DERIVED", fmt.Sprintf("container %s: env %s derive from .env values through filters: opm-init renders them and the entrypoint wrapper /.opm/opm-render exec sets them (docker inspect does not show them)", slug, strings.Join(derived, ", ")))
-		}
-		if len(entry) > 0 {
+		if entry := flow(a.Spec.Entrypoint, b.Spec.Entrypoint, "entrypoint"); len(entry) > 0 {
 			svc.set("entrypoint", entry)
 		}
-		if len(a.Spec.Cmd) > 0 || (len(derived) > 0 && a.Spec.Cmd != nil) {
+		if len(a.Spec.Cmd) > 0 {
 			svc.set("command", flow(a.Spec.Cmd, b.Spec.Cmd, "command"))
 		}
 		if a.Spec.Workdir != nil {
@@ -277,18 +293,14 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 			v, _ := x.sub(st, *a.Spec.User, *b.Spec.User)
 			svc.set("user", v)
 		}
-		// environment
+		// environment (values derived from secrets through filters come from .env like every other machine value)
 		ea, eb := envMap(a.Spec.Env), envMap(b.Spec.Env)
 		env := newMap()
-		dset := map[string]bool{}
-		for _, k := range derived {
-			dset[k] = true
-		}
 		for _, k := range sortedKeys(ea) {
-			if dset[k] {
-				continue
+			v, ok := x.sub(st, ea[k], eb[k])
+			if !ok {
+				x.note(site, "VALUE_DERIVED", fmt.Sprintf("container %s: env %s depends on a machine value in a way the export cannot express", slug, k))
 			}
-			v, _ := x.sub(st, ea[k], eb[k])
 			env.set(k, v)
 		}
 		if !env.empty() {
@@ -300,14 +312,14 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 			if p.HostPort == 0 {
 				continue
 			}
-			ip := p.HostIP
-			ports = append(ports, fmt.Sprintf("%s:%d:%d/%s", ip, p.HostPort, p.ContainerPort, p.Protocol))
+			ports = append(ports, fmt.Sprintf("%s:%d:%d/%s", p.HostIP, p.HostPort, p.ContainerPort, p.Protocol))
 		}
 		if len(ports) > 0 {
 			svc.set("ports", ports)
 		}
 		// mounts
 		var vols yseq
+		var mounted []string // the files of .runtime/ this service mounts (their hash recreates it on a change)
 		for i, m := range a.Spec.Mounts {
 			tb := m.Target
 			if i < len(b.Spec.Mounts) {
@@ -315,7 +327,7 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 			}
 			target, ok := x.sub(st, m.Target, tb)
 			if !ok {
-				x.note(site, "VALUE_DERIVED", fmt.Sprintf("container %s: mount path %s depends on an .env value through a filter", slug, x.clean(m.Target)))
+				x.note(site, "VALUE_DERIVED", fmt.Sprintf("container %s: mount path %s depends on a machine value in a way the export cannot express", slug, x.clean(m.Target)))
 			}
 			o := m.Origin
 			switch o.Kind {
@@ -335,22 +347,20 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 			case "host":
 				vols = append(vols, bindMount(o.Slug, target, m.ReadOnly))
 			case "file":
-				// opm-init places every File there with the agent's mode (git keeps files/<slug> or *.opm-template)
-				vols = append(vols, bindMount("./.opm-runtime/files/"+o.Slug, target, true))
+				vols = append(vols, bindMount("./.runtime/files/"+o.Slug, target, true))
+				mounted = append(mounted, ".runtime/files/"+o.Slug)
 			case "secret":
-				vols = append(vols, bindMount("./.opm-runtime/secrets/"+o.Slug, target, true))
+				vols = append(vols, bindMount("./.runtime/secrets/"+o.Slug, target, true))
+				mounted = append(mounted, ".runtime/secrets/"+o.Slug)
 			}
 		}
-		hc, tool, msg := healthTest(a)
+		hc, tools, msg := healthTest(a)
 		if msg != "" {
 			x.note(site, "HEALTH_LOG", msg)
 		}
-		if tool || len(derived) > 0 {
-			usedTools = true
-			vols = append(vols, volMount(toolsVol, "/.opm", true))
-		}
-		if len(derived) > 0 {
-			vols = append(vols, bindMount("./.opm-runtime/env/"+slug+".env.json", "/opm-env/"+slug+".env.json", true))
+		if tools {
+			vols = append(vols, volMount(h.tools, ToolsDir, true))
+			namedVols.set(h.tools, newMap())
 		}
 		if len(vols) > 0 {
 			svc.set("volumes", vols)
@@ -369,14 +379,23 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 		if len(a.Spec.ExtraHosts) > 0 {
 			svc.set("extra_hosts", yflow(a.Spec.ExtraHosts))
 		}
+		// the image's own labels stay; OPM's bookkeeping labels (opm.*) are not set: no agent manages these containers
 		labels := newMap()
 		for _, k := range sortedKeys(a.Spec.Labels) {
-			labels.set(k, a.Spec.Labels[k])
+			if !strings.HasPrefix(k, "opm.") {
+				labels.set(k, a.Spec.Labels[k])
+			}
 		}
-		labels.set("opm.export.commit", x.req.Commit.ID)
-		svc.set("labels", labels)
+		if len(mounted) > 0 {
+			n := filesShaName(slug)
+			st.hashes = append(st.hashes, fileHash{Name: n, Paths: mounted})
+			labels.set("files.sha256", "${"+n+":-}")
+		}
+		if !labels.empty() {
+			svc.set("labels", labels)
+		}
 		svc.set("networks", newMap().set("site", newMap().set("aliases", yflow(a.Aliases()))))
-		deps := newMap().set(initName, newMap().set("condition", "service_completed_successfully"))
+		deps := newMap().set(h.init, newMap().set("condition", "service_completed_successfully"))
 		for _, w := range waits[slug] {
 			if wb := byslug[w]; wb != nil && wb.Enabled {
 				deps.set(w, newMap().set("condition", waitCondition(wb)))
@@ -386,16 +405,15 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 		services.set(slug, svc)
 	}
 
-	// opm-init
+	// init: seeds the volumes once and installs the static busybox for the health checks (init.sh)
 	initSvc := newMap().set("image", InitImage)
-	initSvc.set("entrypoint", yflow{"sh", "/opm/bin/opm-render", "init", "--site", site})
-	initSvc.set("env_file", yseq{newMap().set("path", ".env").set("required", yraw("false"))})
+	initSvc.set("entrypoint", yflow{"sh", "/site/init.sh"})
 	initSvc.set("network_mode", "none")
-	iv := yseq{bindMount("../../opm", "/opm", true), bindMount(".", "/site", true), bindMount("./.opm-runtime", "/opm-runtime", false), bindMount("./.opm-data", "/opm-data", false)}
+	iv := yseq{bindMount(".", "/site", true), bindMount("./.runtime", "/runtime", true), bindMount("./.data", "/data", false)}
 	for _, v := range sc.Config.VolumeList() {
 		v := v
 		vb := volumeBindOf(&v)
-		dirT, fileT := InitVolumeTarget(&v)
+		dirT, fileT := initVolumeTarget(&v)
 		switch {
 		case vb.named:
 			iv = append(iv, volMount(vb.source, dirT, false))
@@ -406,22 +424,21 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 			iv = append(iv, bindMount(parentOf(vb.source), parentOf(fileT), false))
 		}
 	}
-	iv = append(iv, volMount(toolsVol, "/opm-tools", false))
+	iv = append(iv, volMount(h.tools, "/tools", false))
+	namedVols.set(h.tools, newMap())
 	initSvc.set("volumes", iv)
 	initSvc.set("restart", "no")
-	initSvc.set("labels", newMap().set("opm.export.helper", "init").set("opm.export.commit", x.req.Commit.ID))
 	root := newMap().set("name", x.projectName(site))
-	all := newMap().set(initName, initSvc)
+	all := newMap().set(h.init, initSvc)
 	for _, k := range services.keys {
 		all.set(k, services.vals[k])
 	}
-	// edge
+	// edge: the agent's edge on the official caddy image
 	if st.a.edge != nil {
 		e := newMap()
 		if dnsDockerfile(sc) != "" {
 			e.set("build", newMap().set("context", "./edge"))
-			e.set("image", "opm-edge-"+sanitizeProject(x.req.Branch.EntitySlug)+"-"+site+":dns")
-			e.set("env_file", yseq{newMap().set("path", ".env").set("required", yraw("false"))})
+			e.set("image", sanitizeProject(x.req.Branch.EntitySlug)+"-"+site+"-edge:dns")
 		} else {
 			e.set("image", EdgeImage)
 		}
@@ -434,24 +451,43 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 		e.set("ports", ports)
 		src := "./edge/caddy.json"
 		if st.edgeDef {
-			src = "./.opm-runtime/edge/caddy.json"
+			src = "./.runtime/edge/caddy.json"
 		}
-		ev := yseq{bindMount(src, "/etc/caddy/caddy.json", true), volMount(edgeVol, "/data", false)}
-		if len(st.a.tls) > 0 || hasFilesTLS(sc) {
-			ev = append(ev, bindMount("./.opm-runtime/tls", "/opm-runtime/tls", true))
+		ev := yseq{bindMount(src, "/etc/caddy/caddy.json", true), volMount(h.edgeVol, "/data", false)}
+		paths := []string{strings.TrimPrefix(src, "./")}
+		if len(st.a.tls) > 0 {
+			ev = append(ev, bindMount("./.runtime/tls", EdgeTLSDir, true))
+			for _, host := range sortedKeys(st.a.tls) {
+				paths = append(paths, ".runtime/tls/"+host+".crt", ".runtime/tls/"+host+".key")
+			}
 		}
 		e.set("volumes", ev)
+		// a new config (git merge) or certificate recreates the edge, like the agent reloads it
+		n := filesShaName(h.edge)
+		st.hashes = append(st.hashes, fileHash{Name: n, Paths: paths})
+		e.set("labels", newMap().set("files.sha256", "${"+n+":-}"))
+		if usesEnv(st.a.edgeJSON) {
+			e.set("env_file", yseq{newMap().set("path", ".env").set("required", yraw("false"))})
+		}
 		e.set("restart", "always")
-		e.set("labels", newMap().set("opm.export.helper", "edge").set("opm.export.commit", x.req.Commit.ID))
 		e.set("networks", newMap().set("site", newMap()))
-		e.set("depends_on", newMap().set(initName, newMap().set("condition", "service_completed_successfully")))
-		all.set(edgeName, e)
-		namedVols.set(edgeVol, newMap())
+		e.set("depends_on", newMap().set(h.init, newMap().set("condition", "service_completed_successfully")))
+		all.set(h.edge, e)
+		namedVols.set(h.edgeVol, newMap())
 	}
+	// portainer: the Docker GUI of this machine (profile "portainer"; deploy.sh enables it unless PORTAINER=off)
+	p := newMap().set("image", PortainerImage)
+	p.set("profiles", yflow{"portainer"})
+	p.set("command", yflow{"--admin-password-file", "/run/portainer-admin-password"})
+	p.set("ports", yseq{"${PORTAINER_HTTPS_PORT:-9443}:9443"})
+	p.set("volumes", yseq{bindMount("/var/run/docker.sock", "/var/run/docker.sock", false), volMount(h.portVol, "/data", false),
+		bindMount("./.runtime/portainer-admin-password", "/run/portainer-admin-password", true)})
+	p.set("restart", "always")
+	all.set(h.portainer, p)
+	namedVols.set(h.portVol, newMap())
+
 	root.set("services", all)
 	root.set("networks", newMap().set("site", newMap().set("name", driver.NetworkName(x.req.DeploymentID, site))))
-	namedVols.set(toolsVol, newMap())
-	_ = usedTools
 	// named volumes sorted
 	vm := newMap()
 	ks := append([]string(nil), namedVols.keys...)
@@ -461,19 +497,13 @@ func (x *exporter) compose(st *siteState, sc *model.Site) string {
 	}
 	root.set("volumes", vm)
 	header := []string{
-		"OPM compose export (SPEC §21 #106) — generated from " + x.req.Branch.GitBranch + " @ " + x.req.Commit.ID + "; do not edit by hand.",
-		"Site " + site + ": cp .env.example .env, fill it, then `docker compose up -d` (Docker Compose v2).",
-		"Services = the OPM containers (service name = container_name = network alias = containerSlug), opm-init (renders",
-		".env-derived files, seeds empty volumes once, installs the probe tool) and opm-edge (the agent's edge on the official caddy image).",
+		"Site " + site + " of " + x.req.Branch.GitBranch + " @ " + x.req.Commit.ID + " (generated: change the config in the cloud, or edit and commit on this machine's site branch).",
+		"Start it with ./deploy.sh (it renders .env and .runtime/ from site.env, then runs docker compose up -d); see README.md.",
+		"Services: the site's containers (service = container_name = network alias), init (seeds empty volumes once, installs the",
+		"health-check tool), edge (Caddy: the routes and TLS of the site) and portainer (the Docker GUI, https://<machine>:9443).",
 	}
 	return yamlDoc(header, root)
 }
 
-func hasFilesTLS(sc *model.Site) bool {
-	for _, h := range sc.Config.Edge.Hosts {
-		if h.TLS.Mode == "files" {
-			return true
-		}
-	}
-	return false
-}
+// usesEnv: the edge config reads values from the environment ({env.NAME}: DNS provider tokens).
+func usesEnv(edgeJSON string) bool { return strings.Contains(edgeJSON, "{env.") }

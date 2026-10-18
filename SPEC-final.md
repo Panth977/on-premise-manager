@@ -6399,6 +6399,17 @@ Pass = every check above green; results file lists timings and the activity coun
         the service mounting it. `TestExportFixture` runs `deploy.sh --render-only` and `docker compose config` on real
         Docker. `agent/cmd/opm-render` is removed; the backend build compiles only `opm-export.wasm`.
 
+116. **The image prune keeps the images of an update in flight** (an update failed on one site with "image
+    code-shell:v3: image opm/cfg:<hex>: not found" and rolled back, while the same commit applied on the other site).
+    The hourly housekeeping `pruneImages` removes every `opm/cfg:<hex>` image that no container uses and that
+    `referencedBlobs` does not list (head, open proposals, kept snapshots). In branch mode (§21 #104) an update holds its
+    target revision in no proposal, and it is not the head until it commits; the images it loaded in step 3 are used by
+    no container until step 4 creates them. A prune falling in that window removed the image of a container created
+    late in the update (a "create", so no older container of that service kept anything in use). Now
+    `referencedBlobs` also lists (a) the target revision of every update this site has not finished (`updates` row with
+    `finishedAt` NULL, the plan carries the revision) and (b) the cloud commits staged for a merge (`branchRevs`). The
+    same set keeps their blobs from `pruneBlobs`. Test: `TestReferencedBlobsKeepsInFlightUpdate`.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

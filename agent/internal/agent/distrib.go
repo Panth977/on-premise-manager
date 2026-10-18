@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -453,6 +454,11 @@ func (a *Agent) referencedBlobs() map[string]bool {
 			addRev(r)
 		}
 	}
+	// §21 #116 the revision an unfinished update applies (it is not the head until it commits, and in branch mode no
+	// proposal holds it) and the cloud commits staged for a merge: their images are loaded before a container uses them
+	for _, r := range a.inFlightRevisions() {
+		addRev(r)
+	}
 	a.volSyncReferencedBlobs(ref)        // §21 #101 queued / last volume snapshots
 	if r := a.headRevision(); r != nil { // starter content (seeds) of the head: Reset to starter content needs them
 		if s := siteOf(revConfig(r), a.site); s != nil {
@@ -462,6 +468,36 @@ func (a *Agent) referencedBlobs() map[string]bool {
 		}
 	}
 	return ref
+}
+
+// inFlightRevisions: the target revisions of the updates this site has not finished (plan stored, finishedAt NULL)
+// and the cloud commits staged for a merge (stageCloudCommit).
+func (a *Agent) inFlightRevisions() []*model.Revision {
+	var out []*model.Revision
+	rows, err := a.db.Query(`SELECT plan FROM updates WHERE finishedAt IS NULL`)
+	if err == nil {
+		for rows.Next() {
+			var raw string
+			var p model.UpdatePlan
+			if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &p) == nil {
+				r := p.Revision
+				out = append(out, &r)
+			}
+		}
+		rows.Close()
+	}
+	a.mu.Lock()
+	staged := make([]string, 0, len(a.branchRevs))
+	for id := range a.branchRevs {
+		staged = append(staged, id)
+	}
+	a.mu.Unlock()
+	for _, id := range staged {
+		if r, ok := a.revision(id); ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (a *Agent) pruneBlobs() {

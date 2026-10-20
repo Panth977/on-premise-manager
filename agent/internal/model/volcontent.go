@@ -281,20 +281,20 @@ type VolumeSyncLive struct {
 
 // VolumeSyncStatus is TS VolumeSyncStatus.
 type VolumeSyncStatus struct {
-	SiteSlug     Slug                  `json:"siteSlug"`
-	VolumeSlug   string                `json:"volumeSlug"`
-	Label        string                `json:"label"`
-	Persist      VolumePersist         `json:"persist"`
-	State        string                `json:"state"`
-	LastSnapshot *VolumeLocalSnapshot  `json:"lastSnapshot"`
-	Live         *VolumeSyncLive       `json:"live"`
-	Push         *VolumeContentPush    `json:"push"` // §21 #117 always null
+	SiteSlug     Slug                 `json:"siteSlug"`
+	VolumeSlug   string               `json:"volumeSlug"`
+	Label        string               `json:"label"`
+	Persist      VolumePersist        `json:"persist"`
+	State        string               `json:"state"`
+	LastSnapshot *VolumeLocalSnapshot `json:"lastSnapshot"`
+	Live         *VolumeSyncLive      `json:"live"`
+	Push         *VolumeContentPush   `json:"push"` // §21 #117 always null
 	// Committed (§21 #117) is the content the site's head commits (the live tree is compared with it)
-	Committed *VolumeSyncCommitted `json:"committed"`
-	Queued       int                   `json:"queued"`
-	LastError    *string               `json:"lastError"`
-	History      []VolumeLocalSnapshot `json:"history"`
-	Users        []string              `json:"users"`
+	Committed *VolumeSyncCommitted  `json:"committed"`
+	Queued    int                   `json:"queued"`
+	LastError *string               `json:"lastError"`
+	History   []VolumeLocalSnapshot `json:"history"`
+	Users     []string              `json:"users"`
 }
 
 // VolumeSyncCommitted is TS VolumeSyncCommitted (§21 #117).

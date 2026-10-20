@@ -196,7 +196,11 @@ func (a *Agent) handleSession(w http.ResponseWriter, r *http.Request) (any, int,
 	rc := getRC(r)
 	var kv int
 	_ = a.db.QueryRow(`SELECT keyVersion FROM sessions WHERE sessionId = ?`, rc.sessionID).Scan(&kv)
-	return model.SessionResponse{SessionID: rc.sessionID, ExpiresAt: tsOf(time.Unix(rc.expiresAt, 0)), KeyVersion: kv}, 200, nil
+	out := model.SessionView{LoginResponse: model.LoginResponse{SessionID: rc.sessionID, ExpiresAt: tsOf(time.Unix(rc.expiresAt, 0)), KeyVersion: kv}}
+	if ri := remoteOf(r); ri != nil { // §21 #118 through the cloud: the GUI adopts the person (no email prompt)
+		out.Remote = &model.SessionRemote{Email: ri.email, Name: ri.name, ActorToken: ri.token, ExpiresAt: tsOf(time.Unix(ri.exp, 0))}
+	}
+	return out, 200, nil
 }
 
 func (a *Agent) handleActor(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {

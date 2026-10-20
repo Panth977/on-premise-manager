@@ -1032,6 +1032,7 @@ var ActivityTypes = []string{
 	// §21 #90 agent self-management
 	"agent.upgrade-started", "agent.upgraded", "agent.upgrade-failed", "agent.rolled-back", "agent.restarted",
 	"agent.config-changed", "agent.support-bundle-downloaded", "agent.upgrade-requested", "agent.upgrade-cancelled",
+	"remote-gui.opened", "remote-gui.session", "agent.remote-gui-changed", // §21 #118
 	// §21 #94 Template sync (cloud-only types; mirrored for TestActivityTypesMirror)
 	"draft.template-synced", "deployment.template-unlinked",
 	// §21 #96 volume manager
@@ -1186,6 +1187,8 @@ type CloudView struct {
 	VolumeContent []VolumeContentCloudItem `json:"volumeContent,omitempty"`
 	// §21 #104 the deployment branch head + newest commits (absent on old clouds → legacy proposal mode)
 	Branch *CloudBranchView `json:"branch,omitempty"`
+	// §21 #118 sites with an open remote GUI session (absent on old clouds)
+	RemoteGui []RemoteGuiCloudItem `json:"remoteGui,omitempty"`
 	// to-site transfers deleted in the cloud (all sites; each agent drops its own copy; absent on old clouds)
 	DeletedTransfersToSite []DeletedTransfer `json:"deletedTransfersToSite,omitempty"`
 }

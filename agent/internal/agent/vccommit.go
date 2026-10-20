@@ -369,4 +369,3 @@ func (a *Agent) uploadPushBlobs(ctx context.Context, body []byte) error {
 func (a *Agent) goneVolumeApply(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {
 	return nil, 0, herr(model.ErrGone, "persist-to-cloud content is committed now: merge the cloud commit on the Branch page (server changes: commit them there)", nil)
 }
-

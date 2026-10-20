@@ -156,7 +156,8 @@ type Agent struct {
 	volOps  map[string]*model.VolumeOp
 	volBusy map[string]string
 	volRate map[string][]time.Time
-	vs      *vsState // §21 #101 volume content sync (vcsync.go)
+	vs      *vsState     // §21 #101 volume content sync (vcsync.go)
+	remote  *remoteState // §21 #118 remote GUI through the cloud (remotegui.go)
 	// mesh
 	peerState map[string]*peerRuntime
 	haveCache map[string]*haveEntry

@@ -735,3 +735,60 @@ type PeerSnapshotStepRequest struct {
 	Note       string `json:"note"`
 	CreatedBy  string `json:"createdBy"`
 }
+
+// ───────────────────────── §21 #118 remote agent GUI (TS shared/src/remote-gui.ts)
+
+// RemoteGuiCloudItem is TS RemoteGuiCloudItem.
+type RemoteGuiCloudItem struct {
+	SiteSlug string `json:"siteSlug"`
+	Until    Ts     `json:"until"`
+}
+
+// RemoteGuiActor is TS RemoteGuiActor.
+type RemoteGuiActor struct {
+	UID   string  `json:"uid"`
+	Email string  `json:"email"`
+	Name  *string `json:"name"`
+}
+
+// RemoteGuiRequest is TS RemoteGuiRequest.
+type RemoteGuiRequest struct {
+	ReqID     string            `json:"reqId"`
+	SessionID string            `json:"sessionId"`
+	Method    string            `json:"method"`
+	Path      string            `json:"path"`
+	Headers   map[string]string `json:"headers"`
+	BodyB64   *string           `json:"bodyB64"`
+	Actor     RemoteGuiActor    `json:"actor"`
+}
+
+// RemoteGuiNextResponse is TS RemoteGuiNextResponse.
+type RemoteGuiNextResponse struct {
+	Items []RemoteGuiRequest `json:"items"`
+}
+
+// RemoteGuiSession is an item of RemoteGuiSetting.sessions.
+type RemoteGuiSession struct {
+	Email string `json:"email"`
+	Since Ts     `json:"since"`
+}
+
+// RemoteGuiSetting is TS RemoteGuiSetting.
+type RemoteGuiSetting struct {
+	Enabled  bool               `json:"enabled"`
+	Sessions []RemoteGuiSession `json:"sessions,omitempty"`
+}
+
+// SessionRemote is TS SessionResponse.remote.
+type SessionRemote struct {
+	Email      string  `json:"email"`
+	Name       *string `json:"name"`
+	ActorToken string  `json:"actorToken"`
+	ExpiresAt  Ts      `json:"expiresAt"`
+}
+
+// SessionView is GET /_opm/api/session (LoginResponse + §21 #118 remote).
+type SessionView struct {
+	LoginResponse
+	Remote *SessionRemote `json:"remote"`
+}

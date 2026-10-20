@@ -39,6 +39,7 @@
   import VerificationCard from '$lib/agent/VerificationCard.svelte';
   import ConfigCard from '$lib/agent/ConfigCard.svelte';
   import ProcessCard from '$lib/agent/ProcessCard.svelte';
+  import RemoteGuiCard from '$lib/agent/RemoteGuiCard.svelte';
   import UpgradeAll from '$lib/agent/UpgradeAll.svelte';
 
   const slug = $derived(page.params.siteSlug ?? '*');
@@ -656,6 +657,7 @@
           {#if remoteRestart}<p class="small"><span class="spin" aria-hidden="true"></span> {slug} is restarting…</p>{/if}
           <div class="row"><Btn icon="rotate" disabled={!!blocked || remoteRestart} title={blocked ?? ''} onclick={openRestart} data-testid="restart-open">Restart agent…</Btn></div>
         </section>
+        {#if isSelf}<RemoteGuiCard /><!-- §21 #118 -->{/if}
         <section class="card card-pad c" data-testid="support-card">
           <h3><Icon name="archive" size={15} />Support bundle</h3>
           <p class="small muted">One <span class="mono">.tar.gz</span> for the operations team. Secrets are masked; the download is logged.</p>

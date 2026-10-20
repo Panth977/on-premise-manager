@@ -4,6 +4,7 @@
  * - PEER_API:  /_opm/peer/* — agent ↔ agent, signed requests, ONLY on agentPort
  * Every per-site endpoint accepts {siteSlug} = a site slug, or "*" (GET only) = merged over the mesh.
  */
+import { REMOTE_GUI_AGENT_API } from './remote-gui.js';
 import { createClient, ep, type Client, type EndpointDef } from './http.js';
 import type * as T from './types.js';
 import type { TerminateUpdateRequest, TerminateUpdateResponse } from './agent-self.js';
@@ -116,6 +117,8 @@ export const AGENT_API = {
   ...BRANCH_AGENT_API,
   // §21 #107 commit staging
   ...STAGING_AGENT_API,
+  // §21 #118 remote agent GUI
+  ...REMOTE_GUI_AGENT_API,
 } as const satisfies Record<string, EndpointDef>;
 
 const P = 'peer' as const;

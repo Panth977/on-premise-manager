@@ -217,7 +217,8 @@ func (a *Agent) reconcile(ctx context.Context, v *model.CloudView) {
 	a.kickLoop("transfers")
 	// (5) §21 #90 cloud "Upgrade agent" requests for this site (selfcloud.go)
 	a.handleCloudUpgrades(ctx, v)
-	a.volSyncOnView(v) // §21 #101 cloud snapshot requests (vcsync.go)
+	a.volSyncOnView(v)   // §21 #101 cloud snapshot requests (vcsync.go)
+	a.remoteGuiOnView(v) // §21 #118 remote GUI sessions (remotegui.go)
 	// (6) deleted
 	if v.Deleted && !a.isDeleted() {
 		a.mu.Lock()

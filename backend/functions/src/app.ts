@@ -23,6 +23,7 @@ import { templateSyncHandlers } from './routes/template-sync.js';
 import { volumeContentHandlers } from './routes/volume-content.js';
 import { branchHandlers } from './routes/branches.js';
 import { agentBranchHandlers } from './routes/agent-branches.js';
+import { remoteGuiHandlers } from './routes/remote-gui.js';
 import { githubMirrorHandlers } from './routes/github-mirror.js';
 import { runImport } from './core/importer.js';
 import { runDaily } from './jobs/daily.js';
@@ -50,6 +51,7 @@ const handlers: Handlers = {
   ...branchHandlers,
   ...agentBranchHandlers,
   ...githubMirrorHandlers,
+  ...remoteGuiHandlers,
 };
 setHandlers(handlers);
 

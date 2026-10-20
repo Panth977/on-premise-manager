@@ -1493,6 +1493,10 @@ export const ACTIVITY_TYPES = [
   'agent.support-bundle-downloaded', // data { sizeBytes, sections: string[] }
   'agent.upgrade-requested', // cloud: data { requestId, siteSlug, version, runId? } (+ audit deployment.agent-upgrade-requested)
   'agent.upgrade-cancelled', // cloud: data { requestId?, runId?, siteSlug? }
+  // §21 #118 remote agent GUI
+  'remote-gui.opened', //         cloud: data { siteSlug, sessionId } (a person opened the site's agent GUI through the cloud)
+  'remote-gui.session', //        agent: data { sessionId, cloudSessionId, email } (the agent session made for that person)
+  'agent.remote-gui-changed', //  agent: data { enabled }
   // §21 #94 Template sync (cloud)
   'draft.template-synced', //        data { templateId, fromVersion, toVersion, relinked, previousTemplateId?, taken, skipped, conflicts, draftVersion, keys }
   'deployment.template-unlinked', // data { templateId, baseVersion }
@@ -1649,6 +1653,8 @@ export interface CloudView {
   agentUpgrades?: AgentUpgradeRequest[];
   /** §21 #101 persist-to-cloud volumes with a PENDING push or an open snapshot request (all sites; each agent filters its own) */
   volumeContent?: import('./volume-content.js').VolumeContentCloudItem[];
+  /** §21 #118 sites with an open remote GUI session (each agent long-polls agentRemoteGuiNext while its site is listed) */
+  remoteGui?: import('./remote-gui.js').RemoteGuiCloudItem[];
   /** §21 #104 the deployment branch head (what the sites should run) + the newest commits; absent on old clouds */
   branch?: import('./branch.js').CloudBranchView;
 }
@@ -3082,6 +3088,8 @@ export interface SessionResponse {
   sessionId: Ulid;
   expiresAt: Ts;
   keyVersion: number;
+  /** §21 #118 the session runs through the cloud as this person (the GUI adopts the actor token: no email prompt) */
+  remote?: { email: string; name: string | null; actorToken: string; expiresAt: Ts } | null;
 }
 export interface ActorRequest {
   email: string;

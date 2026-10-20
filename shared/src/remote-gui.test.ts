@@ -1,0 +1,31 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { REMOTE_GUI_AGENT_API, REMOTE_GUI_CLOUD_API, isRewritableType, parseRemoteGuiPath, remoteGuiPrefix, rewriteRemoteLocation, rewriteRemoteText } from './remote-gui.js';
+import { CLOUD_API } from './cloud-api.js';
+import { AGENT_API } from './agent-api.js';
+
+test('§21 #118 remote GUI paths: prefix, parse, rewrite', () => {
+  const p = remoteGuiPrefix('Dep123', 'app-1');
+  assert.equal(p, '/app/deployments/Dep123/remote/app-1');
+  assert.deepEqual(parseRemoteGuiPath(`${p}/_opm/app/app-1/status`), { deploymentId: 'Dep123', siteSlug: 'app-1', agentPath: '/_opm/app/app-1/status' });
+  assert.equal(parseRemoteGuiPath(p)!.agentPath, '/_opm/');
+  assert.equal(parseRemoteGuiPath(`${p}/`)!.agentPath, '/_opm/');
+  assert.equal(parseRemoteGuiPath('/app/deployments/Dep123/sites'), null);
+  assert.equal(parseRemoteGuiPath('/app/deployments/Dep123/remote/Bad_Site/_opm'), null);
+  const src = `<link href="/_opm/assets/a.css"><script>const b="/_opm";fetch('/_opm/api/x?y=1');const t=\`/_opm/app/\${s}\`;const r=/^\\/_opm\\//;url("/_opm/f.woff")</script><a href=/_opm/app>`;
+  const out = rewriteRemoteText(src, p);
+  assert.ok(out.includes(`href="${p}/_opm/assets/a.css"`));
+  assert.ok(out.includes(`const b="${p}/_opm"`));
+  assert.ok(out.includes(`fetch('${p}/_opm/api/x?y=1')`));
+  assert.ok(out.includes(`\`${p}/_opm/app/`));
+  assert.ok(out.includes('/^\\/_opm\\//'), 'escaped regex literals stay');
+  assert.ok(out.includes(`href=${p}/_opm/app`));
+  assert.equal(rewriteRemoteText(out, p), out.replaceAll(`${p}/_opm`, `${p}/_opm`), 'idempotent on already prefixed paths');
+  assert.ok(!rewriteRemoteText('"/_opmx"', p).includes(p), 'only whole /_opm segments');
+  assert.equal(rewriteRemoteLocation('/_opm/app', p), `${p}/_opm/app`);
+  assert.equal(rewriteRemoteLocation('https://x/_opm', p), 'https://x/_opm');
+  assert.ok(isRewritableType('text/html; charset=utf-8') && isRewritableType('text/javascript') && isRewritableType('text/css'));
+  assert.ok(!isRewritableType('application/json') && !isRewritableType('image/png') && !isRewritableType(null));
+  for (const k of Object.keys(REMOTE_GUI_CLOUD_API)) assert.ok(k in CLOUD_API, k);
+  for (const k of Object.keys(REMOTE_GUI_AGENT_API)) assert.ok(k in AGENT_API, k);
+});

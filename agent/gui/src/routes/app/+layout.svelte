@@ -47,6 +47,8 @@
       session.session = s;
       session.info = info;
       session.setServerTime(info.serverTime);
+      // §21 #118 opened through the cloud: the agent made a session for the cloud person — no email prompt
+      if (s.remote) session.actor = { email: s.remote.email, token: s.remote.actorToken, expiresAt: s.remote.expiresAt };
       if (!session.actor) session.askActor = true;
       ready = true;
     } catch (e) {
@@ -269,14 +271,16 @@
               <Avatar name={session.actor.email} size={28} />
               <span class="txt">
                 <span class="nm" title={session.actor.email}>{session.actor.email}</span>
-                <span class="em" class:warn-text={leftMs < 15 * 60_000}>session ends in {duration(leftMs)}</span>
+                {#if session.session?.remote}<span class="em" data-testid="remote-chip">through the cloud</span>{:else}<span class="em" class:warn-text={leftMs < 15 * 60_000}>session ends in {duration(leftMs)}</span>{/if}
               </span>
               <button class="btn ghost icon sm th" onclick={cycleTheme} aria-label="Theme: {prefs.theme}" title="Theme: {prefs.theme}" data-testid="theme"><Icon name={prefs.theme === 'dark' ? 'moon' : prefs.theme === 'light' ? 'sun' : 'monitor'} size={16} /></button>
             </div>
-            <div class="acts">
-              <button class="btn ghost sm" onclick={() => ((navOpen = false), (changing = true), (session.askActor = true))} data-testid="change-person"><Icon name="user" size={14} />Change person</button>
-              <button class="btn ghost sm" onclick={() => (draft.dirty || tunnel.active ? (confirmLogout = true) : logout())} data-testid="logout"><Icon name="logout" size={14} />Log out</button>
-            </div>
+            {#if !session.session?.remote}
+              <div class="acts">
+                <button class="btn ghost sm" onclick={() => ((navOpen = false), (changing = true), (session.askActor = true))} data-testid="change-person"><Icon name="user" size={14} />Change person</button>
+                <button class="btn ghost sm" onclick={() => (draft.dirty || tunnel.active ? (confirmLogout = true) : logout())} data-testid="logout"><Icon name="logout" size={14} />Log out</button>
+              </div>
+            {/if}
           </div>
         {:else}
           <div class="am">

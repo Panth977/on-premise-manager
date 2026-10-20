@@ -28,3 +28,4 @@ export * from './branch.js';
 export * from './pending.js';
 export * from './github-mirror.js';
 export * from './staging.js';
+export * from './remote-gui.js';

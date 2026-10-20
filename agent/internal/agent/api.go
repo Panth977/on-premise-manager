@@ -32,6 +32,8 @@ func (a *Agent) apiHandler() http.Handler {
 	h("POST /_opm/api/login", authPublic, a.handleLogin)
 	h("POST /_opm/api/logout", authSession, a.handleLogout)
 	h("GET /_opm/api/session", authSession, a.handleSession)
+	h("GET /_opm/api/agent/remote-gui", authSession, a.handleGetRemoteGui) // §21 #118
+	h("PUT /_opm/api/agent/remote-gui", authActor, a.handlePutRemoteGui)
 	h("POST /_opm/api/actor", authSession, a.handleActor)
 	h("GET /_opm/api/actors/recent", authSession, func(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {
 		lim := qInt(r, "limit", 10)

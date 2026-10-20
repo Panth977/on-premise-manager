@@ -6464,6 +6464,43 @@ Pass = every check above green; results file lists timings and the activity coun
     (h) **Compatibility**: agent **0.19.0** (`VOLUME_CONTENT_COMMIT_MIN_AGENT`). An older agent treats the seed as
         starter content (only an empty volume is written): the content page of a persist volume warns for that site.
 
+118. **The agent GUI of a site, opened in the cloud** (user: "we should be able to access the server from cloude. atleast
+    the opm GUI should be open able from the cloud … <cloud>/app/deployments/{deploymentId}/remote/{siteId}/* -> this
+    will serve the agent's opm site … cloud login … cloud will already know the deployment key … cloud login email will be
+    auto used … By default this is enabled, but we can turn it of … server will never ping or make any api calls to site,
+    instead site will ask server … similar fation of tunneling system as … browser based internet"). Contract
+    `shared/src/remote-gui.ts`. Later (not now): `{siteId}-{deployId}.<cloud domain>` serving the whole site with its ports.
+    (a) **URL + session.** `<cloud>/app/deployments/{deploymentId}/remote/{siteSlug}/_opm/…` serves the site's agent GUI
+        (`openRemoteGui`, perm deployment.config.publish, console: Status › "Open agent GUI" per site, a new tab). It sets
+        an HttpOnly cookie `opm_remote_<site>` (Path = the remote prefix, SameSite Lax, 8 h sliding) naming a remote
+        session (person + site) and lists the site in the cloud view `remoteGui { siteSlug, until }` (agentEpoch+1 when
+        it was not listed). No cookie → a 401 page that says to open it from the console. Activity `remote-gui.opened`.
+    (b) **The site asks; the cloud never calls.** An agent ≥ 0.19 whose site is listed (and whose setting is on)
+        long-polls `GET /v1/agent/remote-gui/next?wait=25` (signed; only its own site's requests, ≤ 8 per answer) until
+        `until`; each browser request (method, `/_opm` path + query, a whitelist of headers — never the cloud cookie or
+        auth —, body ≤ 16 MiB, the person) is handed out once; the agent answers with `POST
+        /v1/agent/remote-gui/{reqId}/result` (raw body ≤ 64 MiB, X-OPM-Remote-Status, X-OPM-Remote-Headers base64 JSON).
+        A browser request waits ≤ 60 s (504 / 503 "not connected" pages). The hub is in memory: the single-process VM
+        cloud (§21 #108) only; `openRemoteGui` answers 503 unavailable on other clouds.
+    (c) **As the cloud person, no key, no prompt.** The agent runs each request in process against its own GUI handler
+        with one agent session per cloud session (sessions row ip `cloud`, user agent `OPM cloud · <email>`, activity
+        `remote-gui.session`) and an actor token for the cloud email: `GET /_opm/api/session` answers
+        `remote { email, name, actorToken, expiresAt }`, the GUI adopts it (no login page, no "Who is working?" popup;
+        the chip says "through the cloud"; Change person / Log out hidden). Every action is recorded under that email.
+    (d) **Paths.** The unchanged agent GUI build runs under the prefix: in text/html, JavaScript, CSS and manifests every
+        `/_opm` right after a quote, backtick, `(`, `=` or whitespace and before `/`, a quote, backtick, `?`, `#` or `)`
+        becomes `<prefix>/_opm` (`rewriteRemoteText`; ETag dropped, `Cache-Control: private, no-cache`); a `Location`
+        under /_opm is re-prefixed; `Set-Cookie` of the agent never reaches the browser; JSON passes unchanged.
+    (e) **On by default, switched off on the site.** kv `remote-gui { enabled }` (absent = on); Agent page card "Remote
+        GUI through the cloud" (state, who works through the cloud now, Switch off / on), `GET / PUT
+        /_opm/api/agent/remote-gui`; PUT through a remote session → 403 (switch it off on the site). Off: no polling,
+        the open remote sessions end at once. Activity `agent.remote-gui-changed`.
+    (f) **Not carried (v1)**: WebSocket upgrades and event streams (terminal, MQTT client, log follow) → 501 page;
+        another site through the mesh works as usual (the remote agent relays, §21 #111).
+    (g) Tests: `shared/src/remote-gui.test.ts`, `backend/test/42-remote-gui.test.ts` (local adapter: cookie, hand-off,
+        isolation, rewriting, 501), `agent/internal/agent/remotegui_test.go`; checked end to end with a real agent and
+        a browser (navigation, deep-link reload, an actor POST, the 403 switch).
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

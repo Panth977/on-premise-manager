@@ -16,7 +16,8 @@
   import StatusBadge from '$lib/ui/StatusBadge.svelte';
   import ProgressBar from '$lib/ui/ProgressBar.svelte';
   import Heatmap, { type HeatCell } from '$lib/ui/Heatmap.svelte';
-  import { Activity, RefreshCw, Server } from '$lib/ui/icons';
+  import { Activity, ExternalLink, RefreshCw, Server } from '$lib/ui/icons';
+  import { openRemoteGui } from '$lib/remote-gui/open';
   import UpgradeBadge from '$lib/agent-upgrade/UpgradeBadge.svelte';
 
   const scope = getDeploymentScope();
@@ -89,7 +90,12 @@
           <tbody>
             {#each s.sites as x (x.siteSlug)}
               <tr data-testid="status-row-{x.siteSlug}">
-                <td><div class="strong mono">{x.siteSlug}</div><div class="xs faint">{x.label}</div></td>
+                <td>
+                  <div class="strong mono">{x.siteSlug}</div>
+                  <div class="xs faint">{x.label}</div>
+                  <!-- §21 #118 the site's agent GUI through the cloud (the site asks the cloud for the requests) -->
+                  <Button size="sm" variant="ghost" icon={ExternalLink} onclick={() => openRemoteGui(id, x.siteSlug)} tip="Open this site's agent GUI here in the cloud, as your account (agent 0.19.0 or newer)" data-testid="open-remote-{x.siteSlug}">Open agent GUI</Button>
+                </td>
                 <td>{#if !x.enrolled}<span class="badge">not installed</span>{:else}<span class="row" style="gap:6px"><span class="dot {x.online ? 'green' : 'red'}"></span>{x.online ? 'online' : 'offline'}</span>{/if}</td>
                 <td class="small"><RelTime ts={x.lastSeenAt} />{#if x.clockSkew}<div><ClockSkew skew={x.clockSkew} compact /></div>{/if}</td>
                 <td class="small">{#if !x.enrolled}<span class="faint">—</span>{:else if x.relayVia}relay via <b>{x.relayVia}</b>{:else}direct{/if}</td>

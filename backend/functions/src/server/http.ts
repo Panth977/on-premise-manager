@@ -5,6 +5,7 @@
  *   /_blob/*         short-lived HMAC download URLs (local adapter; replaces GCS v4 signed URLs)
  *   /opm-config.json runtime config of the frontend (which auth provider to use)
  *   /healthz         liveness
+ *   /app/deployments/{id}/remote/{site}/…  §21 #118 a site's agent GUI through the cloud (server/remote-gui.ts)
  *   everything else  the built frontend with SPA fallback (= Firebase Hosting)
  */
 import http from 'node:http';
@@ -13,6 +14,7 @@ import { handleApi } from '../app.js';
 import { logger, adapterKind } from '../ports/index.js';
 import type { CloudConfig } from './config.js';
 import { serveStatic } from './static.js';
+import { readRemoteBody, serveRemoteGui } from './remote-gui.js';
 
 export interface LocalHttpHandlers {
   blob(req: { method: string; url: string; headers: Record<string, string | undefined> }): Promise<{ status: number; headers: Record<string, string>; body: Buffer | string | Readable | null }>;
@@ -61,6 +63,11 @@ export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null):
     for (const [k, v] of Object.entries(req.headers)) headers[k.toLowerCase()] = Array.isArray(v) ? v.join(', ') : v;
     const ip = cfg.trustProxy && headers['x-forwarded-for'] ? headers['x-forwarded-for']!.split(',')[0]!.trim() : (req.socket.remoteAddress ?? '');
     try {
+      // §21 #118 before /v1/: an agent path may contain anything
+      if (path.startsWith('/app/deployments/') && path.includes('/remote/')) {
+        const r = await serveRemoteGui({ method: req.method ?? 'GET', rawUrl, path, headers, body: () => readRemoteBody(req) });
+        if (r) return send(res, r.status, r.headers, r.body, path);
+      }
       if (path.includes('/v1/')) {
         const ac = new AbortController();
         res.on('close', () => {

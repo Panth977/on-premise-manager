@@ -39,6 +39,7 @@ import { proposalMeta } from './deployments.js';
 import { newTransfer, validateTransferBody } from './transfers.js';
 import { agentReleaseInfo, cleanProgress, liveRequests, settleUpgrade, upgradeProgressError } from './agent-upgrade.js';
 import { pushBlobAllowed, storeVolumeSync, volumeContentCloudItems, volumeSyncError } from './volume-content.js';
+import { remoteGuiCloudItems } from './remote-gui.js';
 import { allowedCommits, cloudBranchView, legacyHeadMirror, storeHeartbeatBranch } from './agent-branches.js';
 import { bcol, encodeCommit } from '../core/branches.js';
 import { commitStats, type Commit } from '@opm/shared';
@@ -124,6 +125,8 @@ export async function buildCloudView(deploymentId: string, dep: StoredDeployment
     volumeContent,
     // §21 #104 the deployment branch head = what the sites should run (agents ≥ 0.14 merge it)
     branch,
+    // §21 #118 sites with an open remote GUI session (their agents long-poll for the browser's requests)
+    remoteGui: remoteGuiCloudItems(deploymentId),
   };
 }
 

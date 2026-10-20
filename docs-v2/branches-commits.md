@@ -586,7 +586,7 @@ A managed container whose recomputed live spec hash = `opm.spec_hash` = the expe
 | per-site File copy edited (render expressions) | **note** (cannot be un-rendered): Discard (re-render) / Accept, or "take the edited bytes as a new File content with render none" (explicit choice in the review: becomes the `files/<slug>` item) |
 | secret file `<agentHome>/secrets/<slug>` edited | `secrets/<slug>/value` (masked) |
 | running edge ≠ built from the head | **note** (the edge is owned by the agent; only a crash recovery can cause it): Discard (reload) / Accept |
-| persist-to-cloud volume: live ≠ last snapshot | `sites/<s>/volumes/<v>/live` item "content changed on the server (n files)" — committing it takes a #101 snapshot (upload queued) and records `data.volumeContent` (content is DATA: never the seed). Not a merge blocker when the user picks "Leave to volume sync" (it stays visible in Docker › Volumes sync) — every other drift item blocks |
+| persist-to-cloud volume: live ≠ committed content | **§21 #117** (supersedes the `/live` item): one content item per changed file (`sites/<s>/volumes/<v>/content/<path>`, origin `volume-content`) — the live tree is the volume's seed in the live config; committing them writes a drift commit. Never a merge blocker: a merge takes the live tree as "ours" (files both sides changed are conflicts). Auto-commit never takes them |
 | container stopped / restarting, restart count, health | NOT drift (runtime state; the Status page shows it) |
 | non-persist volume content, logs, network aliases, labels | NOT drift |
 

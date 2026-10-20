@@ -105,6 +105,32 @@ func (a *Agent) applySite(ctx context.Context, o applyOpts) error {
 			}
 		}
 	}
+	// §21 #117 persist volumes whose committed content changes: decided (and guarded against uncommitted server
+	// changes) before anything stops; the containers that mount them are recreated around the write
+	restoredSlugs := map[string]bool{}
+	for _, v := range restore {
+		restoredSlugs[v.VolumeSlug] = true
+	}
+	contents, err := a.contentChanges(o, cfg, site, restoredSlugs)
+	if err != nil {
+		return err
+	}
+	if len(contents) > 0 {
+		writing := map[string]bool{}
+		for _, c := range contents {
+			writing[c.p.root] = true
+		}
+		for i := range actions {
+			if actions[i].Kind != driver.ActKeep || actions[i].Built == nil {
+				continue
+			}
+			for _, d := range actions[i].Built.DataDirs {
+				if writing[d] {
+					actions[i].Kind = driver.ActRecreate
+				}
+			}
+		}
+	}
 	svcOf := func(ac driver.Action) string {
 		if ac.Built != nil {
 			return ac.Built.Service
@@ -190,6 +216,11 @@ func (a *Agent) applySite(ctx context.Context, o applyOpts) error {
 			skip[v.VolumeSlug] = true
 		}
 		if err := a.seedVolumes(cfg, cat, site, skip); err != nil {
+			if e := fail("", "", "create", err); e != nil {
+				return e
+			}
+		}
+		if err := a.applyContent(ctx, contents, nil); err != nil { // §21 #117 fetch on merge (vccommit.go)
 			if e := fail("", "", "create", err); e != nil {
 				return e
 			}

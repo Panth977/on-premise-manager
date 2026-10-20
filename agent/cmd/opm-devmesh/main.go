@@ -120,7 +120,7 @@ func startMesh(ctx context.Context, o meshOptions) (*mesh, error) {
 			fmt.Fprintln(os.Stderr, "volume content:", err)
 		}
 		m.revID = publishVolumeContentRevision(fc, o)
-		go demoCloudEdit(ctx, fc, o)
+		go demoCloudEdit(ctx, fc, o, m.revID)
 	}
 	return m, nil
 }

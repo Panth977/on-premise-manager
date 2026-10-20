@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"opm/agent/internal/canonical"
-	"opm/agent/internal/fakecloud"
 	"opm/agent/internal/model"
 	"opm/agent/internal/sign"
 	"opm/agent/internal/volcontent"
@@ -44,9 +43,9 @@ func newVSAgent(t *testing.T) *Agent {
 	return a
 }
 
-// The scanner (injected clock): auto snapshot only after VOLUME_SYNC_QUIET_SEC without changes, at most one per
-// VOLUME_SYNC_MIN_INTERVAL_SEC, never with auto off; unchanged trees store nothing; too-large is refused.
-func TestVolumeSyncScanner(t *testing.T) {
+// §21 #117: the scanner takes no snapshots (persist.auto is ignored); the state compares the live tree with the
+// committed content; captureLive stores the bytes and refuses a tree over the persisted limits.
+func TestPersistContentState(t *testing.T) {
 	a := newVSAgent(t)
 	rev := persistRev(t, "app", true, 1<<20)
 	setHead(t, a, rev)
@@ -55,70 +54,43 @@ func TestVolumeSyncScanner(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "flows.json"), []byte("[]"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "node_modules", "x", "i.js"), []byte("x"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "a.log"), []byte("x"), 0o644)
-	_ = os.Symlink("/etc/passwd", filepath.Join(root, "link"))
 	t0 := time.Now()
 	ctx := context.Background()
-	count := func() int { return len(a.records(`WHERE volumeSlug = 'flows'`)) }
-	a.volSyncScanOnce(ctx, t0)
-	if count() != 0 {
-		t.Fatal("no snapshot before the quiet time")
+	for _, d := range []time.Duration{0, 121 * time.Second, 2000 * time.Second} {
+		a.volSyncScanOnce(ctx, t0.Add(d))
 	}
-	a.volSyncScanOnce(ctx, t0.Add(60*time.Second))
-	if count() != 0 {
-		t.Fatal("no snapshot after 60 s")
+	if n := len(a.records(`WHERE volumeSlug = 'flows'`)); n != 0 {
+		t.Fatalf("no snapshots any more: %d", n)
 	}
-	a.volSyncScanOnce(ctx, t0.Add(121*time.Second))
-	if count() != 1 {
-		t.Fatalf("auto snapshot after the quiet time: %d", count())
-	}
-	r := a.lastRecord("flows")
-	if r.Local.Trigger != "auto" || len(r.Req.Tree.Entries) != 1 || r.Req.ExcludedCount != 2 || r.Req.SkippedCount != 1 || r.Req.Skipped[0].Reason != "symlink" {
-		t.Fatalf("record %+v", r.Req)
-	}
-	if !a.haveBlob(hexOf(r.Req.Tree.Entries[0].Sha256)) {
-		t.Fatal("the file must be in the blob store")
-	}
-	// unchanged → nothing
-	a.volSyncScanOnce(ctx, t0.Add(400*time.Second))
-	if count() != 1 {
-		t.Fatal("unchanged: no new snapshot")
-	}
-	// changed at 400 s, quiet by 530 s, but the last auto snapshot was at 121 s (< 900 s)
-	_ = os.WriteFile(filepath.Join(root, "flows.json"), []byte(`[{"id":1}]`), 0o644)
-	a.volSyncScanOnce(ctx, t0.Add(401*time.Second))
-	a.volSyncScanOnce(ctx, t0.Add(530*time.Second))
-	if count() != 1 {
-		t.Fatal("min interval")
-	}
-	st := a.syncStatus(&a.persistVolumes()[0], time.Hour)
-	if st.State != "pending-upload" && st.State != "live-changed" {
-		t.Fatalf("state %s", st.State)
-	}
-	a.volSyncScanOnce(ctx, t0.Add(1030*time.Second))
-	if count() != 2 {
-		t.Fatalf("second auto snapshot: %d", count())
-	}
-	// manual: unchanged → created false
 	p := a.persistVolumes()[0]
-	if _, created, err := a.snapshotVolume(&p, snapOpts{trigger: "manual-agent"}); err != nil || created {
-		t.Fatalf("unchanged manual snapshot: %v %v", created, err)
+	st := a.syncStatus(&p, 0)
+	if st.State != "live-changed" || st.Committed == nil || st.Committed.FileCount != 0 || st.Live == nil || !st.Live.Changed || st.Live.FileCount != 1 {
+		t.Fatalf("state %+v live %+v", st, st.Live)
+	}
+	l, _, err := a.captureLive(&p)
+	if err != nil || len(l.tree.Entries) != 1 || !a.haveBlob(hexOf(l.tree.Entries[0].Sha256)) {
+		t.Fatalf("captureLive %+v %v", l, err)
+	}
+	// the live tree committed → in sync
+	cfg, _ := a.liveContentConfig(&rev.Config)
+	if v := siteOf(cfg, "app").Config.FindVolume("flows"); v.SeedOf() == nil || len(v.SeedOf().Tree) != 1 {
+		t.Fatalf("live content config %+v", v.SeedOf())
+	}
+	rev2 := persistRev(t, "app", true, 1<<20)
+	rev2.RevID = "rev-2"
+	rev2.Config = *cfg
+	rev2.Hash, _ = canonical.HashCanonical(rev2.Config)
+	setHead(t, a, rev2)
+	if st := a.syncStatus(&a.persistVolumes()[0], 0); st.State != "in-sync" {
+		t.Fatalf("committed: %s", st.State)
+	}
+	if !a.isPersistContentKey("sites/app/volumes/flows/content/flows.json") || a.isPersistContentKey("sites/app/volumes/other/content/x") || a.isPersistContentKey("sites/app/volumes/flows") {
+		t.Fatal("isPersistContentKey")
 	}
 	// too large (cap 1 MiB)
 	_ = os.WriteFile(filepath.Join(root, "big.bin"), make([]byte, 2<<20), 0o644)
-	if _, _, err := a.snapshotVolume(&p, snapOpts{trigger: "manual-agent"}); err == nil || !strings.Contains(err.Error(), "cap") {
+	if _, _, err := a.captureLive(&a.persistVolumes()[0]); err == nil || !strings.Contains(err.Error(), "size cap") {
 		t.Fatalf("too large: %v", err)
-	}
-	if len(activityData(t, a, "volume-content.snapshot-failed")) != 1 {
-		t.Fatal("snapshot-failed activity")
-	}
-	_ = os.Remove(filepath.Join(root, "big.bin"))
-	// auto off
-	setHead(t, a, persistRev(t, "app", false, 1<<20))
-	_ = os.WriteFile(filepath.Join(root, "flows.json"), []byte(`[{"id":2}]`), 0o644)
-	a.volSyncScanOnce(ctx, t0.Add(3000*time.Second))
-	a.volSyncScanOnce(ctx, t0.Add(5000*time.Second))
-	if count() != 2 {
-		t.Fatal("auto off: no snapshot")
 	}
 }
 
@@ -192,59 +164,8 @@ func TestVolumeConverge(t *testing.T) {
 	}
 }
 
-// Store-and-forward: a snapshot taken while the cloud is unreachable waits in the queue (attempts + error) and is
-// uploaded once the cloud is back; a cloud snapshot request is answered once.
-func TestVolumeSyncStoreAndForward(t *testing.T) {
-	fc := fakecloud.Start("DepVSAF")
-	defer fc.Close()
-	e := newUpgEnv(t, fc, "app")
-	r := e.startSAF()
-	a := r.a
-	a.vsync().backoff, a.vsync().backoffMx = 200*time.Millisecond, time.Second
-	waitUntil(t, 20*time.Second, "enrolled", func() bool { _, ok := fc.Agent("app"); return ok })
-	rev := persistRev(t, "app", false, 50<<20)
-	cr, _ := fc.Publish(rev.Config, rev.Catalog, "persist")
-	setHead(t, a, &cr)
-	waitUntil(t, 20*time.Second, "head reported", func() bool { ad, _ := fc.Agent("app"); return ad.HeadRevID != nil && *ad.HeadRevID == cr.RevID })
-	root := filepath.Join(a.dataDir, "volumes", "flows")
-	_ = os.MkdirAll(root, 0o755)
-	_ = os.WriteFile(filepath.Join(root, "flows.json"), []byte(`[1]`), 0o644)
-	fc.BlockSite("app", true)
-	p := a.persistVolumes()[0]
-	rec, created, err := a.snapshotVolume(&p, snapOpts{trigger: "manual-agent"})
-	if err != nil || !created {
-		t.Fatal(err)
-	}
-	waitUntil(t, 20*time.Second, "failed attempts", func() bool {
-		l := a.records(`WHERE snapshotId = ?`, rec.Local.SnapshotID)
-		return len(l) == 1 && l[0].Attempts >= 2 && l[0].Local.Error != nil
-	})
-	if len(fc.VolumeVersions("app", "flows")) != 0 {
-		t.Fatal("nothing reached the cloud")
-	}
-	fc.BlockSite("app", false)
-	waitUntil(t, 30*time.Second, "uploaded", func() bool { return len(fc.VolumeVersions("app", "flows")) == 1 })
-	waitUntil(t, 10*time.Second, "record uploaded", func() bool {
-		l := a.records(`WHERE snapshotId = ?`, rec.Local.SnapshotID)
-		return len(l) == 1 && l[0].Status == "uploaded" && l[0].Local.Seq != nil && *l[0].Local.Seq == 1
-	})
-	if b, ok := fc.Blob(fc.VolumeVersions("app", "flows")[0].TreeHash); !ok || !strings.Contains(string(b), "flows.json") {
-		t.Fatal("tree blob")
-	}
-	rid := fc.RequestVolumeSnapshot("app", "flows")
-	waitUntil(t, 30*time.Second, "request answered", func() bool { return fc.VolumeSnapshotRequest("app", "flows") == nil })
-	vv := fc.VolumeVersions("app", "flows")
-	if len(vv) != 2 || *vv[1].RequestID != rid {
-		t.Fatalf("versions %+v", vv)
-	}
-	time.Sleep(2 * time.Second)
-	if len(fc.VolumeVersions("app", "flows")) != 2 {
-		t.Fatal("a request is answered once")
-	}
-}
-
-// Over the mesh: app's GUI asks db for its volume sync state and takes a snapshot there; db logs the snapshot, app logs
-// volume.action-forwarded.
+// Over the mesh: app's GUI reads db's volume content state (live vs committed); the removed snapshot / plan answer 410
+// there too (§21 #117).
 func TestVolumeSyncMeshForward(t *testing.T) {
 	app := newTestAgent(t)
 	db := newTestAgentSite(t, "db")
@@ -287,21 +208,14 @@ func TestVolumeSyncMeshForward(t *testing.T) {
 		return resp.StatusCode, string(b)
 	}
 	var list model.ListResponse[model.VolumeSyncStatus]
-	if c, b := call("GET", "/_opm/api/sites/db/volume-sync", nil, &list); c != 200 || len(list.Items) != 1 || list.Items[0].State != "never-snapshotted" || list.Items[0].SiteSlug != "db" {
+	if c, b := call("GET", "/_opm/api/sites/db/volume-sync", nil, &list); c != 200 || len(list.Items) != 1 || list.Items[0].State != "live-changed" || list.Items[0].SiteSlug != "db" || list.Items[0].Committed == nil {
 		t.Fatalf("forwarded list %d %s", c, b)
 	}
-	var snap model.VolumeSyncSnapshotResponse
-	if c, b := call("POST", "/_opm/api/sites/db/volume-sync/flows/snapshot", []byte(`{}`), &snap); c != 201 || !snap.Created || *snap.Snapshot.Actor != "ops@acme.example" {
+	if c, b := call("POST", "/_opm/api/sites/db/volume-sync/flows/snapshot", []byte(`{}`), nil); c != 410 {
 		t.Fatalf("forwarded snapshot %d %s", c, b)
 	}
-	if rows, _ := db.activitiesPage(0, 50, "volume-content.snapshot", ""); len(rows) != 1 {
-		t.Fatal("db: volume-content.snapshot")
-	}
-	if rows, _ := app.activitiesPage(0, 50, "volume.action-forwarded", ""); len(rows) != 1 {
-		t.Fatalf("app: volume.action-forwarded %d", len(rows))
-	}
-	if c, _ := call("GET", "/_opm/api/sites/db/volume-sync/flows/plan", nil, nil); c != 422 {
-		t.Fatalf("plan without a push: %d", c)
+	if c, _ := call("GET", "/_opm/api/sites/db/volume-sync/flows/plan", nil, nil); c != 410 {
+		t.Fatalf("plan: %d", c)
 	}
 }
 

@@ -33,7 +33,11 @@ var MergeKinds = []string{KAdd, KRemove, KChange, KTheirs, KOurs, KConflict, KSk
 // SourceChangeKinds is TS SOURCE_CHANGE_KINDS.
 var SourceChangeKinds = []string{KTheirs, KAdd, KChange, KConflict, KSkipped}
 
-const contentNote = "starter content — written only into new / empty volumes (persist-to-cloud volumes: use Send to site)"
+// TS CONTENT_NOTE_STARTER / CONTENT_NOTE_PERSIST (§21 #117: a persist volume's content is written on merge)
+const (
+	contentNoteStarter = "starter content — written only into new / empty volumes"
+	contentNotePersist = "persist-to-cloud content — written into the volume on the site when merged"
+)
 
 // Slot is one side of an item (Has=false: absent).
 type Slot struct {
@@ -494,6 +498,33 @@ func volumeDef(v map[string]any) (any, bool) {
 	return v, true
 }
 
+// persistTree: a persist-to-cloud volume with seed null as the same volume with an empty tree (§21 #117).
+func persistTree(v any) any {
+	m := obj(v)
+	if m == nil || m["persist"] == nil || m["seed"] != nil {
+		return v
+	}
+	out := map[string]any{}
+	for k, e := range m {
+		out[k] = e
+	}
+	out["seed"] = map[string]any{"kind": "tree", "entries": []any{}, "dirs": []any{}}
+	return out
+}
+
+// contentSeedOf: the seed of v to write content items into; a persist volume without content gets an empty tree.
+func contentSeedOf(v map[string]any, kind string) map[string]any {
+	seed := obj(v["seed"])
+	if seed == nil && kind == "tree" && v["persist"] != nil {
+		seed = map[string]any{"kind": "tree", "entries": []any{}, "dirs": []any{}}
+		v["seed"] = seed
+	}
+	if seed == nil || str(seed["kind"]) != kind {
+		return nil
+	}
+	return seed
+}
+
 func isContentSeed(v map[string]any) bool {
 	seed := obj(v["seed"])
 	return seed != nil && (str(seed["kind"]) == "tree" || str(seed["kind"]) == "single")
@@ -844,6 +875,8 @@ func siteUnits(ss string, b, t, o map[string]any, push func(*unit)) {
 				push(u)
 				continue
 			}
+			// §21 #117 a persist volume without content (seed null) is an empty tree: its files are content items
+			bv, tv, ov = persistTree(bv), persistTree(tv), persistTree(ov)
 			tvm := obj(tv)
 			def := func(v any, ok bool) Slot {
 				if !ok {
@@ -866,13 +899,11 @@ func siteUnits(ss string, b, t, o map[string]any, push func(*unit)) {
 					if cur != nil {
 						cs = obj(cur["seed"])
 					}
-					if ns != nil && str(ns["kind"]) == "tree" {
-						entries, dirs := []any{}, []any{}
-						if cs != nil && str(cs["kind"]) == "tree" {
-							entries = arr(clone(orEmpty(cs["entries"])))
-							dirs = arr(clone(orEmpty(cs["dirs"])))
-						}
-						ns["entries"], ns["dirs"] = entries, dirs
+					if ns != nil && str(ns["kind"]) == "tree" && cs != nil && str(cs["kind"]) == "tree" {
+						// keep the target's own content entries (content items move them one by one); a target without
+						// a tree has no content items: it takes the source's tree whole
+						ns["entries"] = arr(clone(orEmpty(cs["entries"])))
+						ns["dirs"] = arr(clone(orEmpty(cs["dirs"])))
 					} else if ns != nil && str(ns["kind"]) == "single" && cs != nil && str(cs["kind"]) == "single" {
 						for _, k := range []string{"sha256", "size", "mode", "render"} {
 							ns[k] = cs[k]
@@ -1016,6 +1047,10 @@ func orEmpty(v any) any {
 func contentUnits(ss, vs string, bv, tv, ov map[string]any, push func(*unit)) {
 	vpre := "sites/" + ss + "/volumes/" + vs + "/content"
 	sp := strPtr(ss)
+	contentNote := contentNoteStarter
+	if tv["persist"] != nil || ov["persist"] != nil {
+		contentNote = contentNotePersist
+	}
 	blobOf := func(s Slot) *string {
 		if !s.Has {
 			return nil
@@ -1083,8 +1118,8 @@ func contentUnits(ss, vs string, bv, tv, ov map[string]any, push func(*unit)) {
 				if v == nil {
 					return
 				}
-				seed := obj(v["seed"])
-				if seed == nil || str(seed["kind"]) != "tree" {
+				seed := contentSeedOf(v, "tree")
+				if seed == nil {
 					return
 				}
 				list := listField(seed, "entries", true)
@@ -1140,8 +1175,8 @@ func contentUnits(ss, vs string, bv, tv, ov map[string]any, push func(*unit)) {
 				if v == nil {
 					return
 				}
-				seed := obj(v["seed"])
-				if seed == nil || str(seed["kind"]) != "tree" {
+				seed := contentSeedOf(v, "tree")
+				if seed == nil {
 					return
 				}
 				list := listField(seed, "dirs", true)

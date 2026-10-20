@@ -27,6 +27,7 @@ import {
   type BranchRef,
 } from './branch.js';
 import { CLOUD_API } from './cloud-api.js';
+import { defaultSiteConfig } from './validate.js';
 import { AGENT_API } from './agent-api.js';
 import { ACTIVITY_TYPES, AUDIT_ACTIONS, AUDIT_OPS, type Config } from './types.js';
 
@@ -128,4 +129,31 @@ test('API tables, activities, audit', () => {
     const a = (AUDIT_OPS as Record<string, { action: string }>)[op];
     assert.ok(a && (AUDIT_ACTIONS as readonly string[]).includes(a.action), op);
   }
+});
+
+// §21 #117 persist-to-cloud content: a persist volume without content (seed null) is an empty tree, so the server's
+// files become per-file content items (never a whole-volume change); a target without a tree takes the source's tree
+// whole (the files were dropped before).
+test('§21 #117 persist volume content merges per file; seed null → tree keeps the files', () => {
+  const sha = (c: string) => `sha256:${c.repeat(64)}`;
+  const e = (path: string, c: string) => ({ path, sha256: sha(c), size: 1, mode: '0644', render: 'none' as const });
+  const persist = { exclude: [], maxBytes: 50 * 1024 * 1024, auto: true };
+  const cfg = (seed: unknown, withPersist: boolean): Config =>
+    ({
+      variables: [],
+      secrets: [],
+      files: [],
+      sites: [{ siteSlug: 's', label: 'S', config: { ...defaultSiteConfig(null), volumes: [{ volumeSlug: 'v', label: '', description: '', backup: true, location: { kind: 'auto' }, kind: 'dir', seed, ...(withPersist ? { persist } : {}) }] } }],
+    }) as unknown as Config;
+  const live = cfg({ kind: 'tree', entries: [e('a.json', 'a'), e('b.js', 'b')], dirs: [] }, true);
+  const items = planMerge(null, live, cfg(null, true));
+  assert.deepEqual(items.map((i) => i.key).sort(), ['sites/s/volumes/v/content/a.json', 'sites/s/volumes/v/content/b.js']);
+  const r = applyMerge(null, live, cfg(null, true), items.map((i) => ({ key: i.key, take: 'source' as const })));
+  assert.deepEqual((r.config.sites[0]!.config.volumes[0]!.seed as { entries: { path: string }[] }).entries.map((x) => x.path), ['a.json', 'b.js']);
+  // starter content (no persist): the target has no tree → the definition item brings the source's tree whole
+  const src = cfg({ kind: 'tree', entries: [e('x.txt', 'c')], dirs: [] }, false);
+  const it2 = planMerge(null, src, cfg(null, false));
+  assert.deepEqual(it2.map((i) => i.key), ['sites/s/volumes/v']);
+  const r2 = applyMerge(null, src, cfg(null, false), [{ key: 'sites/s/volumes/v', take: 'source' }]);
+  assert.deepEqual((r2.config.sites[0]!.config.volumes[0]!.seed as { entries: { path: string }[] }).entries.map((x) => x.path), ['x.txt']);
 });

@@ -4,7 +4,6 @@ import { login } from './helpers';
 /** Round VC (§21 #101) screenshots → screenshots/vc-*.png (run with OPM_VC_SHOTS=1; skipped otherwise). */
 const TPL = '/app/templates/TplNodeRedContent007/sites/flows/volumes/content?volume=nodered-data';
 const DEP = '/app/deployments/DepNodeRedFlows00003';
-const CLOUD = `${DEP}/sites/flows/volumes/content?volume=nodered-data&tab=cloud`;
 const node = (page: Page, p: string) => page.locator(`[data-testid="vc-node"][data-path="${p}"]`);
 async function theme(page: Page, t: 'light' | 'dark') {
   await page.emulateMedia({ colorScheme: t });
@@ -46,40 +45,6 @@ test.describe('round VC screenshots', () => {
     await node(page, 'flows.json').click();
     await expect(page.getByTestId('vc-code-content')).toContainText('Plant integration');
     await shot(page, 'editor-deployment');
-  });
-
-  test('cloud copy in every sync state + send modal + history diff', async ({ page }) => {
-    await login(page, 'admin', CLOUD);
-    await theme(page, 'light');
-    await expect(page.getByTestId('cloud-sync-badge')).toHaveAttribute('data-state', 'conflict');
-    await shot(page, 'cloud-conflict');
-    for (const s of ['cloud-ahead', 'in-sync', 'live-changed', 'pending-upload', 'error', 'never-snapshotted'] as const) {
-      await page.evaluate((x) => (window as unknown as { __opmMockVc: { state: (n: string) => Promise<void> } }).__opmMockVc.state(x), s);
-      await page.reload();
-      await expect(page.getByTestId('cloud-sync-badge')).toHaveAttribute('data-state', s);
-      await shot(page, `cloud-${s}`);
-    }
-    await page.evaluate(() => (window as unknown as { __opmMockReset: () => void }).__opmMockReset());
-    await page.reload();
-    await theme(page, 'dark');
-    await expect(page.getByTestId('cloud-sync-badge')).toBeVisible();
-    await shot(page, 'cloud-dark');
-    await theme(page, 'light');
-    await page.getByTestId('cloud-tabs').locator('[data-tab="history"]').click();
-    await page.locator('[data-testid="cloud-version-row"][data-seq="3"]').getByTestId('cloud-version-diff').click();
-    await page.getByTestId('cloud-version-changes').locator('[data-path="flows.json"]').getByTestId('cloud-version-changes-toggle').click();
-    await expect(page.getByTestId('cloud-version-changes-text')).toBeVisible();
-    await shot(page, 'cloud-history', true);
-    await page.getByTestId('cloud-send').click();
-    await expect(page.getByTestId('send-agent-warning')).toBeVisible();
-    await shot(page, 'send-modal');
-    await theme(page, 'dark');
-    await shot(page, 'send-modal-dark');
-    await theme(page, 'light');
-    await page.keyboard.press('Escape');
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByTestId('cloud-tabs').locator('[data-tab="latest"]').click();
-    await shot(page, 'cloud-390', true);
   });
 
   test('diff page per-file + publish warning; legacy card', async ({ page }) => {

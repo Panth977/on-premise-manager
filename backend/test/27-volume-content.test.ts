@@ -1,13 +1,13 @@
 /**
- * §21 #101 volume content + persist-to-cloud volumes (round VC): cloud edit / save / 409 / 422s, restore, send /
- * supersede / cancel, snapshot request through the cloud view, agent blob check / put / snapshot (idempotent), push
- * report, getAgentBlob access, heartbeat volumeSync → state.live, publish with tree seeds + blobContents render errors,
- * diff per-file, daily prune, migrate-h (dry run, apply, revisions untouched, idempotent, verify-schema, audit).
+ * §21 #101 / #117 volume content + persist-to-cloud volumes: the removed cloud-copy writes (410), persist content
+ * committed as the seed tree (rules), agent blob check / put for any site, old-agent snapshots readable, publish with
+ * tree seeds + blobContents render errors, diff per-file, daily prune, migrate-h (dry run, apply, revisions untouched,
+ * idempotent, verify-schema, audit).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ulid, volumeTreeHash, type Site, type ValidationIssue, type VolumeContentVersion, type VolumeTree } from '@opm/shared';
-import { adb, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, uniq, type Person, publish } from './helpers.ts';
+import { adb, enrollSite, helloDeployment, person, rejects, sha256Hex, uniq, type Person, publish } from './helpers.ts';
 import { runDaily } from '../functions/src/jobs/daily.ts';
 import { applyPlanH, planMigrationH, printPlan } from '../scripts/migrate-h.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
@@ -21,13 +21,6 @@ const entry = (path: string, text: string, render: 'none' | 'expressions' = 'non
 const treeHashOf = (t: VolumeTree) => volumeTreeHash(t, (s) => sha256Hex(s));
 const codes = (e: { details: Record<string, unknown> }) => ((e.details.errors as ValidationIssue[]) ?? []).map((x) => x.code);
 
-async function cloudTypes(deploymentId: string): Promise<string[]> {
-  const q = await adb.collection('deployments').doc(deploymentId).collection('activities').where('siteSlug', '==', '_cloud').get();
-  return q.docs.map((d) => d.data().type as string);
-}
-async function epoch(deploymentId: string): Promise<number> {
-  return (await adb.collection('deployments').doc(deploymentId).get()).data()!.agentEpoch as number;
-}
 async function appSite(admin: Person, id: string): Promise<{ site: Site; dv: number }> {
   const d = await admin.api.getDeployment({ deploymentId: id });
   return { site: structuredClone(d.draft.sites.find((s) => s.siteSlug === 'app')!) as Site, dv: d.draftVersion };
@@ -41,216 +34,71 @@ async function publishAndReport(admin: Person, id: string, app: Awaited<ReturnTy
   return r;
 }
 
-test('volume content: edit / restore / send / cancel / snapshot request / agent snapshot + push report / blob access / heartbeat', async () => {
+test('§21 #117 persist content is committed: removed Send / edit endpoints 410, commit rules, agent blob upload for any site, old-agent snapshots readable', async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;
   const one = { deploymentId: id, siteSlug: 'app', volumeSlug: 'hello-api-data' };
 
-  // not persisted yet → 404; persist on in the draft → listed (never snapshotted)
+  // not persisted yet → 404; persist on in the draft → listed
   await rejects(admin.api.getVolumeContent(one), 'not-found', 404);
   const { site, dv } = await appSite(admin, id);
   site.config.volumes[0]!.persist = PERSIST;
   await admin.api.putDraftSite({ deploymentId: id, siteSlug: 'app', body: { ifRevision: dv, site } });
   const list = await admin.api.listVolumeContent({ deploymentId: id });
   assert.equal(list.items.length, 1);
-  assert.deepEqual({ ...list.items[0], updatedAt: null }, { deploymentId: id, siteSlug: 'app', volumeSlug: 'hello-api-data', persist: PERSIST, persistInHead: false, latest: null, lastSnapshot: null, versionCount: 0, push: null, snapshotRequest: null, live: null, sync: 'never-snapshotted', updatedAt: null });
-  await rejects(admin.api.getVolumeContent({ ...one, siteSlug: 'db', volumeSlug: 'redis-data' }), 'not-found', 404);
+  assert.equal(list.items[0]!.versionCount, 0);
 
-  // blobs (human upload)
   const A = `[{"id":"flow-${uniq()}"}]`;
   const B = `module.exports = ${Date.now()};`;
   for (const t of [A, B]) await admin.api.uploadBlob({ body: enc(t) });
   const t1: VolumeTree = { entries: [entry('flows.json', A)], dirs: ['lib'] };
 
-  // 422s: missing blob (details.missing), excluded path, bad path, render expressions in a version
-  const fake = `sha256:${'a'.repeat(64)}`;
-  const miss = await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: { entries: [{ path: 'x.bin', sha256: fake, size: 3, mode: '0644', render: 'none' }], dirs: [] }, note: '' } }), 'invalid', 422);
-  assert.deepEqual(codes(miss), ['V_BLOB_MISSING']);
-  assert.deepEqual(miss.details.missing, [fake]);
-  const exc = await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: { entries: [entry('debug.log', A), entry('node_modules/a/i.js', B)], dirs: [] }, note: '' } }), 'invalid', 422);
-  assert.deepEqual(codes(exc), ['V_VOLUME_CONTENT_EXCLUDED', 'V_VOLUME_CONTENT_EXCLUDED']);
-  const badp = await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: { entries: [entry('../x', A)], dirs: [] }, note: '' } }), 'invalid', 422);
-  assert.ok(codes(badp).includes('V_VOLUME_CONTENT_PATH'), JSON.stringify(badp.details));
-  const rend = await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: { entries: [entry('a.txt', A, 'expressions')], dirs: [] }, note: '' } }), 'invalid', 422);
-  assert.ok(codes(rend).includes('V_VOLUME_CONTENT'), JSON.stringify(rend.details));
+  // the cloud copy is no editing surface any more: every write answers 410 gone
+  await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: t1, note: '' } }), 'gone', 410);
+  await rejects(admin.api.restoreVolumeContentVersion({ ...one, versionId: ulid(), body: { note: '' } }), 'gone', 410);
+  await rejects(admin.api.requestVolumeSnapshot(one), 'gone', 410);
+  await rejects(admin.api.sendVolumeContent({ ...one, body: { versionId: ulid(), restart: false, note: '' } }), 'gone', 410);
+  await rejects(admin.api.cancelVolumeContentPush(one), 'gone', 410);
 
-  // edit → version 1 (201), stale base → 409 { latest }, identical tree → 200 the same version
-  const v1 = await admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: t1, note: 'first' } });
-  assert.equal(v1.version.seq, 1);
-  assert.equal(v1.version.origin, 'edit');
-  assert.equal(v1.version.treeHash, await treeHashOf(t1));
-  assert.deepEqual(v1.tree, t1);
-  assert.deepEqual(v1.version.changes, { added: 1, removed: 0, modified: 0 });
-  const stale = await rejects(admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree: { entries: [entry('flows.json', B)], dirs: [] }, note: '' } }), 'conflict', 409);
-  assert.equal((stale.details.latest as Doc).versionId, v1.version.versionId);
-  const same = await raw('POST', `/v1/deployments/${id}/volume-content/app/hello-api-data/versions`, { headers: { Authorization: admin.bearer, 'Content-Type': 'application/json' }, body: JSON.stringify({ baseVersionId: v1.version.versionId, tree: t1, note: '' }) });
-  assert.equal(same.status, 200);
-  assert.equal(same.json.version.versionId, v1.version.versionId);
-  // the tree JSON is the content-addressed blob files/<treeHash hex>
-  assert.equal((await admin.api.getBlob({ sha256: v1.version.treeHash }).then((r) => r.text())).length > 0, true);
+  // the content is the persist volume's seed tree, committed with the deployment: literal, nothing excluded
+  const withSeed = async (tree: VolumeTree) => {
+    const { site: s2, dv: dv2 } = await appSite(admin, id);
+    s2.config.volumes[0]!.seed = { kind: 'tree', ...tree };
+    await admin.api.putDraftSite({ deploymentId: id, siteSlug: 'app', body: { ifRevision: dv2, site: s2 } });
+    return (await admin.api.getDeployment({ deploymentId: id })).draftVersion;
+  };
+  // (the test client commits a draft save: the commit refuses it)
+  const rend = await rejects(withSeed({ entries: [entry('a.txt', A, 'expressions')], dirs: [] }), 'invalid', 422);
+  assert.ok(codes(rend).includes('V_VOLUME_SEED'), JSON.stringify(rend.details));
+  const exc = await rejects(withSeed({ entries: [entry('debug.log', A), entry('flows.json', B)], dirs: [] }), 'invalid', 422);
+  assert.deepEqual(codes(exc), ['V_VOLUME_CONTENT_EXCLUDED']);
+  const ok = await publish(admin.api, id, { ifRevision: await withSeed(t1), summary: 'persist content' });
+  assert.ok(ok.revision.revId);
+  const headSeed = (await admin.api.getDeployment({ deploymentId: id })).draft.sites.find((x) => x.siteSlug === 'app')!.config.volumes[0]!.seed;
+  assert.deepEqual(headSeed, { kind: 'tree', ...t1 });
 
-  const t2: VolumeTree = { entries: [entry('flows.json', A), entry('lib/x.js', B)], dirs: [] };
-  const v2 = await admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: v1.version.versionId, tree: t2, note: '' } });
-  assert.equal(v2.version.seq, 2);
-  assert.deepEqual(v2.version.changes, { added: 1, removed: 0, modified: 0 });
-  const page1 = await admin.api.listVolumeContentVersions({ ...one, query: { limit: 1 } });
-  assert.deepEqual(page1.items.map((v) => v.seq), [2]);
-  const page2 = await admin.api.listVolumeContentVersions({ ...one, query: { limit: 1, cursor: (page1 as Doc).cursor } });
-  assert.deepEqual(page2.items.map((v) => v.seq), [1]);
-  assert.deepEqual((await admin.api.getVolumeContentVersion({ ...one, versionId: v1.version.versionId })).tree, t1);
-  await rejects(admin.api.getVolumeContentVersion({ ...one, versionId: ulid() }), 'not-found', 404);
-
-  // restore v1 → version 3 (origin restore, base = v1)
-  const v3 = await admin.api.restoreVolumeContentVersion({ ...one, versionId: v1.version.versionId, body: { note: '' } });
-  assert.equal(v3.version.seq, 3);
-  assert.equal(v3.version.origin, 'restore');
-  // the base is the latest at restore time (v2); the copied version is restoredFromVersionId
-  assert.equal(v3.version.baseVersionId, v2.version.versionId);
-  assert.equal(v3.version.restoredFromVersionId, v1.version.versionId);
-  assert.equal(v2.version.restoredFromVersionId, null);
-  assert.equal(v3.version.treeHash, v1.version.treeHash);
-  assert.deepEqual(v3.version.changes, { added: 0, removed: 1, modified: 0 });
-
-  // snapshot request needs persist in the head the site runs
-  const req0 = await rejects(admin.api.requestVolumeSnapshot(one), 'invalid', 422);
-  assert.deepEqual(codes(req0), ['V_VOLUME_PERSIST']);
+  // agents: any enrolled site may upload the bytes of its commits (content-addressed, checked)
   const app = await enrollSite(admin, id, 'app');
   const db = await enrollSite(admin, id, 'db');
-  // agent ops before the head has persist → 403
-  await rejects(app.api.agentPutBlob({ sha256: shaOf(A), body: enc(A) }), 'forbidden', 403);
-  const head = await publishAndReport(admin, id, app, 'persist on');
-  assert.equal((await admin.api.getVolumeContent(one)).persistInHead, true);
-
-  const e0 = await epoch(id);
-  const st = await admin.api.requestVolumeSnapshot(one);
-  assert.ok(st.snapshotRequest?.requestId);
-  assert.equal(await epoch(id), e0 + 1);
-  const view = await app.api.poll({ query: { wait: 0 } });
-  assert.deepEqual(view.volumeContent, [{ siteSlug: 'app', volumeSlug: 'hello-api-data', push: null, snapshotRequest: st.snapshotRequest }]);
-
-  // agent: check / put blobs
   const C = `binary-ish ${uniq()}`;
-  assert.deepEqual((await app.api.agentCheckBlobs({ body: { sha256s: [shaOf(A), shaOf(C)] } })).missing, [shaOf(C)]);
-  await rejects(app.api.agentCheckBlobs({ body: { sha256s: ['nope'] } }), 'invalid', 422);
-  await rejects(app.api.agentPutBlob({ sha256: shaOf(C), body: enc(C + 'x') }), 'invalid', 422);
-  const put = await app.api.agentPutBlob({ sha256: shaOf(C), body: enc(C) });
-  assert.deepEqual(put, { sha256: shaOf(C), sizeBytes: enc(C).length });
+  assert.deepEqual((await db.api.agentCheckBlobs({ body: { sha256s: [shaOf(A), shaOf(C)] } })).missing, [shaOf(C)]);
+  await rejects(db.api.agentCheckBlobs({ body: { sha256s: ['nope'] } }), 'invalid', 422);
+  await rejects(db.api.agentPutBlob({ sha256: shaOf(C), body: enc(C + 'x') }), 'invalid', 422);
+  assert.deepEqual(await db.api.agentPutBlob({ sha256: shaOf(C), body: enc(C) }), { sha256: shaOf(C), sizeBytes: enc(C).length });
   assert.deepEqual((await app.api.agentCheckBlobs({ body: { sha256s: [shaOf(A), shaOf(C)] } })).missing, []);
 
-  // agent snapshot (answers the request): 201, idempotent retry → existing, request cleared
-  const snapTree: VolumeTree = { entries: [entry('data/c.bin', C), entry('flows.json', A)], dirs: ['empty'] };
-  const snap = { snapshotId: ulid(), trigger: 'manual-cloud' as const, takenAt: new Date().toISOString(), actor: 'ops@example.com', tree: snapTree, treeHash: await treeHashOf(snapTree), excludedCount: 2, skippedCount: 1, skipped: [{ path: 'link', reason: 'symlink' as const }], requestId: st.snapshotRequest!.requestId, pushId: null, note: '' };
-  await rejects(app.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: { ...snap, treeHash: `sha256:${'b'.repeat(64)}` } }), 'invalid', 422);
-  const bm = await rejects(app.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: { ...snap, tree: { entries: [{ path: 'q', sha256: fake, size: 1, mode: '0644', render: 'none' }], dirs: [] }, treeHash: await treeHashOf({ entries: [{ path: 'q', sha256: fake, size: 1, mode: '0644', render: 'none' }], dirs: [] }) } }), 'invalid', 422);
-  assert.deepEqual(bm.details.missing, [fake]);
-  await rejects(app.api.agentCreateVolumeSnapshot({ volumeSlug: 'nope-volume', body: snap }), 'forbidden', 403);
-  await rejects(db.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: snap }), 'forbidden', 403);
-  const s4 = await app.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: snap });
-  assert.equal(s4.existing, false);
-  const v4 = s4.version;
-  assert.deepEqual([v4.seq, v4.origin, v4.trigger, v4.createdBy, v4.agentSnapshotId, v4.requestId, v4.excludedCount, v4.skippedCount], [4, 'snapshot', 'manual-cloud', 'ops@example.com', snap.snapshotId, snap.requestId, 2, 1]);
-  assert.deepEqual(v4.changes, { added: 1, removed: 0, modified: 0 });
-  assert.equal(v4.restoredFromVersionId, null);
-  const again = await app.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: snap });
-  assert.equal(again.existing, true);
-  assert.equal(again.version.versionId, v4.versionId);
-  let state = await admin.api.getVolumeContent(one);
-  assert.equal(state.snapshotRequest, null);
-  assert.equal(state.lastSnapshot?.versionId, v4.versionId);
-  assert.equal(state.latest?.versionId, v4.versionId);
-  assert.equal(state.versionCount, 4);
+  // an older agent still uploads snapshots: the history stays readable; the cloud view carries no pushes
+  const head = (await app.api.getAgentRevision({ revId: ok.revision.revId })).revision;
+  await app.api.reportHead({ body: { revision: head } });
+  const snapTree: VolumeTree = { entries: [entry('data/c.bin', C), entry('flows.json', A)], dirs: [] };
+  const snap = { snapshotId: ulid(), trigger: 'manual-agent' as const, takenAt: new Date().toISOString(), actor: 'ops@example.com', tree: snapTree, treeHash: await treeHashOf(snapTree), excludedCount: 0, skippedCount: 0, skipped: [], requestId: null, pushId: null, note: '' };
+  const v1 = (await app.api.agentCreateVolumeSnapshot({ volumeSlug: 'hello-api-data', body: snap })).version;
+  assert.deepEqual((await admin.api.listVolumeContentVersions(one)).items.map((v) => v.versionId), [v1.versionId]);
+  assert.deepEqual((await admin.api.getVolumeContentVersion({ ...one, versionId: v1.versionId })).tree, snapTree);
   assert.deepEqual((await app.api.poll({ query: { wait: 0 } })).volumeContent, []);
 
-  // edit on top of the snapshot → v5; send v5 → base = v4 (newest snapshot ancestor); send again supersedes
-  const t5: VolumeTree = { entries: [entry('data/c.bin', C), entry('flows.json', B)], dirs: ['empty'] };
-  const v5 = (await admin.api.createVolumeContentVersion({ ...one, body: { baseVersionId: v4.versionId, tree: t5, note: 'cloud edit' } })).version;
-  const e1 = await epoch(id);
-  const p1 = await admin.api.sendVolumeContent({ ...one, body: { versionId: v5.versionId, restart: true, note: 'go' } });
-  assert.deepEqual([p1.status, p1.versionId, p1.treeHash, p1.baseVersionId, p1.baseTreeHash, p1.restart], ['pending', v5.versionId, v5.treeHash, v4.versionId, v4.treeHash, true]);
-  assert.equal(await epoch(id), e1 + 1);
-  assert.equal(p1.versionSeq, v5.seq);
-  const p2 = await admin.api.sendVolumeContent({ ...one, body: { versionId: v5.versionId, restart: false, note: '' } });
-  state = await admin.api.getVolumeContent(one);
-  assert.equal(state.push?.pushId, p2.pushId);
-  assert.equal(state.sync, 'cloud-ahead'); // no live report yet: the last snapshot (v4) = the push base
-  const pushView = (await app.api.poll({ query: { wait: 0 } })).volumeContent!;
-  assert.equal(pushView.length, 1);
-  assert.equal(pushView[0]!.push?.pushId, p2.pushId);
-  // sending a snapshot version: it is its own base
-  await rejects(admin.api.sendVolumeContent({ ...one, body: { versionId: ulid(), restart: false, note: '' } }), 'not-found', 404);
-
-  // getAgentBlob: the pending push's trees + files (and its base) for that site only
-  const blobOk = async (sha: string) => Buffer.from(await (await app.api.getAgentBlob({ sha256: sha })).arrayBuffer());
-  assert.ok((await blobOk(v5.treeHash)).toString().includes('flows.json'));
-  assert.equal((await blobOk(v4.treeHash)).length > 0, true);
-  assert.equal((await blobOk(shaOf(B))).toString(), B);
-  assert.equal((await blobOk(shaOf(C))).toString(), C);
-  await rejects(db.api.getAgentBlob({ sha256: v5.treeHash }), 'forbidden', 403);
-  const other = `unrelated ${uniq()}`;
-  await admin.api.uploadBlob({ body: enc(other) });
-  await rejects(app.api.getAgentBlob({ sha256: shaOf(other) }), 'forbidden', 403);
-
-  // heartbeat volumeSync → state.live (+ reportedAt); bad shape → 422
-  const hb = { siteSlug: 'app', agentVersion: '0.12.0', headRevId: head.revId, staging: null, peersSeen: [], metrics: { cpu: 0, memPct: 0, diskPct: 0 }, edge: null, keyVersion: 1, advertiseHost: '127.0.0.1', agentPort: 7080, ip: '127.0.0.1', hostname: 'host-app' };
-  await rejects(app.api.heartbeat({ body: { ...hb, volumeSync: [{ volumeSlug: 'hello-api-data', state: 'weird' }] } as never }), 'invalid', 422);
-  const report = { volumeSlug: 'hello-api-data', state: 'cloud-ahead' as const, liveTreeHash: v4.treeHash, snapshotTreeHash: v4.treeHash, liveChanged: false, queued: 0, scannedAt: new Date().toISOString(), lastError: null };
-  await app.api.heartbeat({ body: { ...hb, volumeSync: [report] } });
-  state = await admin.api.getVolumeContent(one);
-  assert.deepEqual({ ...state.live, reportedAt: 'x' }, { ...report, reportedAt: 'x' });
-  assert.ok(Date.parse(state.live!.reportedAt) > Date.now() - 60_000);
-  assert.equal(state.sync, 'cloud-ahead');
-  assert.equal((await admin.api.listVolumeContent({ deploymentId: id })).items[0]!.sync, 'cloud-ahead');
-  // an unchanged report (only scannedAt differs) within 10 min is not written again; a changed one is
-  const first = state.live!.reportedAt;
-  await app.api.heartbeat({ body: { ...hb, volumeSync: [{ ...report, scannedAt: new Date(Date.now() + 1000).toISOString() }] } });
-  assert.equal((await admin.api.getVolumeContent(one)).live!.reportedAt, first);
-  assert.equal((await admin.api.getVolumeContent(one)).live!.scannedAt, report.scannedAt);
-  await app.api.heartbeat({ body: { ...hb, volumeSync: [{ ...report, liveChanged: true }] } });
-  state = await admin.api.getVolumeContent(one);
-  assert.equal(state.live!.liveChanged, true);
-  assert.notEqual(state.live!.reportedAt, first);
-  await app.api.heartbeat({ body: { ...hb, volumeSync: [report] } });
-
-  // cancel (+ 409 when none pending) → nothing in the cloud view
-  const e2 = await epoch(id);
-  const cancelled = await admin.api.cancelVolumeContentPush(one);
-  assert.equal(cancelled.push?.status, 'cancelled');
-  assert.equal(await epoch(id), e2 + 1);
-  await rejects(admin.api.cancelVolumeContentPush(one), 'conflict', 409);
-  assert.deepEqual((await app.api.poll({ query: { wait: 0 } })).volumeContent, []);
-  await rejects(app.api.getAgentBlob({ sha256: shaOf(B) }), 'forbidden', 403);
-
-  // send again → the site applies it → report (idempotent); superseded / cancelled keep their status
-  const p3 = await admin.api.sendVolumeContent({ ...one, body: { versionId: v5.versionId, restart: true, note: '' } });
-  const result = { resolution: 'fast-forward' as const, written: 1, deleted: 0, keptLive: 0, snapshotId: ulid(), restarted: ['hello-api'], error: null, afterVersionId: null };
-  await rejects(app.api.agentReportVolumePush({ volumeSlug: 'hello-api-data', pushId: p3.pushId, body: { status: 'done' as never, resolvedBy: 'ops@example.com', resolvedAt: new Date().toISOString(), result } }), 'invalid', 422);
-  await rejects(db.api.agentReportVolumePush({ volumeSlug: 'hello-api-data', pushId: p3.pushId, body: { status: 'applied', resolvedBy: 'ops@example.com', resolvedAt: new Date().toISOString(), result } }), 'not-found', 404);
-  const e3 = await epoch(id);
-  const done = await app.api.agentReportVolumePush({ volumeSlug: 'hello-api-data', pushId: p3.pushId, body: { status: 'applied', resolvedBy: 'ops@example.com', resolvedAt: new Date().toISOString(), result } });
-  assert.equal(done.status, 'applied');
-  assert.deepEqual(done.result, result);
-  assert.equal(await epoch(id), e3 + 1);
-  const twice = await app.api.agentReportVolumePush({ volumeSlug: 'hello-api-data', pushId: p3.pushId, body: { status: 'failed', resolvedBy: 'x@example.com', resolvedAt: new Date().toISOString(), result } });
-  assert.equal(twice.status, 'applied');
-  assert.equal((await app.api.agentReportVolumePush({ volumeSlug: 'hello-api-data', pushId: p1.pushId, body: { status: 'applied', resolvedBy: 'ops@example.com', resolvedAt: new Date().toISOString(), result } })).status, 'superseded');
-  assert.equal((await admin.api.getVolumeContent(one)).push?.status, 'applied');
-
-  // _cloud activities of the human ops + the snapshot upload
-  const types = await cloudTypes(id);
-  for (const t of ['volume-content.version-created', 'volume-content.snapshot-requested', 'volume-content.sent', 'volume-content.push-cancelled']) assert.ok(types.includes(t), `missing ${t}`);
-  assert.ok(!types.includes('volume-content.snapshot-uploaded'), 'the agent logs snapshot-uploaded in its own chain');
-  const sent = (await adb.collection('deployments').doc(id).collection('activities').where('type', '==', 'volume-content.sent').get()).docs.map((d) => JSON.parse(d.data()._data));
-  assert.ok(sent.some((d) => d.supersededPushId === p1.pushId && d.pushId === p2.pushId));
-
-  // permissions: read-only cannot write, write cannot send
-  const rule = (actions: string[]) => [{ resource: 'deployment.config', actions, scope: { kind: 'all' } }] as never;
-  const reader = await person(rule(['read']));
-  assert.equal((await reader.api.getVolumeContent(one)).versionCount, 5);
-  await rejects(reader.api.createVolumeContentVersion({ ...one, body: { baseVersionId: v5.versionId, tree: t1, note: '' } }), 'forbidden', 403);
-  const writer = await person(rule(['read', 'write']));
-  await rejects(writer.api.sendVolumeContent({ ...one, body: { versionId: v5.versionId, restart: false, note: '' } }), 'forbidden', 403);
-  await rejects(writer.api.cancelVolumeContentPush(one), 'forbidden', 403);
+  // permissions: reading needs deployment.config.read
   const nobody = await person([]);
   await rejects(nobody.api.listVolumeContent({ deploymentId: id }), 'not-found', 404);
 });

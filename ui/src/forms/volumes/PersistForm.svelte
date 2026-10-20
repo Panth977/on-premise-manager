@@ -18,9 +18,10 @@
   /**
    * §21 #101 "Persist to cloud" settings of a folder volume (SiteVolume.persist; the key is DELETED when off) — ONE form
    * for the cloud content page (editable) and the agent Cloud sync tab (read-only, cloud configuration), §21 #102:
-   * on / off · Exclude patterns (gitignore-lite, live check + preview of what they hide) · Snapshot size cap ·
-   * Automatic snapshots. Test ids: persist-card · persist-toggle · persist-help · persist-issue · persist-exclude(-i,
-   * -del-i, -add, -defaults) · persist-preview(-none, -item, -count) · persist-cap · persist-auto.
+   * on / off · Exclude patterns (gitignore-lite, live check + preview of what they hide) · Size cap. §21 #117: the
+   * content is committed and merged (no snapshots / Send); `auto` stays in the schema and is not shown. Test ids:
+   * persist-card · persist-toggle · persist-help · persist-issue · persist-exclude(-i, -del-i, -add, -defaults) ·
+   * persist-preview(-none, -item, -count) · persist-cap.
    */
   import type { SiteVolume, ValidationIssue } from '@opm/shared/types';
   import { VOLUME_CONTENT_LIMITS, VOLUME_PERSIST_DEFAULT_EXCLUDE, VOLUME_SEED_MARKER, defaultVolumePersist, excludePatternError } from '@opm/shared/volume-content';
@@ -64,11 +65,11 @@
     {#if isFile}
       <p class="small muted">Only folder volumes can persist to the cloud.</p>
     {:else if help}
-      <p class="small muted" data-testid="persist-help">The site snapshots this folder to the cloud (versioned): after it changed and stayed quiet for 2 min, on request, and around every apply. The cloud console edits a version and <b>sends</b> it back; a person on the site approves it (overwrite / keep live / per file). Use it for data that changes on the site and that you also want to edit in the console — e.g. Node-RED flows with a client's integration code — instead of a git repository.</p>
+      <p class="small muted" data-testid="persist-help">The folder's content becomes part of the commits: edit it under <b>Content</b> and Commit…; a site writes it into the volume when it merges. Files changed on the server show on the site as uncommitted changes — a person commits them there (the cloud then takes them from the site's branch), and a merge shows every file both sides changed so they can keep the site's version or take the cloud's. Use it for data that changes on the site and that you also want to edit in the console — e.g. Node-RED flows with a client's integration code — instead of a git repository.</p>
     {/if}
     {#each issues as x, k (k)}<div class={x.severity === 'error' ? 'field-err' : x.severity === 'info' ? 'field-info' : 'field-warn'} data-testid="persist-issue">{x.message}</div>{/each}
     {#if p}
-      <Field label="Exclude" group hint="gitignore-lite: name = at any depth, a/b = from the volume root, trailing / = folders only, * ? ** globs. {VOLUME_SEED_MARKER} is always excluded. Excluded paths are never snapshotted nor touched when a version is applied.">
+      <Field label="Exclude" group hint="gitignore-lite: name = at any depth, a/b = from the volume root, trailing / = folders only, * ? ** globs. {VOLUME_SEED_MARKER} is always excluded. Excluded paths are never committed nor touched when a merge writes the content.">
         <div class="ex" data-testid="persist-exclude">
           {#each p.exclude as _x, i (i)}
             <div class="er">
@@ -104,11 +105,8 @@
         </div>
       {/if}
       <div class="two">
-        <Field label="Snapshot size cap" id="persist-cap" hint="Sum of the non-excluded files; a bigger snapshot is refused ({L.persistMinBytes / 1048576}–{L.persistMaxBytes / 1048576} MiB).">
-          <NumberStepper id="persist-cap" value={mib} min={1} max={200} suffix="MiB" disabled={readOnly} testid="persist-cap" label="Snapshot size cap in MiB" onchange={(v) => (p.maxBytes = Math.round(Math.min(200, Math.max(1, v !== null && Number.isFinite(v) ? v : 50))) * 1048576)} />
-        </Field>
-        <Field label="Automatic snapshots" id="persist-auto" group hint={p.auto ? 'When the folder changed and stayed quiet for 2 min (at most one per 15 min).' : 'Only on request (Snapshot now) and around applies.'}>
-          <Toggle id="persist-auto" bind:checked={p.auto} disabled={readOnly} label={p.auto ? 'on' : 'off'} testid="persist-auto" />
+        <Field label="Size cap" id="persist-cap" hint="Sum of the non-excluded files; bigger content cannot be committed ({L.persistMinBytes / 1048576}–{L.persistMaxBytes / 1048576} MiB).">
+          <NumberStepper id="persist-cap" value={mib} min={1} max={200} suffix="MiB" disabled={readOnly} testid="persist-cap" label="Size cap in MiB" onchange={(v) => (p.maxBytes = Math.round(Math.min(200, Math.max(1, v !== null && Number.isFinite(v) ? v : 50))) * 1048576)} />
         </Field>
       </div>
     {/if}

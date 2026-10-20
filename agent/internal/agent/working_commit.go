@@ -78,6 +78,9 @@ func (a *Agent) editRevision(hr *model.Revision, in model.ConfigInput, actor, me
 	if len(errs) > 0 {
 		return nil, model.CommitData{}, invalid("the edited configuration is not valid: "+errs[0].Message, errs)
 	}
+	if e := a.contentDriftConflict(&cfg); e != nil { // §21 #117 d
+		return nil, model.CommitData{}, e
+	}
 	rev := a.newBranchRevision(cfg, cat, actor, message, "change")
 	if rev.Hash == hr.Hash {
 		return nil, model.CommitData{}, invalid("nothing to commit: the edits equal the head", []model.ValidationIssue{{Path: "config", Code: "V_NO_CHANGE", Message: "the edits equal the head", Severity: "error"}})

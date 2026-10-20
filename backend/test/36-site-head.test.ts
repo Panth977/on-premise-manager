@@ -11,7 +11,7 @@ import { adb, depInput, enrollSite, helloDeployment, person, sha256Hex } from '.
 const MiB = 1024 * 1024;
 const enc = (s: string) => new TextEncoder().encode(s);
 
-test('O2 + O3: agent-branch head → status inHead / headSeq, persist-to-cloud blob upload allowed', async () => {
+test('O2 + O3: agent-branch head → status inHead / headSeq, persist-to-cloud blob upload', async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;
@@ -29,10 +29,9 @@ test('O2 + O3: agent-branch head → status inHead / headSeq, persist-to-cloud b
   const author = { kind: 'person' as const, email: 'ops@site.test', uid: null, name: null, siteSlug: 'app' };
   const a1 = makeCommit({ commitId: ulid(), branch: own, parent: null, kind: 'merge', message: 'merge cloud seq ' + c1.seq, author, createdAt: new Date().toISOString(), config: got.commit.config, catalog: got.commit.catalog, source: { branch: { kind: 'deployment', deploymentId: id }, commitId: c1.commitId, seq: c1.seq, label: dep.label, picks: 'all', skipped: 0 }, scope: 'app' });
   await app.api.pushAgentBranch({ body: { commits: [a1] } });
-  // before the head is reported: no persist-to-cloud head → 403
+  // §21 #117 any enrolled site uploads the bytes of its commits (no persist-to-cloud head needed)
   const A = `{"x":"${ulid()}"}`;
   const sha = `sha256:${sha256Hex(A)}` as `sha256:${string}`;
-  await assert.rejects(app.api.agentPutBlob({ sha256: sha, body: enc(A) }), (e: { status?: number }) => e.status === 403);
   // heartbeat with the agent-branch commit id as the head
   await app.api.heartbeat({ body: { siteSlug: 'app', agentVersion: '0.16.0-test', headRevId: a1.commitId, staging: null, peersSeen: [], metrics: { cpu: 0, memPct: 0, diskPct: 0 }, edge: null, keyVersion: 1, advertiseHost: '127.0.0.1', agentPort: 7080, ip: '127.0.0.1', hostname: 'h', branch: { head: { commitId: a1.commitId, seq: a1.seq, hash: a1.hash }, mergedFrom: { commitId: c1.commitId, seq: c1.seq }, uncommitted: null } } as never });
   // O2: status

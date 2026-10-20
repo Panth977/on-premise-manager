@@ -15,8 +15,8 @@ import (
 )
 
 // TestDevmeshVolumeContent: `opm-devmesh -volume-content` over the real agent API: approve the revision → app/flows
-// holds its starter content and shows "No snapshot yet" → Snapshot now → the demo cloud edit arrives as a pending push
-// (Cloud ahead) with a fast-forward plan.
+// holds its committed content (in sync) → the demo cloud edit arrives as the next revision → approving it writes the
+// edited content into the live volume (§21 #117).
 func TestDevmeshVolumeContent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("docker (-short)")
@@ -74,52 +74,50 @@ func TestDevmeshVolumeContent(t *testing.T) {
 	}
 	call("POST", "/_opm/api/actor", `{"email":"gui-smoke@acme.example"}`, &ar)
 	actor = ar.ActorToken
-	wait("proposal ready", 90*time.Second, func() bool {
-		var pl struct {
-			Items []struct {
-				Proposal struct {
-					RevID  string `json:"revId"`
-					Status string `json:"status"`
-				} `json:"proposal"`
-			} `json:"items"`
+	approve := func(revID string) {
+		t.Helper()
+		wait("proposal "+revID+" ready", 90*time.Second, func() bool {
+			var pl struct {
+				Items []struct {
+					Proposal struct {
+						RevID  string `json:"revId"`
+						Status string `json:"status"`
+					} `json:"proposal"`
+				} `json:"items"`
+			}
+			call("GET", "/_opm/api/proposals", "", &pl)
+			for _, it := range pl.Items {
+				if (revID == "" || it.Proposal.RevID == revID) && it.Proposal.Status == "ready" {
+					revID = it.Proposal.RevID
+					return true
+				}
+			}
+			return false
+		})
+		var st struct {
+			Intent struct {
+				IntentID string `json:"intentId"`
+			} `json:"intent"`
 		}
-		call("GET", "/_opm/api/proposals", "", &pl)
-		return len(pl.Items) == 1 && pl.Items[0].Proposal.Status == "ready"
-	})
-	var st struct {
-		Intent struct {
-			IntentID string `json:"intentId"`
-		} `json:"intent"`
-	}
-	call("POST", "/_opm/api/proposals/"+m.revID+"/approve/start", "", &st)
-	time.Sleep(1500 * time.Millisecond)
-	if c := call("POST", "/_opm/api/proposals/"+m.revID+"/approve", `{"intentId":"`+st.Intent.IntentID+`","typed":"ACCEPT"}`, nil); c >= 300 {
-		t.Fatalf("approve %d", c)
+		call("POST", "/_opm/api/proposals/"+revID+"/approve/start", "", &st)
+		time.Sleep(1500 * time.Millisecond)
+		if c := call("POST", "/_opm/api/proposals/"+revID+"/approve", `{"intentId":"`+st.Intent.IntentID+`","typed":"ACCEPT"}`, nil); c >= 300 {
+			t.Fatalf("approve %d", c)
+		}
 	}
 	type status struct {
-		State string `json:"state"`
-		Push  *struct {
-			PushID string `json:"pushId"`
-		} `json:"push"`
+		State     string `json:"state"`
+		Committed *struct {
+			FileCount int `json:"fileCount"`
+		} `json:"committed"`
 	}
 	var vs status
-	wait("app/flows persisted", 90*time.Second, func() bool {
-		return call("GET", "/_opm/api/sites/app/volume-sync/flows", "", &vs) == 200 && vs.State == "never-snapshotted"
+	approve(m.revID)
+	wait("app/flows in sync with its committed content", 90*time.Second, func() bool {
+		return call("GET", "/_opm/api/sites/app/volume-sync/flows", "", &vs) == 200 && vs.State == "in-sync" && vs.Committed != nil && vs.Committed.FileCount == 3
 	})
-	if c := call("POST", "/_opm/api/sites/app/volume-sync/flows/snapshot", `{}`, nil); c != 201 {
-		t.Fatalf("snapshot %d", c)
-	}
-	wait("demo push", 60*time.Second, func() bool {
-		return call("GET", "/_opm/api/sites/app/volume-sync/flows", "", &vs) == 200 && vs.Push != nil
+	approve("") // the demo cloud edit
+	wait("the edited content written", 120*time.Second, func() bool {
+		return call("GET", "/_opm/api/sites/app/volume-sync/flows", "", &vs) == 200 && vs.State == "in-sync" && vs.Committed != nil && vs.Committed.FileCount == 4
 	})
-	if vs.State != "cloud-ahead" {
-		t.Fatalf("state %s", vs.State)
-	}
-	var plan struct {
-		FastForward bool `json:"fastForward"`
-		Items       []any
-	}
-	if c := call("GET", "/_opm/api/sites/app/volume-sync/flows/plan", "", &plan); c != 200 || !plan.FastForward || len(plan.Items) != 2 {
-		t.Fatalf("plan %d %+v", c, plan)
-	}
 }

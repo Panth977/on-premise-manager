@@ -611,3 +611,23 @@ func DiffTrees(a, b *model.VolumeTree) []TreeChange {
 	}
 	return out
 }
+
+// FormatBytes is TS formatContentBytes ("512 B", "1.5 KiB", "12 MiB", …).
+func FormatBytes(n int64) string {
+	f := float64(n)
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1048576:
+		if n < 10240 {
+			return fmt.Sprintf("%.1f KiB", f/1024)
+		}
+		return fmt.Sprintf("%.0f KiB", f/1024)
+	case n < 1073741824:
+		if n < 10485760 {
+			return fmt.Sprintf("%.1f MiB", f/1048576)
+		}
+		return fmt.Sprintf("%.0f MiB", f/1048576)
+	}
+	return fmt.Sprintf("%.1f GiB", f/1073741824)
+}

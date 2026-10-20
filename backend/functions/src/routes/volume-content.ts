@@ -632,139 +632,24 @@ export const volumeContentHandlers: Pick<
     return { version: v, tree };
   },
 
-  async createVolumeContentVersion(c) {
-    const t = await loadTarget(c, 'write');
-    const b = asObject(c.json());
-    onlyKeys(b, ['baseVersionId', 'tree', 'note', 'stageId']);
-    const stageId = optStageId(b);
-    try {
-      return await createVersionBody(c, t, b, stageId);
-    } finally {
-      await dropStage(stageId, uid(c));
-    }
-  },
-  async restoreVolumeContentVersion(c) {
-    const t = await loadTarget(c, 'write');
-    const b = asObject(c.json());
-    onlyKeys(b, ['note']);
-    const note = vNote(b.note);
-    const src = await loadVersion(t.dep.deploymentId, t.key, c.params.versionId!);
-    if (!src) throw E.notFound('version not found');
-    const tree = await readTree(src.treeHash);
-    if (!tree) throw E.notFound('the tree of this version is not stored');
-    if (t.state.latest && t.state.latest.treeHash === src.treeHash) {
-      const v = await loadVersion(t.dep.deploymentId, t.key, t.state.latest.versionId);
-      if (v) return ok200({ version: v, tree });
-    }
-    const prevLatestId = t.state.latest?.versionId ?? null;
-    const prevTree = t.state.latest ? await readTree(t.state.latest.treeHash) : null;
-    const r = await commitVersion({
-      deploymentId: t.dep.deploymentId,
-      siteSlug: t.siteSlug,
-      volumeSlug: t.volumeSlug,
-      key: t.key,
-      prevTree,
-      prevLatestId,
-      // base = the latest at restore time (a Send plans against what the site had then); restoredFrom = the copied version
-      build: () => ({ origin: 'restore', tree, treeHash: src.treeHash, baseVersionId: prevLatestId, restoredFromVersionId: src.versionId, note: note || `restored version ${src.seq}`, createdBy: uid(c) }),
-      log: (v) => versionCreatedEntry(v, uid(c)),
-    });
-    return { version: r.version, tree };
+  async createVolumeContentVersion(_c) {
+    throw E.gone('persist-to-cloud content is committed now (§21 #117): edit it under Volume › Content and Commit; sites write it when they merge', { hint: 'POST /v1/deployments/{id}/commits' });
   },
 
-  async requestVolumeSnapshot(c) {
-    const t = await loadTarget(c, 'write');
-    if (!t.headPersist) throw E.bad('persist', 'V_VOLUME_PERSIST', `volume ${t.volumeSlug} is not persisted to the cloud in the revision site ${t.siteSlug} runs (publish + apply it first)`);
-    const depRef = col.deployments().doc(t.dep.deploymentId);
-    const stRef = vcCol(t.dep.deploymentId).doc(t.key);
-    const state = await db().runTransaction(async (tx) => {
-      const [ds, ss] = await Promise.all([tx.get(depRef), tx.get(stRef)]);
-      const dep = decodeDeployment(ds.data()!);
-      const st = decodeState(t.dep.deploymentId, t.siteSlug, t.volumeSlug, ss.data());
-      const req = { requestId: ulid(), createdAt: nowIso(), createdBy: uid(c) };
-      const next: StoredState = { ...st, snapshotRequest: req, updatedAt: req.createdAt };
-      next._open = openOf(next);
-      tx.set(stRef, { deploymentId: t.dep.deploymentId, siteSlug: t.siteSlug, volumeSlug: t.volumeSlug, snapshotRequest: req, updatedAt: req.createdAt, _open: next._open }, { merge: true });
-      const log = new CloudLog(dep.deploymentId, dep);
-      log.add(tx, { type: 'volume-content.snapshot-requested', summary: `Snapshot of volume ${t.volumeSlug} requested from site ${t.siteSlug}`, data: { siteSlug: t.siteSlug, volumeSlug: t.volumeSlug, requestId: req.requestId }, actor: uid(c) });
-      tx.update(depRef, { ...log.depUpdate(), agentEpoch: dep.agentEpoch + 1 });
-      return next;
-    });
-    return stateView(state, t.draftPersist, !!t.headPersist);
+  async restoreVolumeContentVersion(_c) {
+    throw E.gone('persist-to-cloud content is committed now (§21 #117): edit it under Volume › Content and Commit; sites write it when they merge', { hint: 'POST /v1/deployments/{id}/commits' });
   },
 
-  async sendVolumeContent(c) {
-    const t = await loadTarget(c, 'publish');
-    const b = asObject(c.json());
-    onlyKeys(b, ['versionId', 'restart', 'note']);
-    if (typeof b.versionId !== 'string' || !RE.ulid.test(b.versionId)) throw E.bad('versionId', 'V_REQUIRED', 'versionId (a version of this volume) is required');
-    if (typeof b.restart !== 'boolean') throw E.bad('restart', 'V_TYPE', 'restart must be true / false');
-    const note = vNote(b.note);
-    const v = await loadVersion(t.dep.deploymentId, t.key, b.versionId);
-    if (!v) throw E.notFound('version not found');
-    const base = await snapshotAncestor(t.dep.deploymentId, t.key, v);
-    const depRef = col.deployments().doc(t.dep.deploymentId);
-    const stRef = vcCol(t.dep.deploymentId).doc(t.key);
-    return db().runTransaction(async (tx) => {
-      const [ds, ss] = await Promise.all([tx.get(depRef), tx.get(stRef)]);
-      const dep = decodeDeployment(ds.data()!);
-      const st = decodeState(t.dep.deploymentId, t.siteSlug, t.volumeSlug, ss.data());
-      const now = nowIso();
-      const push: VolumeContentPush = {
-        pushId: ulid(),
-        siteSlug: t.siteSlug,
-        volumeSlug: t.volumeSlug,
-        versionId: v.versionId,
-        versionSeq: v.seq,
-        treeHash: v.treeHash,
-        baseVersionId: base?.versionId ?? null,
-        baseTreeHash: base?.treeHash ?? null,
-        restart: b.restart as boolean,
-        note,
-        status: 'pending',
-        createdAt: now,
-        createdBy: uid(c),
-        resolvedAt: null,
-        resolvedBy: null,
-        result: null,
-      };
-      const old = st.push?.status === 'pending' ? st.push : null;
-      if (old) tx.set(pushesCol(t.dep.deploymentId, t.key).doc(old.pushId), { ...old, status: 'superseded', resolvedAt: now, resolvedBy: uid(c) }, { merge: true });
-      tx.create(pushesCol(t.dep.deploymentId, t.key).doc(push.pushId), push);
-      tx.set(stRef, { deploymentId: t.dep.deploymentId, siteSlug: t.siteSlug, volumeSlug: t.volumeSlug, push, updatedAt: now, _open: true }, { merge: true });
-      const log = new CloudLog(dep.deploymentId, dep);
-      log.add(tx, {
-        type: 'volume-content.sent',
-        summary: `Version ${v.seq} of volume ${t.volumeSlug} sent to site ${t.siteSlug}${old ? ' (replaces the pending one)' : ''}`,
-        data: { siteSlug: t.siteSlug, volumeSlug: t.volumeSlug, pushId: push.pushId, versionId: v.versionId, baseVersionId: push.baseVersionId, restart: push.restart, supersededPushId: old?.pushId ?? null },
-        actor: uid(c),
-      });
-      tx.update(depRef, { ...log.depUpdate(), agentEpoch: dep.agentEpoch + 1 });
-      return push;
-    });
+  async requestVolumeSnapshot(_c) {
+    throw E.gone('persist-to-cloud content is committed now (§21 #117): edit it under Volume › Content and Commit; sites write it when they merge', { hint: 'POST /v1/deployments/{id}/commits' });
   },
 
-  async cancelVolumeContentPush(c) {
-    const t = await loadTarget(c, 'publish');
-    const depRef = col.deployments().doc(t.dep.deploymentId);
-    const stRef = vcCol(t.dep.deploymentId).doc(t.key);
-    const state = await db().runTransaction(async (tx) => {
-      const [ds, ss] = await Promise.all([tx.get(depRef), tx.get(stRef)]);
-      const dep = decodeDeployment(ds.data()!);
-      const st = decodeState(t.dep.deploymentId, t.siteSlug, t.volumeSlug, ss.data());
-      if (st.push?.status !== 'pending') throw E.conflict('no push is pending');
-      const now = nowIso();
-      const push: VolumeContentPush = { ...st.push, status: 'cancelled', resolvedAt: now, resolvedBy: uid(c) };
-      const next: StoredState = { ...st, push, updatedAt: now };
-      next._open = openOf(next);
-      tx.set(pushesCol(t.dep.deploymentId, t.key).doc(push.pushId), push, { merge: true });
-      tx.set(stRef, { push, updatedAt: now, _open: next._open }, { merge: true });
-      const log = new CloudLog(dep.deploymentId, dep);
-      log.add(tx, { type: 'volume-content.push-cancelled', summary: `Pending send of volume ${t.volumeSlug} to site ${t.siteSlug} cancelled`, data: { siteSlug: t.siteSlug, volumeSlug: t.volumeSlug, pushId: push.pushId, versionId: push.versionId }, actor: uid(c) });
-      tx.update(depRef, { ...log.depUpdate(), agentEpoch: dep.agentEpoch + 1 });
-      return next;
-    });
-    return stateView(state, t.draftPersist, !!t.headPersist);
+  async sendVolumeContent(_c) {
+    throw E.gone('persist-to-cloud content is committed now (§21 #117): edit it under Volume › Content and Commit; sites write it when they merge', { hint: 'POST /v1/deployments/{id}/commits' });
+  },
+
+  async cancelVolumeContentPush(_c) {
+    throw E.gone('persist-to-cloud content is committed now (§21 #117): edit it under Volume › Content and Commit; sites write it when they merge', { hint: 'POST /v1/deployments/{id}/commits' });
   },
 
   // ───────────────────────────────────── agent (site key)
@@ -780,11 +665,9 @@ export const volumeContentHandlers: Pick<
   },
 
   async agentPutBlob(c) {
-    const { deploymentId, siteSlug, agent } = c.agent!;
+    // §21 #117 any enrolled site uploads the bytes of its commits (content-addressed, size-capped; c.agent = signed)
     const hex = hexOf(c.params.sha256!);
     if (!isHex64(hex)) throw E.bad('sha256', 'V_FORMAT', 'sha256 must be "sha256:" + 64 hex');
-    const sc = await signerHeadConfig(deploymentId, siteSlug, agent.headRevId ?? null);
-    if (!(sc?.volumes ?? []).some((v) => persistOf(sc, v.volumeSlug))) throw E.forbidden('the site runs no persist-to-cloud volume');
     if (c.body.length > VOLUME_CONTENT_LIMITS.snapshotFileMaxBytes) throw E.tooLarge(`a snapshot file is at most ${VOLUME_CONTENT_LIMITS.snapshotFileMaxBytes} bytes`);
     const got = sha256Hex(c.body);
     if (got !== hex) throw E.bad('sha256', 'V_FORMAT', `sha256 mismatch: the body is sha256:${got}`);

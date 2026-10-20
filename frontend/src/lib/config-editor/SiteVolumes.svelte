@@ -3,7 +3,7 @@
    * Site → Volumes (round D): the declared data folders of a site. Table name · label · description · Back up · Used by
    * · Edit / Delete. Delete of a volume that a container mounts is blocked (dialog lists the containers). Every change
    * goes into the site working copy (saved with Save template / Save draft). §21 #101: "Starts with" links to the volume's
-   * content page (own file tree, persist to cloud, cloud copy); a legacy File seed is flagged red.
+   * content page (own file tree, persist to cloud); a legacy File seed is flagged red.
    */
   import { goto } from '$app/navigation';
   import type { Site, SiteVolume, ValidationIssue } from '@opm/shared';

@@ -304,7 +304,7 @@ func (a *Agent) seedVolume(cfg *model.Config, cat *model.RevisionCatalog, sc *mo
 // from a snapshot in this apply.
 func (a *Agent) seedVolumes(cfg *model.Config, cat *model.RevisionCatalog, site *model.Site, skip map[string]bool) error {
 	for _, v := range site.Config.VolumeList() {
-		if skip[v.VolumeSlug] {
+		if skip[v.VolumeSlug] || (v.Persist != nil && v.VolumeKind() == "dir") { // §21 #117 persist content: applyContent
 			continue
 		}
 		v := v

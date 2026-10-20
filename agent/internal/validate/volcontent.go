@@ -48,13 +48,19 @@ func checkContentSeed(v *model.SiteVolume, sd *model.VolumeSeed, vp string, is *
 		is.err(vp+".seed", "V_VOLUME_SEED_FILE_REF", fmt.Sprintf("volume %s takes its starter content from Files (%s) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content; backend/scripts/migrate-h.ts converts it)", v.VolumeSlug, strings.Join(refs, ", ")))
 		return true
 	}
+	// §21 #117 a persist-to-cloud volume's seed is its COMMITTED content: a literal tree within the persisted limits
+	persist := v.Persist
+	if persist != nil && sd.Kind != "tree" {
+		is.err(vp+".seed", "V_VOLUME_SEED", fmt.Sprintf("volume %s persists to the cloud: its content is a file tree (kind tree)", v.VolumeSlug))
+		return true
+	}
 	switch sd.Kind {
 	case "tree":
 		if kind != "dir" {
 			is.err(vp+".seed", "V_VOLUME_SEED", "a single-file volume has one file of content (kind single), not a tree")
 			return true
 		}
-		for _, x := range volcontent.TreeIssues(sd.TreeOf(), true) {
+		for _, x := range volcontent.TreeIssues(sd.TreeOf(), persist == nil) {
 			at := vp + ".seed"
 			if x.Path != "" {
 				at = vp + ".seed.entries[" + x.Path + "]"
@@ -64,6 +70,10 @@ func checkContentSeed(v *model.SiteVolume, sd *model.VolumeSeed, vp string, is *
 				code = "V_VOLUME_SEED"
 			}
 			is.err(at, code, "volume "+v.VolumeSlug+": "+x.Message)
+		}
+		if persist != nil {
+			checkPersistContent(v, sd, persist, vp, is)
+			return true
 		}
 		for _, e := range sd.Tree {
 			if e.Render == "expressions" && e.Sha256 != "" {
@@ -94,6 +104,33 @@ func checkContentSeed(v *model.SiteVolume, sd *model.VolumeSeed, vp string, is *
 		return true
 	}
 	return false
+}
+
+// checkPersistContent is TS checkPersistContent (§21 #117): at most persist.maxBytes, nothing under the excludes.
+func checkPersistContent(v *model.SiteVolume, sd *model.VolumeSeed, persist *model.VolumePersist, vp string, is *Issues) {
+	var total int64
+	for _, e := range sd.Tree {
+		total += e.Size
+	}
+	if persist.MaxBytes > 0 && total > persist.MaxBytes {
+		is.err(vp+".seed", "V_TOO_LARGE", fmt.Sprintf("volume %s: the content is %s — at most %s (Persist to cloud › size cap)", v.VolumeSlug, volcontent.FormatBytes(total), volcontent.FormatBytes(persist.MaxBytes)))
+	}
+	for _, pat := range persist.Exclude {
+		if volcontent.ExcludePatternError(pat) != "" {
+			return
+		}
+	}
+	ex := volcontent.Compile(persist.Exclude)
+	for _, e := range sd.Tree {
+		if ex.Excluded(e.Path, false) {
+			is.err(vp+".seed.entries["+e.Path+"]", "V_VOLUME_CONTENT_EXCLUDED", fmt.Sprintf("volume %s: %s is excluded from the persisted content (it could never come back from the site)", v.VolumeSlug, e.Path))
+		}
+	}
+	for _, d := range sd.Dirs {
+		if ex.Excluded(d, true) {
+			is.err(vp+".seed.entries["+d+"]", "V_VOLUME_CONTENT_EXCLUDED", fmt.Sprintf("volume %s: folder %s is excluded from the persisted content", v.VolumeSlug, d))
+		}
+	}
 }
 
 // checkPersist is TS checkPersist (SiteVolume.persist: folder volumes only; excludes, size cap, auto).

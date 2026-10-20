@@ -56,6 +56,8 @@ import type {
   SiteVolume,
   SiteVolumeKind,
   VolumeSeed,
+  VolumePersist,
+  VolumeTree,
   StorageLocation,
   ValidationIssue,
   Variable,
@@ -64,7 +66,7 @@ import type {
 import { SEED_ARCHIVE_MAX } from './types.js';
 import { VOLUME_BACKUP_SCHEDULES } from './types.js'; // §21 #112
 import { canonicalize } from './canonical.js';
-import { VOLUME_CONTENT_LIMITS, excludePatternError, normalizeVolumeTree, volumeTreeIssues } from './volume-content.js';
+import { VOLUME_CONTENT_LIMITS, compileExcludes, excludePatternError, formatContentBytes, isExcluded, normalizeVolumeTree, volumeTreeIssues } from './volume-content.js';
 import { DEVTOOL_KINDS, DEVTOOL_PRESETS_MAX, DEVTOOL_SLUG_RE, DEVTOOL_TARGETS, normalizeDevToolPreset, siteDevTools, type DevToolCredential, type DevToolKind, type DevToolPreset } from './devtools.js';
 
 // ───────────────────────────────────────────────────────────── patterns + limits
@@ -159,14 +161,14 @@ export const VALIDATION_CODES: Record<string, string> = {
   V_VOLUME: 'Volume rules (site volume fields; one row per image volume, known image volume, source kind, host path).',
   V_VOLUME_UNDECLARED: 'A mount uses a volume that is not declared in the site volumes.',
   V_VOLUME_UNUSED: 'A declared site volume is mounted by no container (warning; its data stays on disk).',
-  V_VOLUME_SEED: 'Volume starter content rules (kind match, entry paths, files exist, archive size / name).',
+  V_VOLUME_SEED: 'Volume content rules (kind match, entry paths, files exist, archive size / name; a persist volume: a literal tree within the persisted limits, §21 #117).',
   V_VOLUME_SEED_FILE_REF: 'A volume takes its content from Files (legacy seed files / file): Files are static and read-only and are never volume content (§21 #101).',
   V_VOLUME_CONTENT_PATH: 'A path of a volume\'s own content is not a safe relative path (no "." / ".." / empty segments, no control characters, ≤ 1024 bytes).',
   V_TOO_LARGE: 'A file or the whole content is over its size limit.',
   V_VOLUME_PERSIST: 'Persist-to-cloud settings (folder volumes only; exclude patterns; 1–200 MiB size cap).',
   V_FILE_IN_WRITABLE_VOLUME: 'A File is mounted inside a writable volume / host mount of the same container (Files are static and read-only and never sit on a writable volume, §21 #101).',
   V_LOCAL_VOLUME_CONTENT: 'Local edit: a volume\'s persist-to-cloud setting is cloud configuration (§21 #113: everything else changes on a site).',
-  V_VOLUME_CONTENT_EXCLUDED: 'A persisted version holds a path the volume\'s exclude patterns leave out (it could never be snapshotted).',
+  V_VOLUME_CONTENT_EXCLUDED: 'A persisted version or the committed content of a persist volume holds a path the volume\'s exclude patterns leave out (it could never be snapshotted).',
   V_BLOB_MISSING: 'Content blobs referenced by a tree were not uploaded.',
   V_VOLUME_KIND: 'A single-file volume must be mounted at a file path (no trailing "/"); SiteVolume.kind / ImageVolume.kind is dir | file; a file image volume needs a file path.',
   V_VOLUME_KIND_IMAGE: 'A single-file data volume on an image volume the image declares as a Folder (ImageVolume.kind dir): it replaces the whole folder with one file (warning).',
@@ -1470,10 +1472,14 @@ function checkSeed(v: SiteVolume, vp: string, config: Config, is: Issues, render
       'V_VOLUME_SEED_FILE_REF',
       `volume ${v.volumeSlug} takes its starter content from Files (${sd.kind === 'file' ? sd.fileSlug : sd.entries.map((e) => e.fileSlug).join(', ')}) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content; backend/scripts/migrate-h.ts converts it)`,
     );
+  // §21 #117 a persist-to-cloud volume's seed is its COMMITTED content: a literal tree within the persisted limits
+  const persist = v.persist && typeof v.persist === 'object' ? v.persist : null;
+  if (persist && sd.kind !== 'tree') return is.err(`${vp}.seed`, 'V_VOLUME_SEED', `volume ${v.volumeSlug} persists to the cloud: its content is a file tree (kind tree)`);
   if (sd.kind === 'tree') {
     if (kind !== 'dir') return is.err(`${vp}.seed`, 'V_VOLUME_SEED', 'a single-file volume has one file of content (kind single), not a tree');
-    for (const x of volumeTreeIssues(sd, true)) is.err(x.path ? `${vp}.seed.entries[${x.path}]` : `${vp}.seed`, x.code === 'V_VOLUME_CONTENT' ? 'V_VOLUME_SEED' : x.code, `volume ${v.volumeSlug}: ${x.message}`);
-    if (contentRenders) for (const e of sd.entries ?? []) if (e?.render === 'expressions' && isStr(e.sha256)) contentRenders.set(e.sha256, [...(contentRenders.get(e.sha256) ?? []), `${vp}.seed.entries[${e.path}]`]);
+    for (const x of volumeTreeIssues(sd, !persist)) is.err(x.path ? `${vp}.seed.entries[${x.path}]` : `${vp}.seed`, x.code === 'V_VOLUME_CONTENT' ? 'V_VOLUME_SEED' : x.code, `volume ${v.volumeSlug}: ${x.message}`);
+    if (persist) checkPersistContent(v, sd, persist, vp, is);
+    else if (contentRenders) for (const e of sd.entries ?? []) if (e?.render === 'expressions' && isStr(e.sha256)) contentRenders.set(e.sha256, [...(contentRenders.get(e.sha256) ?? []), `${vp}.seed.entries[${e.path}]`]);
     return;
   }
   if (sd.kind === 'single') {
@@ -1511,6 +1517,16 @@ function checkSeed(v: SiteVolume, vp: string, config: Config, is: Issues, render
   if (!isStr(sd.blobSha256) || !RE.sha256.test(sd.blobSha256)) is.err(`${vp}.seed.blobSha256`, 'V_FORMAT', 'upload the archive (.tar.gz)');
   if (!isStr(sd.name) || !/\.(tar\.gz|tgz)$/i.test(sd.name) || sd.name.length > 200) is.err(`${vp}.seed.name`, 'V_VOLUME_SEED', 'the archive must be a .tar.gz / .tgz');
   if (!isInt(sd.size) || sd.size < 1 || sd.size > SEED_ARCHIVE_MAX) is.err(`${vp}.seed.size`, 'V_VOLUME_SEED', `the archive must be 1 B – ${SEED_ARCHIVE_MAX / 1048576} MiB`);
+}
+/** §21 #117 the committed content of a persist volume: at most persist.maxBytes, nothing under the excludes. */
+function checkPersistContent(v: SiteVolume, sd: VolumeTree, persist: VolumePersist, vp: string, is: Issues) {
+  let total = 0;
+  for (const e of sd.entries ?? []) if (isInt(e?.size)) total += e.size;
+  if (isInt(persist.maxBytes) && total > persist.maxBytes) is.err(`${vp}.seed`, 'V_TOO_LARGE', `volume ${v.volumeSlug}: the content is ${formatContentBytes(total)} — at most ${formatContentBytes(persist.maxBytes)} (Persist to cloud › size cap)`);
+  if (!Array.isArray(persist.exclude) || persist.exclude.some((p) => excludePatternError(p))) return;
+  const ex = compileExcludes(persist.exclude);
+  for (const e of sd.entries ?? []) if (isStr(e?.path) && isExcluded(e.path, false, ex)) is.err(`${vp}.seed.entries[${e.path}]`, 'V_VOLUME_CONTENT_EXCLUDED', `volume ${v.volumeSlug}: ${e.path} is excluded from the persisted content (it could never come back from the site)`);
+  for (const d of sd.dirs ?? []) if (isStr(d) && isExcluded(d, true, ex)) is.err(`${vp}.seed.entries[${d}]`, 'V_VOLUME_CONTENT_EXCLUDED', `volume ${v.volumeSlug}: folder ${d} is excluded from the persisted content`);
 }
 /** §21 #101 SiteVolume.persist: folder volumes only; excludes, size cap, auto flag. */
 /** §21 #112 SiteVolume.backupPolicy (absent = the daily site snapshot keeps 7) — Go checkBackupPolicy. */

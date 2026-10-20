@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +19,7 @@ import (
 	"opm/agent/internal/docker"
 	"opm/agent/internal/fakecloud"
 	"opm/agent/internal/model"
+	"opm/agent/internal/volcontent"
 )
 
 // activityData returns the data of every activity of a type (oldest first).
@@ -49,12 +50,14 @@ func readHost(t *testing.T, p string) string {
 	return string(b)
 }
 
-// TestVolumeContentDocker (§21 #101, real Docker + the fake cloud): a tree seed (nested folder, a render-expressions
-// file, modes, an empty folder) is written at APPLY; a container modifies files (incl. excluded ones); Snapshot now →
-// the fake cloud has the version (excludes left out); a cloud edit + Send → plan = fast-forward → apply (⏩ speed 4)
-// with restart → files on disk, excludes untouched, the user container restarted, push applied + after-apply version;
-// live changes again + a conflicting cloud edit → plan shows the conflict → per-file resolution; a cloud snapshot
-// request is answered; heartbeat reports; then the placeholder rule with a real nested File bind mount.
+// TestVolumeContentDocker (§21 #101 + #117, real Docker + the fake cloud, branch mode): a cloud commit with a persist
+// volume's committed content (nested folder, modes, an empty folder) and a non-persist starter tree (rendered once per
+// site) is merged and written; the container changes files (incl. excluded ones) → uncommitted content items that never
+// block a merge → committed on the site (drift commit) → the bytes reach the cloud with the push; a cloud commit that
+// changes other files merges per file (server change kept, cloud change written, users recreated, excludes untouched);
+// a file both sides changed is a conflict (unresolved → 422, Keep this site's); discard writes the committed content
+// back; a revert over uncommitted server changes is refused (409); the File placeholder rule still fills a 0-byte
+// former mountpoint.
 func TestVolumeContentDocker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -93,21 +96,24 @@ func TestVolumeContentDocker(t *testing.T) {
 		Command: []string{"sh"}}
 	cat := model.RevisionCatalog{Services: map[string]model.CatalogService{"bb": {ServiceSlug: "bb", Label: "busybox"}}, Images: map[string]model.ImageSpec{"bb:1": spec}, NotFoundPages: map[string]model.CatalogNotFoundPage{}}
 
-	// content blobs
-	put := func(s string) model.VolumeTreeEntry {
-		h := fc.PutBlob([]byte(s))
-		return model.VolumeTreeEntry{Sha256: "sha256:" + h, Size: int64(len(s)), Mode: "0644", Render: "none"}
-	}
 	ent := func(path, body, mode, render string) model.VolumeTreeEntry {
-		e := put(body)
-		e.Path, e.Mode, e.Render = path, mode, render
-		return e
+		h := fc.PutBlob([]byte(body))
+		return model.VolumeTreeEntry{Path: path, Sha256: model.Sha256("sha256:" + h), Size: int64(len(body)), Mode: mode, Render: render}
 	}
-	treeSeed := model.VolumeSeed{Kind: "tree", Tree: []model.VolumeTreeEntry{
-		ent("flows.json", `[{"id":"a"}]`, "0644", "none"),
-		ent("settings.js", "module.exports = { site: '{{ self.slug }}' }\n", "0640", "expressions"),
-		ent("lib/nested/util.js", "#!/bin/sh\necho util\n", "0755", "none"),
-	}, Dirs: []string{"empty/inner"}}
+	flows := map[string]model.VolumeTreeEntry{
+		"flows.json":         ent("flows.json", `[{"id":"a"}]`, "0644", "none"),
+		"lib/nested/util.js": ent("lib/nested/util.js", "#!/bin/sh\necho util\n", "0755", "none"),
+	}
+	flowDirs := []string{"empty/inner"}
+	treeOfMap := func(m map[string]model.VolumeTreeEntry, dirs []string) model.VolumeSeed {
+		var es []model.VolumeTreeEntry
+		for _, e := range m {
+			es = append(es, e)
+		}
+		t := volcontent.Normalize(model.VolumeTree{Entries: es, Dirs: append([]string{}, dirs...)})
+		return model.VolumeSeed{Kind: "tree", Tree: t.Entries, Dirs: t.Dirs}
+	}
+	starter := model.VolumeSeed{Kind: "tree", Tree: []model.VolumeTreeEntry{ent("settings.js", "module.exports = { site: '{{ self.slug }}' }\n", "0640", "expressions")}, Dirs: []string{}}
 	settingsFile := []byte("module.exports = { uiPort: 1880 }\n")
 	settingsHex := fc.PutBlob(settingsFile)
 	placeholderSeed := model.VolumeSeed{Kind: "tree", Tree: []model.VolumeTreeEntry{ent("settings.js", string(settingsFile), "0644", "none"), ent("flows.json", "[]", "0644", "none")}, Dirs: []string{}}
@@ -116,6 +122,7 @@ func TestVolumeContentDocker(t *testing.T) {
 		mounts := []model.ContainerMount{
 			{MountPath: ptr("/flows"), Source: model.VolumeSource{Kind: "volume", VolumeSlug: "flows"}},
 			{MountPath: ptr("/data"), Source: model.VolumeSource{Kind: "volume", VolumeSlug: "nr"}},
+			{MountPath: ptr("/starter"), Source: model.VolumeSource{Kind: "volume", VolumeSlug: "starter"}},
 		}
 		nr := model.SiteVolume{VolumeSlug: "nr", Label: "Node-RED", Backup: true, Kind: &dir, Seed: model.Null[model.VolumeSeed]()}
 		if withFile {
@@ -127,8 +134,9 @@ func TestVolumeContentDocker(t *testing.T) {
 			Files: []model.FileDef{{FileSlug: "settings", Label: "Settings", Mime: "text/plain", Editor: "text", MaxBytes: 65536, Render: model.Some("none"), Content: &model.BlobRef{Sha256: "sha256:" + settingsHex, SizeBytes: int64(len(settingsFile))}}},
 			Sites: []model.Site{{SiteSlug: "edge", Label: "Edge", Config: model.SiteConfig{Host: ptr("127.0.0.1"), AgentPort: s.agentPort, AgentGuiAliasPort: &s.alias,
 				Volumes: &[]model.SiteVolume{
-					{VolumeSlug: "flows", Label: "Flows", Backup: true, Kind: &dir, Seed: model.Some(treeSeed), Persist: &model.VolumePersist{Exclude: []string{"node_modules/", "*.log"}, MaxBytes: 50 << 20, Auto: true}},
+					{VolumeSlug: "flows", Label: "Flows", Backup: true, Kind: &dir, Seed: model.Some(treeOfMap(flows, flowDirs)), Persist: &model.VolumePersist{Exclude: []string{"node_modules/", "*.log"}, MaxBytes: 50 << 20, Auto: true}},
 					nr,
+					{VolumeSlug: "starter", Label: "Starter", Backup: true, Kind: &dir, Seed: model.Some(starter)},
 				},
 				Containers: []model.Container{{ContainerSlug: "app", ServiceSlug: "bb", Version: "1", Enabled: true, Env: []model.ContainerEnv{{Name: "GEN", Value: ptr(gen)}},
 					Ports: []model.ContainerPort{{PortName: "http", HostIP: "0.0.0.0", Edge: false}}, Volumes: mounts,
@@ -148,10 +156,9 @@ func TestVolumeContentDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.vsync().scanEvery = time.Hour // the scanner is covered by TestVolumeSyncScanner; snapshots here are explicit
 	s.a = a
 	jar, _ := cookiejar.New(nil)
-	s.cl = &http.Client{Jar: jar, Timeout: 120 * time.Second}
+	s.cl = &http.Client{Jar: jar, Timeout: 5 * time.Minute}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = a.Run(ctx); close(done) }()
@@ -166,42 +173,102 @@ func TestVolumeContentDocker(t *testing.T) {
 		t.Fatalf("actor %d %s", c, b)
 	}
 	s.actor = ar.ActorToken
-	approve := func(revID string) {
+	waitRun := func(id string) model.UpdateRun {
 		t.Helper()
-		var det model.ProposalDetailResponse
-		waitFor(t, "gate open", 240*time.Second, func() bool {
-			c, _ := s.api(t, "GET", "/_opm/api/proposals/"+revID, nil, &det)
-			if c == 200 && det.Proposal.Sites["edge"].Staging == model.StagingFailed {
-				t.Fatalf("staging failed: %v", *det.Proposal.Sites["edge"].Error)
-			}
-			return c == 200 && det.Gate.Open
-		})
-		var st model.ApproveStartResponse
-		if c, b := s.api(t, "POST", "/_opm/api/proposals/"+revID+"/approve/start", nil, &st); c != 201 {
-			t.Fatalf("approve/start %d %s", c, b)
-		}
-		time.Sleep(1100 * time.Millisecond)
-		var res model.ApproveResponse
-		if c, b := s.api(t, "POST", "/_opm/api/proposals/"+revID+"/approve", model.ApproveRequest{IntentID: st.Intent.IntentID, Typed: "ACCEPT"}, &res); c != 201 {
-			t.Fatalf("approve %d %s", c, b)
-		}
 		var run model.UpdateRun
-		waitFor(t, "update finished", 300*time.Second, func() bool {
-			c, _ := s.api(t, "GET", "/_opm/api/updates/"+res.UpdateID, nil, &run)
+		waitFor(t, "run "+id, 5*time.Minute, func() bool {
+			c, _ := s.api(t, "GET", "/_opm/api/updates/"+id, nil, &run)
 			return c == 200 && run.FinishedAt != nil
 		})
-		if run.Result == nil || !run.Result.Ok {
-			t.Fatalf("update failed: %+v", run.Result)
-		}
+		return run
 	}
-	rev1, _ := fc.Publish(mkConfig("1", true), cat, "volume content")
-	approve(rev1.RevID)
+	state := func() model.AgentBranchState {
+		var st model.AgentBranchState
+		if c, b := s.api(t, "GET", "/_opm/api/branch", nil, &st); c != 200 {
+			t.Fatalf("branch %d %s", c, b)
+		}
+		return st
+	}
+	compare := func(srcID string) model.MergePlan {
+		t.Helper()
+		var plan model.MergePlan
+		if c, b := s.api(t, "POST", "/_opm/api/branch/compare", model.LocalCompareRequest{Source: map[string]any{"cloudCommitId": srcID}}, &plan); c != 200 {
+			t.Fatalf("compare %d %s", c, b)
+		}
+		return plan
+	}
+	merge := func(srcID, msg string, choose func(model.MergeItem) string) (int, []byte, model.UpdateRun) {
+		t.Helper()
+		plan := compare(srcID)
+		var ch []model.MergeChoice
+		for _, it := range plan.Items {
+			if take := choose(it); take != "" {
+				ch = append(ch, model.MergeChoice{Key: it.Key, Take: take})
+			}
+		}
+		var head *string
+		if plan.Target.Head != nil {
+			head = &plan.Target.Head.CommitID
+		}
+		var run model.UpdateRun
+		c, b := s.api(t, "POST", "/_opm/api/branch/merge", model.LocalMergeRequest{SourceCommitID: srcID, TargetHead: head, Choices: ch, Message: msg}, &run)
+		if c == 202 {
+			run = waitRun(run.UpdateID)
+		}
+		return c, b, run
+	}
+	preselected := func(it model.MergeItem) string {
+		if it.Preselect {
+			return "source"
+		}
+		return ""
+	}
+	theirs := func(it model.MergeItem) string { // what a person ticks: every change only the cloud made
+		if it.Kind == "theirs" {
+			return "source"
+		}
+		return ""
+	}
+	uncommitted := func() model.UncommittedResponse {
+		t.Helper()
+		if c, b := s.api(t, "POST", "/_opm/api/branch/drift/rescan", nil, nil); c != 200 {
+			t.Fatalf("rescan %d %s", c, b)
+		}
+		var u model.UncommittedResponse
+		if c, b := s.api(t, "GET", "/_opm/api/branch/uncommitted", nil, &u); c != 200 {
+			t.Fatalf("uncommitted %d %s", c, b)
+		}
+		return u
+	}
+	contentKeys := func(u model.UncommittedResponse) []string {
+		var ks []string
+		for _, it := range u.Items {
+			if strings.Contains(it.Key, "/volumes/flows/content") {
+				if it.Origin != "volume-content" {
+					t.Fatalf("content item %s origin %s", it.Key, it.Origin)
+				}
+				ks = append(ks, it.Key)
+			}
+		}
+		sort.Strings(ks)
+		return ks
+	}
+	const ck = "sites/edge/volumes/flows/content/"
 
+	// 1. the first cloud commit: committed content + starter content are written at the merge
+	cm1 := fc.Commit(mkConfig("1", true), cat, "initial release")
+	waitFor(t, "cloud head on the site", 30*time.Second, func() bool { st := state(); return st.Cloud.Head != nil && st.Cloud.Head.CommitID == cm1.CommitID })
+	if c, b, run := merge(cm1.CommitID, "take the first release", preselected); c != 202 || run.Result == nil || !run.Result.Ok {
+		t.Fatalf("merge 1: %d %s %+v", c, b, run.Result)
+	}
 	flowsDir := filepath.Join(a.dataDir, "volumes", "flows")
 	nrDir := filepath.Join(a.dataDir, "volumes", "nr")
-	// 1. the tree seed: nested folder, rendered once per site, modes, empty folder, marker, activity
-	if got := readHost(t, filepath.Join(flowsDir, "settings.js")); got != "module.exports = { site: 'edge' }\n" {
-		t.Fatalf("rendered settings.js: %q", got)
+	starterDir := filepath.Join(a.dataDir, "volumes", "starter")
+	if got := readHost(t, filepath.Join(starterDir, "settings.js")); got != "module.exports = { site: 'edge' }\n" {
+		t.Fatalf("rendered starter settings.js: %q", got)
+	}
+	if st, _ := os.Stat(filepath.Join(starterDir, "settings.js")); st.Mode().Perm() != 0o640 {
+		t.Fatalf("mode %v", st.Mode())
 	}
 	if got := readHost(t, filepath.Join(flowsDir, "lib/nested/util.js")); got != "#!/bin/sh\necho util\n" {
 		t.Fatalf("nested: %q", got)
@@ -209,240 +276,189 @@ func TestVolumeContentDocker(t *testing.T) {
 	if st, _ := os.Stat(filepath.Join(flowsDir, "lib/nested/util.js")); st.Mode().Perm() != 0o755 {
 		t.Fatalf("mode %v", st.Mode())
 	}
-	if st, _ := os.Stat(filepath.Join(flowsDir, "settings.js")); st.Mode().Perm() != 0o640 {
-		t.Fatalf("mode %v", st.Mode())
-	}
 	if st, err := os.Stat(filepath.Join(flowsDir, "empty/inner")); err != nil || !st.IsDir() {
 		t.Fatal("empty folder missing")
 	}
-	if _, err := os.Stat(filepath.Join(flowsDir, ".opm-seeded")); err != nil {
-		t.Fatal("marker missing")
+	if ap := activityData(t, a, "volume-content.applied"); len(ap) != 1 || ap[0]["volumeSlug"] != "flows" {
+		t.Fatalf("applied activity %+v", ap)
 	}
-	seeded := activityData(t, a, "volume.seeded")
-	if len(seeded) != 1 || seeded[0]["source"] != "tree" || seeded[0]["volumeSlug"] != "flows" {
-		t.Fatalf("volume.seeded %+v", seeded)
+	if u := uncommitted(); len(contentKeys(u)) != 0 {
+		t.Fatalf("freshly merged content must be in sync: %+v", u.Items)
 	}
-	// the File bind-mounted inside the writable nr volume left Docker's 0-byte mountpoint on the host
 	if st, err := os.Stat(filepath.Join(nrDir, "settings.js")); err != nil || st.Size() != 0 {
 		t.Fatalf("expected the 0-byte mountpoint: %v %v", st, err)
 	}
 
-	// container name + docker helpers
-	cs, _ := dc.ContainerList(context.Background(), true, "opm.deployment="+dep)
-	var cname string
-	for _, c := range cs {
-		if c.Labels["opm.container"] == "app" {
-			cname = strings.TrimPrefix(c.Names[0], "/")
+	cname := func() string {
+		cs, _ := dc.ContainerList(context.Background(), true, "opm.deployment="+dep)
+		for _, c := range cs {
+			if c.Labels["opm.container"] == "app" {
+				return strings.TrimPrefix(c.Names[0], "/")
+			}
 		}
-	}
-	if cname == "" {
 		t.Fatal("app container not found")
+		return ""
 	}
 	dexec := func(script string) {
 		t.Helper()
-		if out, err := exec.Command("docker", "exec", cname, "sh", "-c", script).CombinedOutput(); err != nil {
+		if out, err := exec.Command("docker", "exec", cname(), "sh", "-c", script).CombinedOutput(); err != nil {
 			t.Fatalf("docker exec: %v %s", err, out)
 		}
 	}
 	startedAt := func() string {
-		out, _ := exec.Command("docker", "inspect", "-f", "{{.State.StartedAt}}", cname).Output()
+		out, _ := exec.Command("docker", "inspect", "-f", "{{.State.StartedAt}}", cname()).Output()
 		return strings.TrimSpace(string(out))
 	}
-	vs := "/_opm/api/sites/edge/volume-sync/flows"
 
-	waitFor(t, "the cloud knows the head", 20*time.Second, func() bool {
-		ad, _ := fc.Agent("edge")
-		return ad.HeadRevID != nil && *ad.HeadRevID == rev1.RevID
-	})
-	// 2. the container modifies files (incl. excluded ones) → Snapshot now → uploaded to the cloud
+	// 2. the container changes files (incl. excluded ones) → uncommitted content items that never block a merge
 	dexec(`echo '[{"id":"live1"}]' > /flows/flows.json && mkdir -p /flows/node_modules/pkg && echo dep > /flows/node_modules/pkg/i.js && echo log > /flows/app.log && rm -r /flows/empty`)
-	var snap model.VolumeSyncSnapshotResponse
-	if c, b := s.api(t, "POST", vs+"/snapshot", map[string]any{"note": "first"}, &snap); c != 201 || !snap.Created {
-		t.Fatalf("snapshot %d %s", c, b)
+	u := uncommitted()
+	if got := strings.Join(contentKeys(u), ","); got != ck+"empty/inner/,"+ck+"flows.json" {
+		t.Fatalf("content items %s", got)
 	}
-	if c, _ := s.api(t, "POST", vs+"/snapshot", nil, &snap); c != 201 || snap.Created {
-		t.Fatalf("an unchanged snapshot must not be created (%d %+v)", c, snap)
+	var vs model.VolumeSyncStatus
+	if c, b := s.api(t, "GET", "/_opm/api/sites/edge/volume-sync/flows", nil, &vs); c != 200 || vs.State != "live-changed" || vs.Committed == nil {
+		t.Fatalf("volume sync %d %s", c, b)
 	}
-	waitFor(t, "snapshot uploaded", 30*time.Second, func() bool {
-		if len(fc.VolumeVersions("edge", "flows")) == 1 {
-			return true
-		}
-		for _, r := range a.records(`WHERE status = 'queued'`) {
-			if r.Local.Error != nil {
-				t.Logf("queued %s: %s", r.Local.SnapshotID, *r.Local.Error)
+	if st := state(); st.Uncommitted.Drift != 2 {
+		t.Fatalf("uncommitted count %+v", st.Uncommitted)
+	}
+	if c, _ := s.api(t, "POST", "/_opm/api/sites/edge/volume-sync/flows/apply", map[string]any{}, nil); c != 410 {
+		t.Fatalf("the old apply must be gone: %d", c)
+	}
+
+	// 3. a person commits them (drift commit, nothing applied) → the bytes reach the cloud with the push
+	var cr model.LocalCommitResponse
+	if c, b := s.api(t, "POST", "/_opm/api/branch/commit", map[string]any{"message": "flows edited in Node-RED", "keys": contentKeys(u)}, &cr); c != 201 || cr.Commit == nil || cr.Commit.Kind != "drift" {
+		t.Fatalf("commit drift %d %s", c, b)
+	}
+	live1 := ""
+	for _, v := range *siteOf(&cr.Commit.Config, "edge").Config.Volumes {
+		if v.VolumeSlug == "flows" {
+			for _, e := range v.SeedOf().Tree {
+				if e.Path == "flows.json" {
+					live1 = string(e.Sha256)
+				}
+			}
+			if len(v.SeedOf().Dirs) != 0 {
+				t.Fatalf("the removed empty folder is still committed: %v", v.SeedOf().Dirs)
 			}
 		}
-		return false
+	}
+	if live1 == "" || live1 == string(flows["flows.json"].Sha256) {
+		t.Fatalf("committed flows.json %s", live1)
+	}
+	waitFor(t, "agent branch + bytes in the cloud", 30*time.Second, func() bool {
+		br := fc.AgentBranch("edge")
+		_, ok := fc.Blob(live1)
+		return len(br) > 0 && br[len(br)-1].CommitID == cr.Commit.CommitID && ok
 	})
-	v1 := fc.VolumeVersions("edge", "flows")[0]
-	tree1, _ := fc.VolumeTree(v1.TreeHash)
-	paths := func(tr model.VolumeTree) string {
-		var ps []string
-		for _, e := range tr.Entries {
-			ps = append(ps, e.Path)
-		}
-		return strings.Join(ps, ",") + "|" + strings.Join(tr.Dirs, ",")
+	if u := uncommitted(); len(contentKeys(u)) != 0 {
+		t.Fatalf("committed content must be in sync: %+v", u.Items)
 	}
-	if got := paths(tree1); got != "flows.json,lib/nested/util.js,settings.js|" {
-		t.Fatalf("snapshot tree %s", got)
-	}
-	if v1.ExcludedCount < 2 || *v1.Trigger != "manual-agent" || v1.CreatedBy != "ops@example.com" || v1.Note != "first" {
-		t.Fatalf("version %+v", v1)
-	}
-	waitFor(t, "snapshot-uploaded activity", 10*time.Second, func() bool { return len(activityData(t, a, "volume-content.snapshot-uploaded")) == 1 })
 
-	// 3. a cloud edit + Send (restart) → fast-forward
-	e1, err := fc.CreateVolumeEdit("edge", "flows", map[string][]byte{"lib/nested/util.js": []byte("#!/bin/sh\necho util v2\n"), "new/added.txt": []byte("added in the cloud\n")}, []string{"settings.js"}, "")
-	if err != nil {
-		t.Fatal(err)
+	// 4. a cloud commit changing other files: the server change is kept, the cloud change written, the user recreated
+	flows["lib/nested/util.js"] = ent("lib/nested/util.js", "#!/bin/sh\necho util v2\n", "0755", "none")
+	flows["new/added.txt"] = ent("new/added.txt", "added in the cloud\n", "0644", "none")
+	cm2 := fc.Commit(mkConfig("1", true), cat, "cloud edits util.js")
+	waitFor(t, "cm2 on the site", 30*time.Second, func() bool { st := state(); return st.Cloud.Head != nil && st.Cloud.Head.CommitID == cm2.CommitID })
+	plan := compare(cm2.CommitID)
+	kinds := map[string]string{}
+	for _, it := range plan.Items {
+		if strings.HasPrefix(it.Key, ck) {
+			kinds[strings.TrimPrefix(it.Key, ck)] = it.Kind
+		}
 	}
-	if _, err := fc.SendVolumeContent("edge", "flows", e1.VersionID, true, "please apply"); err != nil {
-		t.Fatal(err)
-	}
-	var st model.VolumeSyncStatus
-	waitFor(t, "push in the view", 30*time.Second, func() bool {
-		c, _ := s.api(t, "GET", vs, nil, &st)
-		return c == 200 && st.Push != nil
-	})
-	if st.State != "cloud-ahead" {
-		t.Fatalf("state %s", st.State)
-	}
-	var plan model.VolumePushPlan
-	if c, b := s.api(t, "GET", vs+"/plan", nil, &plan); c != 200 || !plan.FastForward || plan.Counts["conflict"] != 0 || len(plan.Items) != 3 {
-		t.Fatalf("plan %d %s", c, b)
-	}
-	// per-file bytes for the diff viewer
-	if c, b := s.api(t, "GET", vs+"/file?side=cloud&path=lib/nested/util.js", nil, nil); c != 200 || string(b) != "#!/bin/sh\necho util v2\n" {
-		t.Fatalf("file cloud %d %q", c, b)
-	}
-	if c, b := s.api(t, "GET", vs+"/file?side=live&path=lib/nested/util.js", nil, nil); c != 200 || string(b) != "#!/bin/sh\necho util\n" {
-		t.Fatalf("file live %d %q", c, b)
-	}
-	if c, _ := s.api(t, "GET", vs+"/file?side=live&path=app.log", nil, nil); c != 422 {
-		t.Fatalf("excluded file must be refused: %d", c)
+	if kinds["lib/nested/util.js"] != "theirs" || kinds["new/added.txt"] != "theirs" || kinds["flows.json"] == "theirs" || kinds["flows.json"] == "conflict" {
+		t.Fatalf("plan kinds %v", kinds)
 	}
 	before := startedAt()
-	var ist model.ApproveStartResponse
-	if c, b := s.api(t, "POST", vs+"/apply/start", nil, &ist); c != 201 || ist.Intent.Kind != "volume-content-apply" {
-		t.Fatalf("apply/start %d %s", c, b)
-	}
-	if c, b := s.api(t, "POST", "/_opm/api/sites/edge/intents/"+ist.Intent.IntentID+"/speed", model.IntentSpeedRequest{Speed: 4}, nil); c != 200 {
-		t.Fatalf("speed %d %s", c, b)
-	}
-	time.Sleep(1100 * time.Millisecond)
-	var ap model.VolumeSyncApplyResponse
-	if c, b := s.api(t, "POST", vs+"/apply", model.VolumeSyncApplyRequest{IntentID: ist.Intent.IntentID, PushID: plan.PushID, Resolution: "overwrite", Restart: true, LiveTreeHash: plan.LiveTreeHash}, &ap); c != 200 {
-		t.Fatalf("apply %d %s", c, b)
-	}
-	if ap.Result.Resolution != "fast-forward" || ap.Result.Written != 2 || ap.Result.Deleted != 1 || len(ap.Result.Restarted) != 1 || ap.Result.SnapshotID == nil || ap.Result.AfterVersionID == nil {
-		t.Fatalf("result %+v", ap.Result)
+	if c, b, run := merge(cm2.CommitID, "take util v2", theirs); c != 202 || run.Result == nil || !run.Result.Ok {
+		t.Fatalf("merge 2: %d %s %+v", c, b, run.Result)
 	}
 	if got := readHost(t, filepath.Join(flowsDir, "lib/nested/util.js")); got != "#!/bin/sh\necho util v2\n" {
-		t.Fatalf("util after apply %q", got)
-	}
-	if st, _ := os.Stat(filepath.Join(flowsDir, "lib/nested/util.js")); st.Mode().Perm() != 0o755 {
-		t.Fatalf("mode kept %v", st.Mode())
+		t.Fatalf("util after merge %q", got)
 	}
 	if got := readHost(t, filepath.Join(flowsDir, "new/added.txt")); got != "added in the cloud\n" {
 		t.Fatalf("added %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(flowsDir, "settings.js")); !os.IsNotExist(err) {
-		t.Fatal("settings.js must be deleted")
+	if got := readHost(t, filepath.Join(flowsDir, "flows.json")); got != "[{\"id\":\"live1\"}]\n" {
+		t.Fatalf("the server's flows.json must be kept: %q", got)
 	}
 	if readHost(t, filepath.Join(flowsDir, "node_modules/pkg/i.js")) != "dep\n" || readHost(t, filepath.Join(flowsDir, "app.log")) != "log\n" {
 		t.Fatal("excluded paths must stay untouched")
 	}
-	if _, err := os.Stat(filepath.Join(flowsDir, ".opm-seeded")); err != nil {
-		t.Fatal("marker must stay")
-	}
 	if after := startedAt(); after == before {
-		t.Fatal("the user container must have been restarted")
-	}
-	waitFor(t, "push applied in the cloud", 20*time.Second, func() bool {
-		ps := fc.VolumePushes("edge", "flows")
-		return len(ps) == 1 && ps[0].Status == "applied" && ps[0].Result != nil && ps[0].Result.AfterVersionID != nil
-	})
-	if ad := activityData(t, a, "volume-content.applied"); len(ad) != 1 || ad[0]["resolution"] != "fast-forward" || ad[0]["fastForward"] == nil {
-		t.Fatalf("applied activity %+v", ad)
-	}
-	var bkNote string
-	_ = a.db.QueryRow(`SELECT summary FROM activities WHERE type = 'snapshot.created' ORDER BY seq DESC LIMIT 1`).Scan(&bkNote)
-	if want := fmt.Sprintf("before applying cloud version seq %d", e1.Seq); !strings.Contains(bkNote, want) {
-		t.Fatalf("Backups snapshot note %q, want %q", bkNote, want)
+		t.Fatal("the container mounting the volume must have been recreated")
 	}
 
-	// 4. live changes again + a conflicting cloud edit → conflict → per file
+	// 5. both sides change flows.json → a conflict; unresolved → 422; Keep this site's
 	dexec(`echo '[{"id":"live2"}]' > /flows/flows.json && echo mine > /flows/mine.txt`)
-	e2, _ := fc.CreateVolumeEdit("edge", "flows", map[string][]byte{"flows.json": []byte(`[{"id":"cloud2"}]`), "b.txt": []byte("bee\n")}, nil, "")
-	if _, err := fc.SendVolumeContent("edge", "flows", e2.VersionID, false, ""); err != nil {
-		t.Fatal(err)
+	flows["flows.json"] = ent("flows.json", `[{"id":"cloud3"}]`, "0644", "none")
+	flows["b.txt"] = ent("b.txt", "bee\n", "0644", "none")
+	cm3 := fc.Commit(mkConfig("1", true), cat, "cloud edits flows")
+	waitFor(t, "cm3 on the site", 30*time.Second, func() bool { st := state(); return st.Cloud.Head != nil && st.Cloud.Head.CommitID == cm3.CommitID })
+	plan = compare(cm3.CommitID)
+	var conflict string
+	for _, it := range plan.Items {
+		if it.Kind == "conflict" {
+			conflict = it.Key
+		}
 	}
-	waitFor(t, "second push", 30*time.Second, func() bool {
-		c, _ := s.api(t, "GET", vs, nil, &st)
-		return c == 200 && st.Push != nil && st.Push.VersionID == e2.VersionID
-	})
-	if c, b := s.api(t, "GET", vs+"/plan", nil, &plan); c != 200 || plan.FastForward || plan.Counts["conflict"] != 1 || plan.Counts["cloud"] != 1 || plan.Counts["live"] != 1 {
-		t.Fatalf("conflict plan %d %s", c, b)
+	if conflict != ck+"flows.json" || !plan.Target.WorkingClean {
+		t.Fatalf("conflict %q clean %v items %+v", conflict, plan.Target.WorkingClean, plan.Items)
 	}
-	if s.api(t, "GET", vs, nil, &st); st.State != "conflict" { // the plan rescanned the live tree
-		t.Fatalf("state %s", st.State)
+	if c, _, _ := merge(cm3.CommitID, "unresolved", theirs); c != 422 {
+		t.Fatalf("an unresolved conflict must be refused: %d", c)
 	}
-	if ca := activityData(t, a, "volume-content.conflict"); len(ca) != 1 {
-		t.Fatalf("conflict activity %+v", ca)
-	}
-	if c, b := s.api(t, "POST", vs+"/apply/start", nil, &ist); c != 201 {
-		t.Fatalf("apply/start %d %s", c, b)
-	}
-	time.Sleep(1100 * time.Millisecond)
-	// a choice is required for the conflict
-	if c, _ := s.api(t, "POST", vs+"/apply", model.VolumeSyncApplyRequest{IntentID: ist.Intent.IntentID, PushID: plan.PushID, Resolution: "per-file", LiveTreeHash: plan.LiveTreeHash}, nil); c != 422 {
-		t.Fatalf("per-file without a choice: %d", c)
-	}
-	if c, b := s.api(t, "POST", vs+"/apply/start", nil, &ist); c != 201 {
-		t.Fatalf("apply/start %d %s", c, b)
-	}
-	time.Sleep(1100 * time.Millisecond)
-	if c, b := s.api(t, "POST", vs+"/apply", model.VolumeSyncApplyRequest{IntentID: ist.Intent.IntentID, PushID: plan.PushID, Resolution: "per-file", Choices: map[string]string{"flows.json": "live"}, LiveTreeHash: plan.LiveTreeHash}, &ap); c != 200 {
-		t.Fatalf("apply per-file %d %s", c, b)
-	}
-	if ap.Result.Resolution != "per-file" || ap.Result.KeptLive != 2 || ap.Result.Written != 1 || len(ap.Result.Restarted) != 0 {
-		t.Fatalf("per-file result %+v", ap.Result)
+	if c, b, run := merge(cm3.CommitID, "keep the site's flows", func(it model.MergeItem) string {
+		if it.Key == conflict {
+			return "target"
+		}
+		return theirs(it)
+	}); c != 202 || run.Result == nil || !run.Result.Ok {
+		t.Fatalf("merge 3: %d %s %+v", c, b, run.Result)
 	}
 	if readHost(t, filepath.Join(flowsDir, "flows.json")) != "[{\"id\":\"live2\"}]\n" || readHost(t, filepath.Join(flowsDir, "b.txt")) != "bee\n" || readHost(t, filepath.Join(flowsDir, "mine.txt")) != "mine\n" {
-		t.Fatal("per-file tree on disk")
+		t.Fatal("merge 3 tree on disk")
+	}
+	if u := uncommitted(); len(contentKeys(u)) != 0 {
+		t.Fatalf("the merge commit records the kept server files: %+v", u.Items)
 	}
 
-	// 5. a cloud snapshot request is answered once
-	rid := fc.RequestVolumeSnapshot("edge", "flows")
-	waitFor(t, "request answered", 30*time.Second, func() bool { return fc.VolumeSnapshotRequest("edge", "flows") == nil })
-	vv := fc.VolumeVersions("edge", "flows")
-	if last := vv[len(vv)-1]; last.RequestID == nil || *last.RequestID != rid || *last.Trigger != "manual-cloud" {
-		t.Fatalf("answer %+v", last)
+	// 6. a revert over uncommitted server changes is refused; discard writes the committed content back
+	dexec(`echo junk > /flows/b.txt`)
+	if got := strings.Join(contentKeys(uncommitted()), ","); got != ck+"b.txt" {
+		t.Fatalf("items %s", got)
 	}
-	waitFor(t, "heartbeat volumeSync", 20*time.Second, func() bool {
-		r := fc.VolumeSyncLive("edge", "flows")
-		return r != nil && r.LiveTreeHash != nil && r.State == "in-sync"
-	})
+	st := state()
+	if c, b := s.api(t, "POST", "/_opm/api/branch/revert", model.LocalRevertRequest{CommitID: st.Local.Head.CommitID, Message: "undo", TargetHead: &st.Local.Head.CommitID}, nil); c != 409 {
+		t.Fatalf("revert over server changes: %d %s", c, b)
+	}
+	var rr model.RunResponse
+	if c, b := s.api(t, "POST", "/_opm/api/branch/discard", model.LocalDiscardRequest{Keys: []string{ck + "b.txt"}}, &rr); c != 202 || rr.Run == nil {
+		t.Fatalf("discard %d %s", c, b)
+	}
+	if run := waitRun(rr.Run.UpdateID); run.Result == nil || !run.Result.Ok {
+		t.Fatalf("discard run %+v", run.Result)
+	}
+	if got := readHost(t, filepath.Join(flowsDir, "b.txt")); got != "bee\n" {
+		t.Fatalf("discarded b.txt %q", got)
+	}
 
-	// 6. the placeholder rule: rev2 drops the File mount and gives nr its own content
-	rev2, _ := fc.Publish(mkConfig("2", false), cat, "settings.js moved into the volume")
-	approve(rev2.RevID)
+	// 7. the placeholder rule: the File mount is dropped and nr gets its own content
+	cm4 := fc.Commit(mkConfig("2", false), cat, "settings.js moved into the volume")
+	waitFor(t, "cm4 on the site", 30*time.Second, func() bool { st := state(); return st.Cloud.Head != nil && st.Cloud.Head.CommitID == cm4.CommitID })
+	if c, b, run := merge(cm4.CommitID, "settings into the volume", theirs); c != 202 || run.Result == nil || !run.Result.Ok {
+		t.Fatalf("merge 4: %d %s %+v", c, b, run.Result)
+	}
 	if got := readHost(t, filepath.Join(nrDir, "settings.js")); got != string(settingsFile) {
 		t.Fatalf("placeholder not filled: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(nrDir, "flows.json")); !os.IsNotExist(err) {
 		t.Fatal("a non-empty volume is never seeded (only the placeholder is filled)")
 	}
-	if pf := activityData(t, a, "volume.placeholder-filled"); len(pf) != 1 || pf[0]["path"] != "settings.js" || pf[0]["formerFileSlug"] != "settings" {
-		t.Fatalf("placeholder activity %+v", pf)
-	}
-	cs, _ = dc.ContainerList(context.Background(), true, "opm.deployment="+dep) // recreated (mounts changed)
-	for _, c := range cs {
-		if c.Labels["opm.container"] == "app" {
-			cname = strings.TrimPrefix(c.Names[0], "/")
-		}
-	}
-	if out, err := exec.Command("docker", "exec", cname, "cat", "/data/settings.js").CombinedOutput(); err != nil || !bytes.Equal(out, settingsFile) {
+	if out, err := exec.Command("docker", "exec", cname(), "cat", "/data/settings.js").CombinedOutput(); err != nil || !bytes.Equal(out, settingsFile) {
 		t.Fatalf("container view of settings.js: %v %q", err, out)
 	}
 }

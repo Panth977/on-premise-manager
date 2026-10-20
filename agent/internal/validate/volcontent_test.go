@@ -24,8 +24,14 @@ func TestVolumeContentRules(t *testing.T) {
 			{Path: "flows.json", Sha256: sha("[]"), Size: 2, Mode: "0644", Render: "none"},
 		}, Dirs: []string{"empty"}}),
 		newVol("one", "file", &model.VolumeSeed{Kind: "single", Sha256: sha("x"), Size: 1, Mode: "0600", Render: "none"}),
-		newVol("legacy", "dir", &model.VolumeSeed{Kind: "files", Entries: []model.SeedEntry{{Path: "a.json", FileSlug: d.Files[0].FileSlug}}}))
-	vs[len(vs)-3].Persist = &model.VolumePersist{Exclude: []string{"node_modules/", "*.log"}, MaxBytes: 50 << 20, Auto: true}
+		newVol("legacy", "dir", &model.VolumeSeed{Kind: "files", Entries: []model.SeedEntry{{Path: "a.json", FileSlug: d.Files[0].FileSlug}}}),
+		// §21 #117 a persist volume's seed is committed content: literal, nothing under the excludes
+		newVol("flows", "dir", &model.VolumeSeed{Kind: "tree", Tree: []model.VolumeTreeEntry{
+			{Path: "flows.json", Sha256: sha("[]"), Size: 2, Mode: "0644", Render: "none"},
+			{Path: "tpl.js", Sha256: sha(good), Size: int64(len(good)), Mode: "0644", Render: "expressions"},
+			{Path: "debug.log", Sha256: sha("l"), Size: 1, Mode: "0644", Render: "none"},
+		}, Dirs: []string{}}))
+	vs[len(vs)-1].Persist = &model.VolumePersist{Exclude: []string{"node_modules/", "*.log"}, MaxBytes: 50 << 20, Auto: true}
 	app.Volumes = &vs
 	var api *model.Container
 	for i := range app.Containers {
@@ -54,7 +60,13 @@ func TestVolumeContentRules(t *testing.T) {
 	if !find(list, "V_FILE_RENDER", "volumes[nodered-data].seed.entries[lib/bad.js]", "error") {
 		t.Errorf("V_FILE_RENDER missing: %+v", list)
 	}
+	if !find(list, "V_VOLUME_SEED", "volumes[flows].seed.entries[tpl.js]", "error") || !find(list, "V_VOLUME_CONTENT_EXCLUDED", "volumes[flows].seed.entries[debug.log]", "error") {
+		t.Errorf("§21 #117 persist content rules missing: %+v", list)
+	}
 	for _, x := range list {
+		if strings.Contains(x.Path, "volumes[flows]") {
+			continue
+		}
 		if x.Severity == "error" && x.Code != "V_FILE_RENDER" {
 			t.Errorf("unexpected error %+v", x)
 		}
@@ -102,14 +114,14 @@ func TestVolumeContentRules(t *testing.T) {
 	f := clone(t, d)
 	fa := &site(f, "app").Config
 	for i := range *fa.Volumes {
-		if (*fa.Volumes)[i].VolumeSlug == "nodered-data" {
+		if (*fa.Volumes)[i].VolumeSlug == "flows" {
 			(*fa.Volumes)[i].Persist = nil
 		}
 	}
 	got := CheckLocalEdit(d, f)
 	ok := false
 	for _, x := range got {
-		if x.Code == "V_LOCAL_VOLUME_CONTENT" && strings.HasSuffix(x.Path, "volumes[nodered-data]") {
+		if x.Code == "V_LOCAL_VOLUME_CONTENT" && strings.HasSuffix(x.Path, "volumes[flows]") {
 			ok = true
 		}
 	}

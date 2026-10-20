@@ -2,8 +2,8 @@
   /**
    * §21 #101 the content page of one site volume (both scopes): `…/sites/{site}/volumes/content?volume=<slug>&tab=`.
    * Tabs: Starter content (the volume's own file tree / single file; a legacy File seed = error card + "Convert to own
-   * content"; an archive seed = info card) · Persist to cloud (folder volumes) · Cloud copy (deployment scope, when persist
-   * is on in the config or versions exist). §21 #107: there is no Apply — the workspace is LIVE: every tree op and
+   * content"; an archive seed = info card) — for a persist-to-cloud volume "Content": its COMMITTED content, written into
+   * the volume on the site when it merges (§21 #117) · Persist to cloud (folder volumes). §21 #107: there is no Apply — the workspace is LIVE: every tree op and
    * (debounced) every text edit is written into the site's volume seed in the scope's browser change set at once, the
    * bytes kept as pending (memory + IndexedDB); the ChangeBar counts the files and Commit… uploads + commits in one go.
    */
@@ -21,16 +21,12 @@
   import Icon from '../../ui/Icon.svelte';
   import { HardDrive, ArrowLeft, CircleAlert, Wand2, Info, Package, TriangleAlert } from '../../ui/icons';
   import DraftBanner from '../DraftBanner.svelte';
-  import { useLeaveGuard } from '../../util/guard.svelte';
   import { issuesUnder, sevClass } from '../../util/issues';
-  import { toast } from '../../toast.svelte';
-  import { api } from '../../api';
   import type { AnyScope } from '../scope.svelte';
   import VolumeContentWorkspace from './VolumeContentWorkspace.svelte';
   import PersistForm from '$opm/forms/volumes/PersistForm.svelte';
-  import CloudCopy from './CloudCopy.svelte';
   import { ContentWorkspace } from './workspace.svelte';
-  import { SINGLE_PATH, convertSiteSeeds, seedTree } from './content';
+  import { SINGLE_PATH, agentWritesPersistContent, convertSiteSeeds, persistAgentWarning, seedTree } from './content';
 
   let { scope, siteSlug }: { scope: AnyScope; siteSlug: string } = $props();
   const volumeSlug = $derived(page.url.searchParams.get('volume') ?? '');
@@ -81,7 +77,7 @@
       if (t && b) ws.follow(b, t);
     });
   });
-  // follow changes of the seed made elsewhere (Discard, restore, rebase, commit, convert, Cloud copy → starter)
+  // follow changes of the seed made elsewhere (Discard, restore, rebase, commit, convert)
   $effect(() => {
     if (!vol || inited !== `${siteSlug}/${volumeSlug}`) return;
     const t = seedTree(vol.seed, vol.kind === 'file');
@@ -96,17 +92,18 @@
   const archive = $derived(vol?.seed?.kind === 'archive' ? vol.seed : null);
   const editable = $derived(!legacy && !archive);
 
-  let cloudDirty = $state(false);
   /** files of this volume not committed (the ChangeBar counts them) */
   const changed = $derived(ws.changedPaths().size ? ws.tree.entries.filter((e) => ws.changedPaths().has(e.path)).length + ws.base.entries.filter((e) => !ws.entry(e.path)).length : 0);
-  useLeaveGuard(() => cloudDirty);
 
-  // tabs (?tab=content|persist|cloud)
-  const showCloud = $derived(scope.kind === 'deployment' && !!vol && vol.kind !== 'file' && (!!vol.persist || !!scope.serverSite(siteSlug)?.config.volumes.find((v) => v.volumeSlug === volumeSlug)?.persist));
+  // §21 #117 a persist volume's content is committed content (literal; written on merge)
+  const persisted = $derived(!!vol?.persist && !single);
+  const agentVersion = $derived(scope.kind === 'deployment' ? (scope.status?.sites.find((s) => s.siteSlug === siteSlug)?.agentVersion ?? null) : null);
+  const oldAgent = $derived(persisted && !!agentVersion && !agentWritesPersistContent(agentVersion));
+
+  // tabs (?tab=content|persist)
   const tabs = $derived([
-    { id: 'content', label: single ? 'Content' : 'Starter content', badge: (legacy ? 'red' : null) as 'red' | null, count: legacy ? '!' : null },
+    { id: 'content', label: single || persisted ? 'Content' : 'Starter content', badge: (legacy ? 'red' : null) as 'red' | null, count: legacy ? '!' : null },
     ...(vol && !single ? [{ id: 'persist', label: 'Persist to cloud', count: vol.persist ? 'on' : null }] : []),
-    ...(showCloud ? [{ id: 'cloud', label: 'Cloud copy' }] : []),
   ]);
   let tab = $state(page.url.searchParams.get('tab') ?? 'content');
   $effect(() => {
@@ -133,20 +130,6 @@
     }
     return tree.entries.length || tree.dirs.length ? { kind: 'tree', ...normalizeVolumeTree(tree) } : null;
   }
-  // ───── the Persist card previews its excludes on the latest cloud version (deployment scope), else on the starter content
-  let cloudLatest = $state<VolumeTree | null>(null);
-  $effect(() => {
-    if (scope.kind !== 'deployment' || !showCloud || tab !== 'persist') return;
-    const key = { deploymentId: scope.id, siteSlug, volumeSlug };
-    void (async () => {
-      try {
-        const st = await api.getVolumeContent(key);
-        cloudLatest = st.latest ? normalizeVolumeTree((await api.getVolumeContentVersion({ ...key, versionId: st.latest.versionId })).tree) : null;
-      } catch {
-        cloudLatest = null; // optional: fall back to the starter content
-      }
-    })();
-  });
 
   // ───── legacy convert
   let conv = $state<{ lines: string[]; notes: string[]; unused: string[] } | null>(null);
@@ -166,21 +149,6 @@
     vol.seed = null;
   }
 
-  // ───── cloud → starter content
-  async function useAsStarter(tree: VolumeTree, seq: number): Promise<boolean> {
-    if (!site) return false;
-    const v = site.config.volumes.find((x) => x.volumeSlug === volumeSlug);
-    if (!v) return false;
-    const t = normalizeVolumeTree({ entries: tree.entries.map((e) => ({ ...e, render: 'none' as const })), dirs: tree.dirs });
-    v.seed = toSeed(t, false);
-    const ok = await scope.saveSite(siteSlug);
-    if (ok) {
-      toast.success(`Starter content = version #${seq}`);
-      tab = 'content';
-      selectTab('content');
-    }
-    return ok;
-  }
   const seedSummary = $derived(vol ? (seedKind === 'tree' || seedKind === 'single' ? `${seedLabel(vol.seed)} · ${formatContentBytes(ws.totalBytes)}` : seedLabel(vol.seed)) : '');
 </script>
 
@@ -202,7 +170,7 @@
         {#if blocking}<span class="badge red"><Icon icon={CircleAlert} size={11} />{blocking} error{blocking === 1 ? '' : 's'}</span>{/if}
         {#if changed}<span class="badge amber" data-tip="Changed in this browser — not committed (Commit… in the change bar)" data-testid="vc-changed">{changed} file{changed === 1 ? '' : 's'} not committed</span>{/if}
       {/snippet}
-      <div class="small muted sub">Site <span class="mono strong">{siteSlug}</span> · {vol.label || volumeSlug} · starts with <span data-testid="vc-seed-summary">{seedSummary}</span></div>
+      <div class="small muted sub">Site <span class="mono strong">{siteSlug}</span> · {vol.label || volumeSlug} · {persisted ? 'content' : 'starts with'} <span data-testid="vc-seed-summary">{seedSummary}</span></div>
     </PageHeader>
     <Tabs {tabs} bind:active={tab} onselect={selectTab} testid="vc-tabs" />
   </div>
@@ -222,20 +190,22 @@
           {#if scope.canWrite}<div><Button onclick={dropArchive} data-testid="vc-drop-archive">Start own content instead</Button></div>{/if}
         </div>
       {:else}
-        <div class="banner info small" data-testid="vc-seed-note"><Icon icon={Info} size={15} class="icon" /><div>{single ? 'The file' : 'These files'} are written once into a <b>new or empty</b> volume on a site (before its containers start) — existing data is never touched. Files with <b>render {'{{ }}'}</b> on are rendered once per site (like Files).{#if vol.persist}{' '}For a persist-to-cloud volume, change what the site runs with <b>Cloud copy → Send to site</b>.{/if}</div></div>
+        {#if persisted}
+          <div class="banner info small" data-testid="vc-seed-note"><Icon icon={Info} size={15} class="icon" /><div>This is the volume's <b>committed content</b>. Commit… releases it with the rest of the deployment; a site writes it into the volume when a person there <b>merges</b> the commit. If files were changed on the server, the merge shows them file by file and the person keeps the site's version or takes this one. Changes made on a site come back as that site's commits: take them with <b>Compare</b> from the site's branch.</div></div>
+          {#if oldAgent && agentVersion}<div class="banner warn small" data-testid="vc-agent-warning"><Icon icon={TriangleAlert} size={15} class="icon" /><div>{persistAgentWarning(siteSlug, agentVersion)} {#if scope.kind === 'deployment'}<a href="/app/deployments/{scope.id}/setup">Upgrade on Setup →</a>{/if}</div></div>{/if}
+        {:else}
+          <div class="banner info small" data-testid="vc-seed-note"><Icon icon={Info} size={15} class="icon" /><div>{single ? 'The file' : 'These files'} are written once into a <b>new or empty</b> volume on a site (before its containers start) — existing data is never touched. Files with <b>render {'{{ }}'}</b> on are rendered once per site (like Files).</div></div>
+        {/if}
         <div class="live" onfocusout={() => void ws.flush()}>
-          <VolumeContentWorkspace {ws} readOnly={ro} {single} allowRender name={volumeSlug} testid="seed-workspace" />
+          <VolumeContentWorkspace {ws} readOnly={ro} {single} allowRender={!persisted} name={volumeSlug} testid="seed-workspace" />
         </div>
         {#if ws.flushError}<div class="xs text-red" data-testid="vc-flush-error">{ws.flushError}</div>{/if}
       {/if}
       {#each nested as x, k (k)}<div class="xs {sevClass(x.severity)}" data-testid="vc-nested-issue">{x.message}</div>{/each}
       <IssuesList issues={volIssues} title="Validation of volume {volumeSlug}" collapsible emptyText="No problems." testid="vc-volume-issues" />
     {:else if tab === 'persist'}
-      <PersistForm volume={vol} previewTree={cloudLatest ?? ws.tree} previewLabel={cloudLatest ? 'the latest cloud version' : 'the starter content'} readOnly={ro} issues={persistIssues} />
-      <div class="xs faint">Needs agent 0.12.0 or newer on the site. Takes effect when the revision is published and applied.</div>
-      {#if scope.kind === 'template' && vol.persist}<div class="xs faint row" style="gap:5px"><Icon icon={TriangleAlert} size={12} /> In a template this is the default of new deployments; the Cloud copy (versions, Send to site) lives in each deployment.</div>{/if}
-    {:else if tab === 'cloud' && scope.kind === 'deployment'}
-      <CloudCopy {scope} {site} {volumeSlug} bind:dirty={cloudDirty} onstarter={useAsStarter} />
+      <PersistForm volume={vol} previewTree={ws.tree} previewLabel="the content" readOnly={ro} issues={persistIssues} />
+      <div class="xs faint">Needs agent 0.19.0 or newer on the site to write committed content on merge. Takes effect when the commit is merged on the site.</div>
     {/if}
   </div>
 {/if}

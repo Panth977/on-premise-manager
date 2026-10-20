@@ -288,11 +288,19 @@ type VolumeSyncStatus struct {
 	State        string                `json:"state"`
 	LastSnapshot *VolumeLocalSnapshot  `json:"lastSnapshot"`
 	Live         *VolumeSyncLive       `json:"live"`
-	Push         *VolumeContentPush    `json:"push"`
+	Push         *VolumeContentPush    `json:"push"` // §21 #117 always null
+	// Committed (§21 #117) is the content the site's head commits (the live tree is compared with it)
+	Committed *VolumeSyncCommitted `json:"committed"`
 	Queued       int                   `json:"queued"`
 	LastError    *string               `json:"lastError"`
 	History      []VolumeLocalSnapshot `json:"history"`
 	Users        []string              `json:"users"`
+}
+
+// VolumeSyncCommitted is TS VolumeSyncCommitted (§21 #117).
+type VolumeSyncCommitted struct {
+	TreeHash  Sha256 `json:"treeHash"`
+	FileCount int    `json:"fileCount"`
 }
 
 // VolumeSyncSnapshotRequest is TS VolumeSyncSnapshotRequest.

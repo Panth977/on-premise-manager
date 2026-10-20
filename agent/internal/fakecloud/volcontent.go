@@ -73,10 +73,7 @@ func (c *Cloud) routeVolumeContent(w http.ResponseWriter, r *http.Request, body 
 			writeErr(w, model.ErrInvalid, "sha256 mismatch", nil)
 			return true
 		}
-		if !c.persistInHead(rc.signer, "") {
-			writeErr(w, model.ErrForbidden, "the site runs no persist-to-cloud volume", nil)
-			return true
-		}
+		// §21 #117 any enrolled site may upload the bytes of its commits (content-addressed, ≤ 24 MiB)
 		c.PutBlob(body)
 		writeJSON(w, 200, model.AgentPutBlobResponse{Sha256: "sha256:" + h, SizeBytes: int64(len(body))})
 	case m == "POST" && match(reVCVersions, p, &g):

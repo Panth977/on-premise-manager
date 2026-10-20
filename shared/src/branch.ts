@@ -54,6 +54,7 @@ import type {
   Site,
   SiteStaging,
   SiteVolume,
+  VolumeSeed,
   Slug,
   Ts,
   Uid,
@@ -676,6 +677,16 @@ const volumeDef = (v: SiteVolume | undefined): unknown => {
   if (seed && (seed.kind === 'tree' || seed.kind === 'single')) return { ...v, seed: { kind: seed.kind } };
   return v;
 };
+/** §21 #117 a persist-to-cloud volume with seed null as the same volume with an empty tree */
+function persistTree(v: SiteVolume | undefined): SiteVolume | undefined {
+  return v && v.persist && !v.seed ? { ...v, seed: { kind: 'tree', entries: [], dirs: [] } } : v;
+}
+/** the tree seed of v to write content items into; a persist volume without content gets an empty tree */
+function contentTreeOf(v: SiteVolume | undefined): Extract<VolumeSeed, { kind: 'tree' }> | null {
+  if (!v) return null;
+  if (!v.seed && v.persist) v.seed = { kind: 'tree', entries: [], dirs: [] };
+  return v.seed?.kind === 'tree' ? v.seed : null;
+}
 const isContentSeed = (v: SiteVolume | undefined) => !!v?.seed && (v.seed.kind === 'tree' || v.seed.kind === 'single');
 
 // references inside expressions / mounts → item keys (requires)
@@ -971,28 +982,31 @@ function siteUnits(ss: string, b: Site | undefined, t: Site, o: Site, push: (u: 
         });
         continue;
       }
+      // §21 #117 a persist volume without content (seed null) is an empty tree: its files are content items
+      const [pbv, ptv, pov] = [persistTree(bv), persistTree(tv)!, persistTree(ov)!];
       push({
         key: vpre,
         section: 'volumes',
         siteSlug: ss,
         label: `${ss} · volume ${vs}`,
-        b: slot(volumeDef(bv)),
-        t: slot(volumeDef(tv)),
-        o: slot(volumeDef(ov)),
+        b: slot(volumeDef(pbv)),
+        t: slot(volumeDef(ptv)),
+        o: slot(volumeDef(pov)),
         set: (cfg, s) => {
           const site = siteOf(cfg, ss) as Site | undefined;
           if (!site || !s.has) return;
           const cur = (site.config.volumes ?? []).find((x) => x.volumeSlug === vs);
-          const next = clone(tv) as SiteVolume;
+          const next = clone(ptv) as SiteVolume;
           const ns = next.seed as SiteVolume['seed'] | undefined;
           const cs = cur?.seed as SiteVolume['seed'] | undefined;
-          // keep the target's own content entries (content items move them one by one)
-          if (ns?.kind === 'tree') (next as { seed: unknown }).seed = { ...ns, entries: cs?.kind === 'tree' ? clone(cs.entries ?? []) : [], dirs: cs?.kind === 'tree' ? clone(cs.dirs ?? []) : [] };
+          // keep the target's own content entries (content items move them one by one); a target without a tree has
+          // no content items: it takes the source's tree whole
+          if (ns?.kind === 'tree' && cs?.kind === 'tree') (next as { seed: unknown }).seed = { ...ns, entries: clone(cs.entries ?? []), dirs: clone(cs.dirs ?? []) };
           else if (ns?.kind === 'single' && cs?.kind === 'single') (next as { seed: unknown }).seed = { ...ns, sha256: cs.sha256, size: cs.size, mode: cs.mode, render: cs.render };
           upsert((site.config.volumes ??= []), (x) => x.volumeSlug, vs, next, order);
         },
       });
-      if (isContentSeed(tv) && isContentSeed(ov) && tv.seed!.kind === ov.seed!.kind) contentUnits(ss, vs, bv, tv, ov, push);
+      if (isContentSeed(ptv) && isContentSeed(pov) && ptv.seed!.kind === pov.seed!.kind) contentUnits(ss, vs, pbv, ptv, pov, push);
     }
   }
   keyed([b?.config.devTools, t.config.devTools ?? [], o.config.devTools ?? []], (x) => x.presetSlug, 'devTools', 'devtools', (k) => `${ss} · dev tool ${k}`, (s) => (s.config.devTools ??= []), (p) => exprRefs(p));
@@ -1073,10 +1087,13 @@ function siteUnits(ss: string, b: Site | undefined, t: Site, o: Site, push: (u: 
   }
 }
 
+export const CONTENT_NOTE_STARTER = 'starter content — written only into new / empty volumes';
+export const CONTENT_NOTE_PERSIST = 'persist-to-cloud content — written into the volume on the site when merged';
 /** §21 #101 starter content entries of a volume present on both sides with the same content kind. */
 function contentUnits(ss: string, vs: string, bv: SiteVolume | undefined, tv: SiteVolume, ov: SiteVolume, push: (u: Unit) => void) {
   const vpre = `sites/${ss}/volumes/${vs}/content`;
-  const NOTE = 'starter content — written only into new / empty volumes (persist-to-cloud volumes: use Send to site)';
+  // §21 #117 a persist volume's content is committed content (written into the live volume on merge)
+  const NOTE = tv.persist || ov.persist ? CONTENT_NOTE_PERSIST : CONTENT_NOTE_STARTER;
   const tseed = tv.seed!;
   if (tseed.kind === 'single') {
     const one = (v: SiteVolume | undefined): Slot => {
@@ -1120,8 +1137,9 @@ function contentUnits(ss: string, vs: string, bv: SiteVolume | undefined, tv: Si
       o: ent(eom.get(p)),
       set: (cfg, s) => {
         const v = volumeOf(cfg, ss, vs) as SiteVolume | undefined;
-        if (!v || v.seed?.kind !== 'tree') return;
-        const list = (v.seed.entries ??= []);
+        const seed = contentTreeOf(v);
+        if (!seed) return;
+        const list = (seed.entries ??= []);
         const i = list.findIndex((e) => e.path === p);
         if (!s.has) {
           if (i >= 0) list.splice(i, 1);
@@ -1153,8 +1171,9 @@ function contentUnits(ss: string, vs: string, bv: SiteVolume | undefined, tv: Si
       o: ds(od, true),
       set: (cfg, s) => {
         const v = volumeOf(cfg, ss, vs) as SiteVolume | undefined;
-        if (!v || v.seed?.kind !== 'tree') return;
-        const list = (v.seed.dirs ??= []);
+        const seed = contentTreeOf(v);
+        if (!seed) return;
+        const list = (seed.dirs ??= []);
         const i = list.indexOf(d);
         if (!s.has && i >= 0) list.splice(i, 1);
         if (s.has && i < 0) {

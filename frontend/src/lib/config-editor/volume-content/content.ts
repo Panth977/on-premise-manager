@@ -5,7 +5,7 @@
  */
 import type { Extension } from '@codemirror/state';
 import type { Config, Site, SiteConfig, VolumeSeed, VolumeTree } from '@opm/shared';
-import { VOLUME_CONTENT_MIN_AGENT, compareAgentVersions, compileExcludes, isExcluded, languageForPath, migrateVolumeFileSeeds, normalizeVolumeTree, parentDir, treeNodes, usesVolumeContent, type TreeNode } from '@opm/shared';
+import { VOLUME_CONTENT_COMMIT_MIN_AGENT, VOLUME_CONTENT_MIN_AGENT, compareAgentVersions, compileExcludes, isExcluded, languageForPath, migrateVolumeFileSeeds, normalizeVolumeTree, parentDir, treeNodes, usesVolumeContent, type TreeNode } from '@opm/shared';
 import { fetchContent } from '../files';
 import { catalog } from '../../stores/catalog.svelte';
 
@@ -134,6 +134,15 @@ export function agentSupportsVolumeContent(agentVersion: string | null | undefin
   if (!agentVersion) return true;
   const c = agentCore(agentVersion);
   return !c || compareAgentVersions(c, VOLUME_CONTENT_MIN_AGENT) >= 0;
+}
+/** §21 #117 agents that write a persist volume's committed content into the live volume on merge */
+export function agentWritesPersistContent(agentVersion: string | null | undefined): boolean {
+  if (!agentVersion) return true;
+  const c = agentCore(agentVersion);
+  return !c || compareAgentVersions(c, VOLUME_CONTENT_COMMIT_MIN_AGENT) >= 0;
+}
+export function persistAgentWarning(siteSlug: string, agentVersion: string): string {
+  return `Site ${siteSlug} runs agent ${agentVersion}: it writes this content only into an empty volume. Agent ${VOLUME_CONTENT_COMMIT_MIN_AGENT} or newer writes it into the volume when the site merges the commit.`;
 }
 export function oldContentAgentSites(sites: readonly Pick<Site, 'siteSlug' | 'config'>[], versions: readonly { siteSlug: string; agentVersion: string | null }[]): OldContentAgent[] {
   const out: OldContentAgent[] = [];

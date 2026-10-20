@@ -223,30 +223,9 @@ test("another person's stage → 404; expired stage → 410; multi-part upload i
   assert.deepEqual(await stagedObjects(st.stageId), []);
 });
 
-test('persist-to-cloud "Save as new version" with a stage: promoted before the version, stage dropped; daily job removes expired stages', async () => {
+test('the daily job removes expired stages (§21 #117: the persist "Save as new version" is gone — content is committed)', async () => {
   const admin = await person('admin');
-  const { dep } = await helloDeployment(admin);
-  const id = dep.deploymentId;
   const api = admin.real;
-  const base = (await api.getDeployment({ deploymentId: id })).branch!.head!.commitId;
-  const cfg = await depInput(api, id);
-  const vol = cfg.sites.find((s) => s.siteSlug === 'app')!.config.volumes[0]!;
-  vol.persist = { exclude: ['node_modules/'], maxBytes: 50 * 1024 * 1024, auto: true };
-  await api.commitDeployment({ deploymentId: id, body: { message: 'persist on', baseCommitId: base, config: cfg } });
-  const one = { deploymentId: id, siteSlug: 'app', volumeSlug: vol.volumeSlug };
-  const b = bytes('flows');
-  const need = { sha256: shaOf(b), sizeBytes: b.length };
-  const tree = { entries: [{ path: 'flows.json', sha256: need.sha256, size: b.length, mode: '0644', render: 'none' as const }], dirs: [] };
-  const st = await api.createStage({ body: { blobs: [need] } });
-  // without the bytes → 422, stage dropped
-  await rejects(api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree, note: '', stageId: st.stageId } }), 'invalid', 422);
-  assert.equal(await stageDoc(st.stageId), false);
-  const st2 = await api.createStage({ body: { blobs: [need] } });
-  await api.putStageBlob({ stageId: st2.stageId, sha256: need.sha256, body: b });
-  const v = await api.createVolumeContentVersion({ ...one, body: { baseVersionId: null, tree, note: 'edit', stageId: st2.stageId } });
-  assert.equal(v.version.seq, 1);
-  assert.equal(await inStore(need.sha256), true);
-  assert.equal(await stageDoc(st2.stageId), false);
   // the daily job removes expired stages (doc + objects)
   const st3 = await api.createStage({ body: { blobs: [{ sha256: shaOf(bytes('x')), sizeBytes: 1 }] } });
   await abucket.file(`staging/${st3.stageId}/${'0'.repeat(64)}`).save(Buffer.from('x'));

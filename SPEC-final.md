@@ -6410,6 +6410,60 @@ Pass = every check above green; results file lists timings and the activity coun
     `finishedAt` NULL, the plan carries the revision) and (b) the cloud commits staged for a merge (`branchRevs`). The
     same set keeps their blobs from `pruneBlobs`. Test: `TestReferencedBlobsKeepsInFlightUpdate`.
 
+117. **Persist-to-cloud volume content is committed and merged like the rest of the config — no Send / Apply** (user:
+    "you need to push on commit, and fetch on merge there should be no seperated send/accept idea then commit & merge
+    pipeline. and if someone has changed from server something then it shows as non eq volume on merge time so we can
+    choose wether we want to merge or not, and on cloude we can always merge from the site to cloud config as before").
+    Decisions (user): a change made on the server stays **uncommitted until a person commits it** (no auto-commit); a
+    revert / reset rolls the content back too, **with the conflict check**. **Supersedes** #101 (f) cloud copies as the
+    editing surface, (g) Send to site, (h) the separate plan / apply, (i) pending pushes and snapshot requests, (j) the
+    cloud "Cloud copy" tab and the agent "Apply cloud version" flow, #104 (f) / docs §5 "Leave to volume sync", #105 (f)
+    / #107 (f) "persist-to-cloud content is data with its own versions", and the `/live` drift item.
+    (a) **Content = the seed tree of a persist volume.** For a volume with `persist`, `seed` (kind `tree`; null = empty)
+        is the volume's COMMITTED content, not starter content: the cloud editor (Volume › Content) edits it as pending
+        changes, Commit stores it with its bytes (#107), compare / cherry-pick / merge move it per file
+        (`sites/<s>/volumes/<v>/content/<path>`, key grammar unchanged). Rules (`V_VOLUME_SEED`): only kind tree;
+        entries are literal (render `none`); the persisted-version limits (10000 files, 5000 empty folders, in total at
+        most the volume's `persist.maxBytes`); no path under `persist.exclude`. Volumes without persist keep the round-E
+        starter-content rules.
+    (b) **Fetch on merge.** Every apply on a site (merge, commit of GUI edits, fast-forward, revert, reset, discard)
+        whose target tree of a persist volume differs from the tree of the site's head converges the live folder to it
+        (`converge`: excluded paths and `.opm-seeded` untouched, atomic writes, nothing through a symlink) at apply step
+        2b — after the pre-update snapshot (the volume's backup) and before containers start; the containers that mount
+        the volume and would otherwise be kept running are stopped before the write and started again in step 4. The
+        blobs are staged with the revision. A brand-new or empty volume is simply written.
+    (c) **Server changes = uncommitted items.** The drift scan (§21 #104 f) reads each persist volume's live tree
+        (excludes applied; blobs kept in the agent blob store for the diffs and the push) and expresses it as the
+        volume's seed in the live config, so the Branch page lists each changed file as an uncommitted item (origin
+        `volume-content`). These items never block a merge or a commit of GUI edits; committing them writes a drift
+        commit (nothing to apply). A live tree that cannot be expressed (over the limits) is a drift note.
+    (d) **Merge time shows the server's side.** A merge from the cloud takes "ours" of a persist volume = the LIVE tree
+        (head + its uncommitted content changes): files only the cloud changed are taken, files only the server changed
+        are kept (and recorded by the merge commit), files both changed are **conflicts** (Keep this site's / Take the
+        cloud's, with the per-file diff). The live tree hash is recorded with the merge run; if the folder changes
+        before the apply writes it, the apply fails ("changed on the server since the merge was reviewed") and rolls
+        back. Revert / reset / fast-forward / commit of GUI edits: a persist volume with uncommitted server changes
+        whose content the target changes refuses with 409 `uncommitted-drift` ("commit or discard the server changes
+        of volume X first"); after that commit the 3-way revert decides per file as usual.
+    (e) **Site → cloud.** Before an agent-branch push the agent uploads every File / volume-content blob the commits
+        reference that the cloud lacks (`agentCheckBlobs` + `agentPutBlob`, now allowed for any enrolled site, ≤ 24 MiB
+        per file); the push waits in the outbox until they are up. The deployment takes a site's content from that
+        site's branch (Compare / cherry-pick, unchanged).
+    (f) **Removed**: cloud `sendVolumeContent`, `cancelVolumeContentPush`, `requestVolumeSnapshot`,
+        `createVolumeContentVersion`, `restoreVolumeContentVersion` → 410 gone (hint: commit the content). The history
+        of the old cloud copies stays readable (`listVolumeContentVersions`, `getVolumeContentVersion`). Agents ≥ 0.19
+        never upload snapshots and answer 410 on `/volume-sync/*/apply…` and `keep-live`; `persist.auto` stays in the
+        schema and is ignored. Agent GUI Docker › Volumes: "matches the committed content" / "N files changed on the
+        server (not committed)" with a link to the Branch page.
+    (g) **Migration** `backend/scripts/migrate-l.ts` (over the API of a running cloud; dry run / --apply, idempotent):
+        per deployment, every persist volume that has a cloud copy gets `seed` = the newest version's tree (render
+        none; the content the cloud last held, incl. an edit not sent yet), in one commit "Persist-to-cloud volumes:
+        the content is committed (§21 #117)"; a version that breaks the rules of (a) is reported and skipped. Pending
+        pushes / snapshot requests stay as they are (agents ≥ 0.19 ignore them). The first merge on a site then
+        compares its live folder with that content file by file (conflicts where they differ).
+    (h) **Compatibility**: agent **0.19.0** (`VOLUME_CONTENT_COMMIT_MIN_AGENT`). An older agent treats the seed as
+        starter content (only an empty volume is written): the content page of a persist volume warns for that site.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

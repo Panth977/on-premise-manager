@@ -49,6 +49,7 @@ type vsVol struct {
 	snapFp      string // the fingerprint at the last snapshot (auto: changed since)
 	lastAutoAt  time.Time
 	live        *vsLive
+	stored      string // §21 #117 the hash of the last live tree whose bytes are in the blob store (captureLive)
 	lastErr     string
 }
 
@@ -117,7 +118,7 @@ func (a *Agent) anyContentBusy() string {
 	return ""
 }
 
-// startVolumeSync starts the scanner + uploader loops (Run).
+// startVolumeSync starts the scanner loop (Run). §21 #117: no uploads — the content travels with the commits.
 func (a *Agent) startVolumeSync() {
 	s := a.vsync()
 	a.goLoop("volsync-scan", func(c context.Context) {
@@ -131,25 +132,6 @@ func (a *Agent) startVolumeSync() {
 			}
 			a.volSyncScanOnce(c, a.clock())
 			t.Reset(s.scanEvery)
-		}
-	})
-	a.goLoop("volsync-upload", func(c context.Context) {
-		t := time.NewTimer(10 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-c.Done():
-				return
-			case <-t.C:
-			case <-s.kick:
-			}
-			next := 30 * time.Second
-			if at := a.volSyncUploadOnce(c); !at.IsZero() {
-				if d := time.Until(at); d < next {
-					next = max(d, 50*time.Millisecond)
-				}
-			}
-			t.Reset(next)
 		}
 	})
 }
@@ -465,6 +447,12 @@ func (a *Agent) volSyncReferencedBlobs(ref map[string]bool) {
 		if r := a.lastRecord(p.decl.VolumeSlug); r != nil {
 			add(r)
 		}
+		// §21 #117 the live tree the drift scan stored (uncommitted content items, their diffs and the commit)
+		if l := a.vsync().vol(p.decl.VolumeSlug).live; l != nil {
+			for _, e := range l.tree.Entries {
+				ref[hexOf(e.Sha256)] = true
+			}
+		}
 	}
 }
 
@@ -586,24 +574,7 @@ func (a *Agent) volSyncScanOnce(ctx context.Context, now time.Time) {
 		if vol.snapFp == "" && last != nil && last.Local.TreeHash == l.hash {
 			vol.snapFp = l.fp // after a restart: unchanged since the last snapshot
 		}
-		changed := last == nil || last.Local.TreeHash != l.hash
-		if !changed {
-			vol.snapFp = l.fp
-			continue
-		}
-		if !p.persist.Auto || a.lock() != nil {
-			continue
-		}
-		if now.Sub(vol.fpChangedAt) < model.VolumeSyncQuietSec*time.Second {
-			continue
-		}
-		if !vol.lastAutoAt.IsZero() && now.Sub(vol.lastAutoAt) < model.VolumeSyncMinIntervalSec*time.Second {
-			continue
-		}
-		vol.lastAutoAt = now
-		if _, _, err := a.snapshotVolume(&p, snapOpts{trigger: "auto"}); err != nil {
-			a.log.Warn("volsync", "auto snapshot failed", "volumeSlug", slug, "error", err.Error())
-		}
+		_ = last // §21 #117: no auto snapshots (persist.auto is ignored); the drift scan reports the changes
 	}
 }
 
@@ -773,33 +744,8 @@ func (a *Agent) pendingPush(slug string) *model.VolumeContentPush {
 	return nil
 }
 
-// volSyncOnView answers new cloud snapshot requests of this site (once per requestId).
-func (a *Agent) volSyncOnView(v *model.CloudView) {
-	for _, it := range v.VolumeContent {
-		if it.SiteSlug != a.site || it.SnapshotRequest == nil {
-			continue
-		}
-		key := "vc-request:" + it.SnapshotRequest.RequestID
-		var seen string
-		if ok, _ := a.db.GetKV(key, &seen); ok {
-			continue
-		}
-		p, e := a.persistVolume(it.VolumeSlug)
-		if e != nil {
-			continue
-		}
-		_ = a.db.SetKV(key, nowTs())
-		req := it.SnapshotRequest
-		pv := *p
-		a.goLoop("volsync-request", func(c context.Context) {
-			rid := req.RequestID
-			actor := req.CreatedBy
-			if _, _, err := a.snapshotVolume(&pv, snapOpts{trigger: "manual-cloud", actor: &actor, requestID: &rid, force: true, note: "requested in the cloud"}); err != nil {
-				a.log.Warn("volsync", "cloud snapshot request failed", "volumeSlug", pv.decl.VolumeSlug, "error", err.Error())
-			}
-		})
-	}
-}
+// volSyncOnView: §21 #117 cloud snapshot requests and pushes are gone (content is committed and merged).
+func (a *Agent) volSyncOnView(v *model.CloudView) {}
 
 // ───────────────────────── status + heartbeat
 
@@ -838,14 +784,22 @@ func (a *Agent) syncStatus(p *persistVol, rescanOlderThan time.Duration) model.V
 	if l := vol.live; l != nil {
 		h, at := l.hash, tsOf(l.at)
 		liveHash = &h
-		st.Live = &model.VolumeSyncLive{TreeHash: &h, FileCount: l.files, TotalBytes: l.bytes, ExcludedCount: l.excluded, ScannedAt: &at, Changed: st.LastSnapshot == nil || st.LastSnapshot.TreeHash != l.hash}
+		st.Live = &model.VolumeSyncLive{TreeHash: &h, FileCount: l.files, TotalBytes: l.bytes, ExcludedCount: l.excluded, ScannedAt: &at}
 	}
-	st.Push = a.pendingPush(slug)
-	st.State = syncState(st.Push, st.LastSnapshot, liveHash, st.LastError, st.Queued)
-	if st.State == "conflict" && vol.live != nil && a.cleanMerge(p, *st.Push, vol.live.tree) {
-		// live and base differ, but no file changed on both sides (e.g. the app wrote its own state file): the push
-		// applies without a choice, like a fast-forward
-		st.State = "cloud-ahead"
+	// §21 #117 the state compares the live tree with the COMMITTED content (the head's seed tree)
+	head, _ := a.headConfigRO()
+	committed, _ := a.committedTree(head, slug)
+	ch := volcontent.Hash(committed)
+	st.Committed = &model.VolumeSyncCommitted{TreeHash: ch, FileCount: len(committed.Entries)}
+	st.State = "in-sync"
+	switch {
+	case liveHash == nil && st.LastError != nil:
+		st.State = "error"
+	case liveHash != nil && *liveHash != ch:
+		st.State = "live-changed"
+	}
+	if st.Live != nil {
+		st.Live.Changed = *st.Live.TreeHash != ch
 	}
 	return st
 }

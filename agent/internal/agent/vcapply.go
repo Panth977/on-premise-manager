@@ -24,12 +24,13 @@ import (
 func (a *Agent) registerVolumeSyncRoutes(h func(pattern string, kind authKind, fn apiFn)) {
 	h("GET /volume-sync", authSession, a.handleListVolumeSync)
 	h("GET /volume-sync/{volumeSlug}", authSession, a.handleGetVolumeSync)
-	h("POST /volume-sync/{volumeSlug}/snapshot", authActor, a.handleSnapshotVolumeSync)
-	h("GET /volume-sync/{volumeSlug}/plan", authSession, a.handlePlanVolumeSync)
-	h("GET /volume-sync/{volumeSlug}/file", authSession, a.handleVolumeSyncFile)
-	h("POST /volume-sync/{volumeSlug}/apply/start", authActor, a.handleApplyVolumeSyncStart)
-	h("POST /volume-sync/{volumeSlug}/apply", authActor, a.handleApplyVolumeSync)
-	h("POST /volume-sync/{volumeSlug}/keep-live", authActor, a.handleKeepLiveVolumeSync)
+	// §21 #117 content is committed and merged (Branch page): snapshots / plans / applies of cloud versions are gone
+	h("POST /volume-sync/{volumeSlug}/snapshot", authActor, a.goneVolumeApply)
+	h("GET /volume-sync/{volumeSlug}/plan", authSession, a.goneVolumeApply)
+	h("GET /volume-sync/{volumeSlug}/file", authSession, a.goneVolumeApply)
+	h("POST /volume-sync/{volumeSlug}/apply/start", authActor, a.goneVolumeApply)
+	h("POST /volume-sync/{volumeSlug}/apply", authActor, a.goneVolumeApply)
+	h("POST /volume-sync/{volumeSlug}/keep-live", authActor, a.goneVolumeApply)
 }
 
 // ───────────────────────── cloud trees

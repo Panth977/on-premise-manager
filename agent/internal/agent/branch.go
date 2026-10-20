@@ -682,12 +682,13 @@ type uncommittedView struct {
 	items    []model.DriftItem
 	notes    []model.DriftNote
 	report   *driftScan
+	content  map[string]bool // keys of persist-volume content items (never blocking, §21 #117)
 }
 
 func (a *Agent) uncommittedNow() *uncommittedView {
 	head, _ := a.headRaw()
 	opt := branch.Options{SecretValues: true, Scope: a.site}
-	u := &uncommittedView{combined: *head, items: []model.DriftItem{}, notes: []model.DriftNote{}}
+	u := &uncommittedView{combined: *head, items: []model.DriftItem{}, notes: []model.DriftNote{}, content: map[string]bool{}}
 	ds := a.lastDrift()
 	u.report = ds
 	cur := any(*head)
@@ -696,9 +697,7 @@ func (a *Agent) uncommittedNow() *uncommittedView {
 		var ch []model.MergeChoice
 		for _, it := range ds.Items {
 			origin[it.Key] = it
-			if !strings.HasSuffix(it.Key, "/live") {
-				ch = append(ch, model.MergeChoice{Key: it.Key, Take: "source"})
-			}
+			ch = append(ch, model.MergeChoice{Key: it.Key, Take: "source"})
 		}
 		if len(ch) > 0 {
 			r := branch.Apply(nil, ds.LiveConfig, *head, ch, opt)
@@ -722,12 +721,8 @@ func (a *Agent) uncommittedNow() *uncommittedView {
 			di.Origin, di.Detail, di.ObservedAt = o.Origin, o.Detail, o.ObservedAt
 		}
 		u.items = append(u.items, di)
-	}
-	if ds != nil {
-		for _, it := range ds.Items {
-			if strings.HasSuffix(it.Key, "/live") {
-				u.items = append(u.items, it) // persist-to-cloud content (data; not in the config)
-			}
+		if a.isPersistContentKey(it.Key) {
+			u.content[it.Key] = true
 		}
 	}
 	return u
@@ -744,11 +739,12 @@ func (a *Agent) uncommittedCounts() model.AgentBranchUncommitted {
 	return out
 }
 
-// blocking: uncommitted items / notes that refuse a merge (persist-volume content is data: never blocking, BR-G6).
+// blocking: uncommitted items / notes that refuse a merge (the content of a persist volume never blocks: a merge takes
+// the server's side as "ours", §21 #117 d).
 func (u *uncommittedView) blocking() int {
 	n := len(u.notes)
 	for _, it := range u.items {
-		if !strings.HasSuffix(it.Key, "/live") {
+		if !u.content[it.Key] {
 			n++
 		}
 	}
@@ -775,7 +771,7 @@ func (a *Agent) acceptedFingerprints() map[string]bool {
 func driftErr(u *uncommittedView) *httpError {
 	drift := 0
 	for _, it := range u.items {
-		if !strings.HasSuffix(it.Key, "/live") {
+		if !u.content[it.Key] {
 			drift++
 		}
 	}
@@ -1311,6 +1307,7 @@ type mergeComputed struct {
 	base     *mergeBaseRow
 	updated  []string
 	baseKind string
+	live     map[string]string // §21 #117 live tree hash per persist volume (the apply refuses when it changed)
 }
 
 // computeMerge applies choices of a cloud commit onto this head (scope: shared + this site; other sites = references).
@@ -1320,7 +1317,9 @@ func (a *Agent) computeMerge(ctx context.Context, sourceCommitID string, choices
 		return nil, herr(model.ErrNotFound, "cloud commit "+sourceCommitID+" is not available on this site: "+err.Error(), nil)
 	}
 	head, headCat := a.headRaw()
-	mc := &mergeComputed{src: src, baseKind: "none"}
+	// §21 #117 "ours" of a persist volume = its live tree: server changes are kept, both-changed files are conflicts
+	head, live := a.liveContentConfig(head)
+	mc := &mergeComputed{src: src, baseKind: "none", live: live}
 	opt := branch.Options{SecretValues: true, Scope: a.site}
 	var base any
 	if m, ok := a.mergeBase(); ok {
@@ -1526,6 +1525,7 @@ func (a *Agent) handleMergeLocal(w http.ResponseWriter, r *http.Request) (any, i
 		return nil, 0, invalid("nothing picked", []model.ValidationIssue{{Path: "choices", Code: "V_NO_CHANGE", Message: "nothing picked: pick at least one change to merge", Severity: "error"}})
 	}
 	rev := a.newBranchRevision(mc.result, mc.catalog, rc.actor, req.Message, "change")
+	a.setContentApply(rev.RevID, contentApply{Live: mc.live})
 	if e := a.stageRevisionNow(r.Context(), rev); e != nil {
 		return nil, 0, e
 	}
@@ -1594,6 +1594,11 @@ func (a *Agent) handleFastForwardAll(w http.ResponseWriter, r *http.Request) (an
 			parent, pseq = &p, s.Head.Seq
 		}
 		rev := model.Revision{RevID: newID(), Seq: pseq + 1, ParentRevID: parent, Origin: "agent", Actor: rc.actor, CreatedAt: nowTs(), Config: src.Config, Hash: src.Hash, Catalog: cat, CatalogHash: ch, Summary: trim200(branch.Summary(req.Message)), Kind: "change"}
+		if slug == a.site {
+			if e := a.contentDriftConflict(&src.Config); e != nil { // §21 #117 d
+				return nil, 0, e
+			}
+		}
 		targets[slug] = model.UpdatePlanTarget{Revision: rev, FromRevID: parent}
 		stats := model.CommitStats{Keys: []string{}}
 		if slug == a.site {
@@ -1649,14 +1654,10 @@ func (a *Agent) handleCommitLocal(w http.ResponseWriter, r *http.Request) (any, 
 	}
 	all := len(req.Keys) == 0
 	var choices []model.MergeChoice
-	var editKeys, driftKeys, liveVols []string
+	var editKeys, driftKeys []string
 	var adopt []string
 	for _, it := range u.items {
 		if !all && !want[it.Key] {
-			continue
-		}
-		if strings.HasSuffix(it.Key, "/live") {
-			liveVols = append(liveVols, it.Key)
 			continue
 		}
 		choices = append(choices, model.MergeChoice{Key: it.Key, Take: "source"})
@@ -1698,7 +1699,7 @@ func (a *Agent) handleCommitLocal(w http.ResponseWriter, r *http.Request) (any, 
 		}
 		editKeys = append(editKeys, "files/"+tb.FileSlug)
 	}
-	if len(choices) == 0 && len(accepted) == 0 && len(liveVols) == 0 && len(req.TakeBytes) == 0 {
+	if len(choices) == 0 && len(accepted) == 0 && len(req.TakeBytes) == 0 {
 		return nil, 0, invalid("nothing to commit", []model.ValidationIssue{{Path: "keys", Code: "V_NO_CHANGE", Message: "nothing uncommitted", Severity: "error"}})
 	}
 	if len(choices) > 0 {
@@ -1716,16 +1717,6 @@ func (a *Agent) handleCommitLocal(w http.ResponseWriter, r *http.Request) (any, 
 	data := model.CommitData{}
 	for _, n := range accepted {
 		data.AcceptedDrift = append(data.AcceptedDrift, model.AcceptedDrift{Fingerprint: n.Fingerprint, Label: n.Label, Detail: n.Detail})
-	}
-	// persist-to-cloud content: a #101 snapshot (data, not config) recorded by the commit
-	for _, k := range liveVols {
-		vs := strings.TrimSuffix(strings.TrimPrefix(k, "sites/"+a.site+"/volumes/"), "/live")
-		if p, he := a.persistVolume(vs); he == nil {
-			actor := rc.actor
-			if rec, _, err := a.snapshotVolume(p, snapOpts{trigger: "manual-agent", actor: &actor, note: "commit"}); err == nil && rec != nil {
-				data.VolumeContent = append(data.VolumeContent, model.CommitVolumeContent{SiteSlug: a.site, VolumeSlug: vs, TreeHash: rec.Local.TreeHash})
-			}
-		}
 	}
 	kind := "drift"
 	if len(editKeys) > 0 {
@@ -1795,6 +1786,19 @@ func (a *Agent) handleDiscardLocal(w http.ResponseWriter, r *http.Request) (any,
 			for _, id := range u.report.Remove[fp] {
 				_ = a.drv.StopRemove(r.Context(), id, 10)
 			}
+		}
+	}
+	// §21 #117 discarded content changes: the committed content is written back over them
+	if hr := a.headRevision(); hr != nil {
+		force := map[string]bool{}
+		for _, k := range drift {
+			if a.isPersistContentKey(k) {
+				rest := strings.TrimPrefix(k, "sites/"+a.site+"/volumes/")
+				force[rest[:strings.Index(rest, "/content")]] = true
+			}
+		}
+		if len(force) > 0 {
+			a.setContentApply(hr.RevID, contentApply{Force: force})
 		}
 	}
 	run, he := a.reapplyHead(rc.actor)
@@ -1879,6 +1883,9 @@ func (a *Agent) revertOrReset(w http.ResponseWriter, r *http.Request, reset bool
 		catSrc = p.Catalog
 	}
 	cat := pruneCatalog(&cfg, mergeCatalogs(catSrc, headCat))
+	if e := a.contentDriftConflict(&cfg); e != nil { // §21 #117 d
+		return nil, 0, e
+	}
 	rev := a.newBranchRevision(cfg, cat, rc.actor, req.Message, "change")
 	if rev.Hash == h.Hash {
 		return nil, 0, invalid("nothing changes", []model.ValidationIssue{{Path: "", Code: "V_NO_CHANGE", Message: "the result equals the head", Severity: "error"}})

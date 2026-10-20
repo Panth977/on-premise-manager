@@ -41,7 +41,7 @@ interface VcDoc {
   updatedAt: string | null;
 }
 type VcDb = MockDb & { vc?: Record<string, Record<string, VcDoc>>; vcSeeded?: number };
-const VC_SEED_VERSION = 4;
+const VC_SEED_VERSION = 5; // 5: §21 #117 persist content is literal (render none)
 
 const enc = new TextEncoder();
 const hex = async (s: string) => sha256Hex(enc.encode(s));
@@ -131,8 +131,8 @@ export async function ensureVcSeed(dbIn: MockDb): Promise<void> {
   const hp = await putText(db, HELPER);
   const ex = await putText(db, EXTRA);
   const rd = await putText(db, README);
-  const headSeed = normalizeVolumeTree({ entries: [entry('flows.json', f1), entry('settings.js', st, 'expressions'), entry('package.json', pk), entry('lib/helper.js', hp)], dirs: ['backups'] });
-  const draftSeed = normalizeVolumeTree({ entries: [entry('flows.json', fd), entry('settings.js', st, 'expressions'), entry('package.json', pk), entry('lib/helper.js', hp), entry('README.md', rd)], dirs: ['backups'] });
+  const headSeed = normalizeVolumeTree({ entries: [entry('flows.json', f1), entry('settings.js', st), entry('package.json', pk), entry('lib/helper.js', hp)], dirs: ['backups'] });
+  const draftSeed = normalizeVolumeTree({ entries: [entry('flows.json', fd), entry('settings.js', st), entry('package.json', pk), entry('lib/helper.js', hp), entry('README.md', rd)], dirs: ['backups'] });
 
   // migrate-h on the Northwind client template (its nodered-data volume took flows.json / settings.js from Files)
   const imageVolumes = (svc: string, ver: string) => db.images[svc]?.[ver]?.volumes.map((v) => ({ name: v.name, mountPath: v.mountPath })) ?? null;

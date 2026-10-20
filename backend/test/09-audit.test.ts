@@ -63,7 +63,8 @@ function opmlog(deploymentId: string, signer: { siteSlug: string; key: SiteKey }
 }
 
 // §21 #104 + #105: removed routes answer 410 gone (kept in the contract for old clients)
-const GONE = new Set(['publish', 'resetDraftToHead', 'applyTemplateSync', 'unlinkTemplate', 'putDraftSection', 'putDraftSite', 'regenerateSecret', 'discardDeploymentWorking']);
+// §21 #117: the cloud-copy writes of persist volumes are gone too (content is committed)
+const GONE = new Set(['publish', 'resetDraftToHead', 'applyTemplateSync', 'unlinkTemplate', 'putDraftSection', 'putDraftSite', 'regenerateSecret', 'discardDeploymentWorking', 'createVolumeContentVersion', 'restoreVolumeContentVersion', 'requestVolumeSnapshot', 'sendVolumeContent', 'cancelVolumeContentPush']);
 test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud activity (deployment scope)', async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
@@ -77,10 +78,6 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
   const c0 = await admin.api.commitDeployment({ deploymentId: id, body: { message: 'persist the app volume', ifRevision: (await admin.api.getDeployment({ deploymentId: id })).draftVersion } });
   await adb.collection('deployments').doc(id).update({ head: { revId: c0.data.compat!.revId, seq: c0.data.compat!.seq, hash: c0.hash, reportedAt: new Date().toISOString() } });
   const view = await admin.api.getDeployment({ deploymentId: id });
-  const vc = { siteSlug: 'app', volumeSlug: 'hello-api-data' };
-  const banner = view.draft.files[0]!.content!;
-  const vcTree = (path: string) => ({ entries: [{ path, sha256: banner.sha256, size: banner.sizeBytes, mode: '0644', render: 'none' as const }], dirs: [] });
-  let vcFirst = '';
   const db = await enrollSite(admin, id, 'db');
   const app = await enrollSite(admin, id, 'app');
   const secretSlug = view.draft.secrets.find((s) => s.isSet)!.secretSlug;
@@ -135,23 +132,6 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
     },
     createTransfer: async () => ({ params: { siteSlug: 'app' }, body: { fileName: 'notes.txt', sizeBytes: 5, sha256: 'sha256:' + sha256Hex('hello') } }),
     deleteTransfer: async () => ({ params: { transferId } }),
-    // §21 #101 volume content (persist on in the draft + the head)
-    createVolumeContentVersion: async () => {
-      // the legacy head points at the newest compat proposal (volume content needs a head)
-      const props = await admin.api.listProposals({ deploymentId: id });
-      const r = props.items.find((p) => p.status === 'published');
-      if (r) await adb.collection('deployments').doc(id).update({ head: { revId: r.revId, seq: r.seq, reportedAt: new Date().toISOString(), reportedBy: 'app' } });
-      return { params: vc, body: { baseVersionId: null, tree: vcTree('banner.txt'), note: 'audit' } };
-    },
-    restoreVolumeContentVersion: async () => {
-      const st = await admin.api.getVolumeContent({ deploymentId: id, ...vc });
-      vcFirst = st.latest!.versionId;
-      await admin.api.createVolumeContentVersion({ deploymentId: id, ...vc, body: { baseVersionId: vcFirst, tree: vcTree('other.txt'), note: '' } });
-      return { params: { ...vc, versionId: vcFirst }, body: { note: 'audit restore' } };
-    },
-    requestVolumeSnapshot: async () => ({ params: vc }),
-    sendVolumeContent: async () => ({ params: vc, body: { versionId: vcFirst, restart: false, note: 'audit' } }),
-    cancelVolumeContentPush: async () => ({ params: vc }),
   };
   void app;
   const checked: string[] = [];
@@ -197,7 +177,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
   // the root deployment ops are audited in addition to their activities
   for (const op of ['patchDeployment', 'deleteDeployment'] as const) assert.ok(checked.includes(op));
   const types = new Set((await adb.collection('deployments').doc(id).collection('activities').where('siteSlug', '==', '_cloud').get()).docs.map((d) => d.data().type as string));
-  for (const t of ['transfer.sent', 'transfer.deleted', 'activities.uploaded', 'secret.revealed', 'proposal.published', 'branch.committed', 'access-key.rotated', 'install-token.created', 'install-token.revoked', 'agent.revoked', 'access-key.revealed', 'install-token.revealed', 'agent.upgrade-requested', 'agent.upgrade-cancelled', 'volume-content.version-created', 'volume-content.snapshot-requested', 'volume-content.sent', 'volume-content.push-cancelled'])
+  for (const t of ['transfer.sent', 'transfer.deleted', 'activities.uploaded', 'secret.revealed', 'proposal.published', 'branch.committed', 'access-key.rotated', 'install-token.created', 'install-token.revoked', 'agent.revoked', 'access-key.revealed', 'install-token.revealed', 'agent.upgrade-requested', 'agent.upgrade-cancelled'])
     assert.ok(types.has(t), `missing _cloud activity ${t}`);
 });
 

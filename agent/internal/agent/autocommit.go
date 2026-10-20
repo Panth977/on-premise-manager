@@ -82,7 +82,7 @@ func (a *Agent) autoState() *autoCommitState {
 func autoCommitKeys(items []model.DriftItem) []string {
 	var keys []string
 	for _, it := range items {
-		if strings.HasSuffix(it.Key, "/live") {
+		if it.Origin == "volume-content" { // §21 #117 a person commits content changes
 			continue
 		}
 		keys = append(keys, it.Key)

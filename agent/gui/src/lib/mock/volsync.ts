@@ -261,17 +261,11 @@ function status(d: VolSyncDeps, vs: VS): VolumeSyncStatus {
   const last = vs.history[0] ?? null;
   const changed = !!vs.snapTree && treeHash(vs.snapTree) !== lh;
   const queued = vs.history.filter((h) => !h.versionId && !h.error).length;
-  let state: VolumeSyncState;
-  if (vs.lastError) state = 'error';
-  else if (vs.push) {
-    state = vs.push.baseTreeHash && lh === vs.push.baseTreeHash ? 'cloud-ahead' : lh === vs.push.treeHash ? 'in-sync' : 'conflict';
-    // like the agent: no file changed on both sides since a known base → it applies without a choice
-    if (state === 'conflict' && vs.baseTree && vs.cloudTree && !planVolumePush(vs.baseTree, tree, vs.cloudTree).some((i) => i.kind === 'conflict')) state = 'cloud-ahead';
-  }
-  else if (!last) state = 'never-snapshotted';
-  else if (queued) state = 'pending-upload';
-  else if (changed) state = 'live-changed';
-  else state = 'in-sync';
+  // §21 #117 like agents ≥ 0.19: the live tree against the committed content (the mock takes the last snapshot as
+  // the committed tree; none = the live tree is committed)
+  const committed = vs.snapTree ?? tree;
+  const state: VolumeSyncState = vs.lastError ? 'error' : changed ? 'live-changed' : 'in-sync';
+  void queued;
   return {
     siteSlug: vs.site,
     volumeSlug: vs.slug,
@@ -280,11 +274,12 @@ function status(d: VolSyncDeps, vs: VS): VolumeSyncStatus {
     state,
     lastSnapshot: last,
     live: { treeHash: lh, fileCount: tree.entries.length, totalBytes: tree.entries.reduce((n, e) => n + e.size, 0), excludedCount: excluded, scannedAt: vs.scannedAt, changed: vs.snapTree ? changed : true },
-    push: vs.push,
-    queued,
+    push: null,
+    queued: 0,
     lastError: vs.lastError,
     history: vs.history.slice(0, 20),
     users: d.users(vs.site, vs.slug).map((u) => u.slug),
+    committed: { treeHash: treeHash(committed), fileCount: committed.entries.length },
   };
 }
 function plan(d: VolSyncDeps, vs: VS): VolumePushPlan {

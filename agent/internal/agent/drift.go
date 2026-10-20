@@ -933,6 +933,16 @@ func (a *Agent) scanDrift(ctx context.Context) (*driftScan, error) {
 			mark("secrets/"+slug+"/value", "secret-file", "the secret file of "+slug+" was edited on the server")
 		}
 	}
+	// §21 #117 persist-to-cloud volumes: the live tree is the volume's content on the server (per-file content items)
+	contentLive, _ := a.liveContentConfig(&live)
+	live = *contentLive
+	if ls := siteOf(&live, a.site); ls != nil {
+		for _, p := range a.persistVolumes() {
+			if v := ls.Config.FindVolume(p.decl.VolumeSlug); v != nil {
+				details["sites/"+a.site+"/volumes/"+p.decl.VolumeSlug+"/content"] = model.DriftItem{Origin: "volume-content", Detail: "the content of persist-to-cloud volume " + p.decl.VolumeSlug + " changed on the server", ObservedAt: now}
+			}
+		}
+	}
 	// the computed items (two-way: head → live)
 	for _, it := range branch.Uncommitted(hr.Config, live, branch.Options{SecretValues: true, Scope: a.site}) {
 		di := model.DriftItem{MergeItem: it, Origin: "docker", Detail: "changed on the server", ObservedAt: now}
@@ -956,23 +966,6 @@ func (a *Agent) scanDrift(ctx context.Context) (*driftScan, error) {
 			_ = ids
 		}
 		d.Items = append(d.Items, di)
-	}
-	// persist-to-cloud volumes: live content changed since the last snapshot (#101; data, not config)
-	for _, p := range a.persistVolumes() {
-		p := p
-		st := a.syncStatus(&p, 60*time.Second)
-		if st.State != "live-changed" {
-			continue
-		}
-		files := 0
-		if st.Live != nil {
-			files = st.Live.FileCount
-		}
-		ss := a.site
-		key := "sites/" + a.site + "/volumes/" + p.decl.VolumeSlug + "/live"
-		d.Items = append(d.Items, model.DriftItem{MergeItem: model.MergeItem{Key: key, Section: "volumes", SiteSlug: &ss, Label: a.site + " · volume " + p.decl.VolumeSlug + " · live content", Kind: "change", Effect: "change",
-			Target: model.MaskedSlot{Has: true, Value: "last snapshot"}, Source: model.MaskedSlot{Has: true, Value: fmt.Sprintf("%d files on the server", files)}, Requires: []string{}, SourceHash: "-",
-			Note: "persist-to-cloud content (data): committing takes a snapshot to the cloud; it never blocks a merge"}, Origin: "volume-content", Detail: "the content of persist-to-cloud volume " + p.decl.VolumeSlug + " changed on the server", ObservedAt: now})
 	}
 	d.LiveConfig = live
 	return d, nil

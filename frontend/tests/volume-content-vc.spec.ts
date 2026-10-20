@@ -3,12 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { login, pick, expectToast, nav, commitAll } from './helpers';
 
-/** Round VC (§21 #101): volume content workspace (template + deployment), persist to cloud, cloud copy, diff, legacy convert. */
+/** Round VC (§21 #101 / #117): volume content workspace (template + deployment), persist to cloud (committed content), diff, legacy convert. */
 const TPL = '/app/templates/TplNodeRedContent007/sites/flows';
 const DEP = '/app/deployments/DepNodeRedFlows00003';
 const CONTENT = `${TPL}/volumes/content?volume=nodered-data`;
 const LEGACY = '/app/templates/TplLegacySeeds000008/sites/site-01';
-const CLOUD = `${DEP}/sites/flows/volumes/content?volume=nodered-data&tab=cloud`;
 
 const node = (page: Page, p: string) => page.locator(`[data-testid="vc-node"][data-path="${p}"]`);
 async function askName(page: Page, button: string, name: string) {
@@ -104,9 +103,9 @@ test.describe('round VC: volume content', () => {
     await expect(node(page, 'lib/nodes/inner/deep.txt')).toBeVisible(); // uploads reveal their folders
     await expect(node(page, 'lib/nodes/index.js')).toBeVisible();
 
-    // mode + render of a file
+    // mode of a file; §21 #117 a persist volume's content is literal: no render toggle
     await node(page, 'settings.js').click();
-    await expect(page.getByTestId('vc-render')).toHaveAttribute('data-checked', 'true');
+    await expect(page.getByTestId('vc-render')).toHaveCount(0);
     await page.getByTestId('vc-mode').fill('0600');
     await page.getByTestId('vc-mode').press('Enter');
 
@@ -123,7 +122,7 @@ test.describe('round VC: volume content', () => {
     expect(paths).toEqual(expect.arrayContaining(['lib/README.md', 'subflows/package.json', 'subflows/alarms.json', 'lib/helper copy.js', 'lib/logo.png', 'lib/nodes/index.js', 'lib/nodes/inner/deep.txt']));
     expect(paths).not.toContain('flows copy.json');
     expect(seed.entries.find((e) => e.path === 'subflows/alarms.json')!.size).toBe(15);
-    expect(seed.entries.find((e) => e.path === 'settings.js')).toMatchObject({ mode: '0600', render: 'expressions' });
+    expect(seed.entries.find((e) => e.path === 'settings.js')).toMatchObject({ mode: '0600', render: 'none' });
     expect(seed.dirs).toEqual(['backups']);
     // reload: the saved content is back
     await page.reload();
@@ -146,6 +145,9 @@ test.describe('round VC: volume content', () => {
     await expect(card.getByTestId('persist-preview-item')).toHaveText(['lib/']);
     await card.getByTestId('persist-exclude-4').fill('*.md');
     await expect(card.getByTestId('persist-preview-item')).toHaveText(['README.md']);
+    // §21 #117 committed content under an exclude is refused (it could never come back from a site)
+    await expect(page.getByTestId('change-bar-commit')).toBeDisabled();
+    await card.getByTestId('persist-exclude-4').fill('tmp/');
     await expect(page.getByTestId('change-bar-commit')).toBeEnabled();
     // §21 #105 persist settings edit the change set in place: leaving keeps them (no prompt)
     await page.getByRole('link', { name: 'Variables' }).click();
@@ -159,113 +161,26 @@ test.describe('round VC: volume content', () => {
     expect(w!.body).not.toContain('"persist"');
   });
 
-  test('deployment persist card previews the excludes on the latest cloud version; migrated mock templates have no legacy seeds', async ({ page }) => {
-    await login(page, 'admin', `${DEP}/sites/flows/volumes/content?volume=nodered-data&tab=persist`);
+  test('§21 #117 a persist volume: "Content" = committed content (no Cloud copy tab, no render), excludes previewed on it; migrated mock templates have no legacy seeds', async ({ page }) => {
+    await login(page, 'admin', `${DEP}/sites/flows/volumes/content?volume=nodered-data&tab=cloud`);
+    const tabs = page.getByTestId('vc-tabs');
+    await expect(tabs).toContainText('Content');
+    await expect(tabs).not.toContainText('Cloud copy');
+    await expect(tabs).not.toContainText('Starter content');
+    await expect(page.getByTestId('vc-seed-note')).toContainText('committed content');
+    await expect(page.getByTestId('vc-seed-summary')).toBeVisible();
+    await tabs.getByText('Persist to cloud').click();
     const pv = page.getByTestId('persist-preview');
-    await expect(pv).toContainText('Excluded in the latest cloud version');
+    await expect(pv).toContainText('Excluded in the content');
+    await expect(page.getByTestId('persist-auto')).toHaveCount(0);
     await page.getByTestId('persist-exclude-add').click();
-    await page.getByTestId('persist-exclude-4').fill('extra.js');
-    await expect(pv.getByTestId('persist-preview-item')).toHaveText(['lib/extra.js']);
+    await page.getByTestId('persist-exclude-4').fill('helper.js');
+    await expect(pv.getByTestId('persist-preview-item')).toHaveText(['lib/helper.js']);
     await page.getByTestId('change-bar-discard').click();
     await page.getByTestId('pending-discard-dialog').getByTestId('confirm-ok').click();
     await nav(page, '/app/templates/TplVolumeKinds000006/sites/site-01/volumes');
     await expect(page.getByTestId('volume-seed-nodered-flow')).toHaveText(/1 file/);
     await expect(page.locator('[data-testid^="volume-seed-legacy-"]')).toHaveCount(0);
-  });
-
-  test('cloud copy: snapshot request, edit → new version, 409, send with restart, cancel, restore, use as starter content', async ({ page }) => {
-    await login(page, 'admin', CLOUD);
-    await expect(page.getByTestId('cloud-sync-badge')).toHaveAttribute('data-state', 'conflict');
-    await expect(page.getByTestId('cloud-pending-push')).toContainText('Version #2');
-    await page.getByTestId('cloud-tabs').locator('[data-tab="history"]').click();
-    await expect(page.getByTestId('cloud-version-row')).toHaveCount(3);
-    // diff of #3 vs #2 with a text diff
-    await page.locator('[data-testid="cloud-version-row"][data-seq="3"]').getByTestId('cloud-version-diff').click();
-    const ch = page.getByTestId('cloud-version-changes');
-    await expect(ch.getByTestId('cloud-version-changes-item')).toHaveCount(2);
-    await ch.locator('[data-path="flows.json"]').getByTestId('cloud-version-changes-toggle').click();
-    await expect(ch.getByTestId('diff-line-add').first()).toBeVisible();
-
-    // Snapshot now → the (mock) site answers with version #4 (manual-cloud)
-    await page.getByTestId('cloud-snapshot').click();
-    await expect(page.getByTestId('cloud-snapshot-requested')).toBeVisible();
-    await expect(page.getByTestId('cloud-snapshot-requested')).toHaveCount(0, { timeout: 15_000 });
-    // same tree as #3 → no new version; the request is answered
-    await expect(page.getByTestId('cloud-version-row')).toHaveCount(3);
-
-    // edit the latest → Save as new version (#4)
-    await page.getByTestId('cloud-tabs').locator('[data-tab="latest"]').click();
-    await node(page, 'lib').click();
-    await node(page, 'lib/extra.js').click();
-    await page.getByTestId('vc-code-content').click();
-    await page.keyboard.press('ControlOrMeta+End');
-    await page.keyboard.type('// edited in the cloud\n');
-    await page.getByTestId('cloud-note').fill('client hook tweak');
-    await page.getByTestId('cloud-save').click();
-    await expectToast(page, 'success', 'Version 4 saved');
-    await expect(page.getByTestId('cloud-tabs')).toContainText('Latest version (#4)');
-
-    // 409: someone else saves a version meanwhile
-    await node(page, 'package.json').click();
-    await page.getByTestId('vc-code-content').click();
-    await page.keyboard.type(' ');
-    await page.evaluate(async () => {
-      const f = (window as unknown as { __opmMockFetch: typeof fetch }).__opmMockFetch;
-      const base = 'http://localhost/v1/deployments/DepNodeRedFlows00003/volume-content/flows/nodered-data';
-      const h = { Authorization: 'Bearer mock:uAdmin00000000000001', 'Content-Type': 'application/json' };
-      const st = await (await f(base, { headers: h })).json();
-      const cur = await (await f(`${base}/versions/${st.latest.versionId}`, { headers: h })).json();
-      const tree = { entries: cur.tree.entries.filter((e: { path: string }) => e.path !== 'lib/helper.js'), dirs: cur.tree.dirs };
-      await f(`${base}/versions`, { method: 'POST', headers: h, body: JSON.stringify({ baseVersionId: st.latest.versionId, tree, note: 'by ops' }) });
-    });
-    await page.getByTestId('cloud-save').click();
-    await expect(page.getByTestId('cloud-newer')).toContainText('#5');
-    await page.getByTestId('cloud-compare').click();
-    await expect(page.getByTestId('compare-list').locator('[data-path="package.json"]')).toContainText('changed');
-    await expect(page.getByTestId('compare-list').locator('[data-path="lib/helper.js"]')).toContainText('added');
-    await page.keyboard.press('Escape');
-    await page.getByTestId('cloud-reload').click();
-    await expect(page.getByTestId('cloud-newer')).toHaveCount(0);
-    await expect(page.getByTestId('cloud-tabs')).toContainText('Latest version (#5)');
-
-    // send with restart (agent 0.11.1 → warning)
-    await page.getByTestId('cloud-send').click();
-    const m = page.getByTestId('send-modal');
-    await expect(m.getByTestId('send-restart')).toBeChecked();
-    await expect(m.getByTestId('send-agent-warning')).toContainText('0.12.0');
-    await expect(m.getByTestId('send-supersedes')).toContainText('#2');
-    await m.getByTestId('send-note').fill('please apply after the shift');
-    await m.getByTestId('send-submit').click();
-    await expectToast(page, 'success', 'Version #5 sent to flows');
-    await expect(page.getByTestId('cloud-pending-push')).toContainText('Version #5');
-    const sent = await lastWrite(page, /\/push$/);
-    expect(JSON.parse(sent!.body)).toMatchObject({ restart: true, note: 'please apply after the shift' });
-    // cancel the pending push
-    await page.getByTestId('cloud-cancel-push').click();
-    await page.getByTestId('cancel-push-dialog').getByRole('button', { name: 'Cancel push' }).click();
-    await expect(page.getByTestId('cloud-pending-push')).toHaveCount(0);
-    await expect(page.getByTestId('cloud-last-push')).toContainText('cancelled');
-
-    // restore #1 → #6
-    await page.getByTestId('cloud-tabs').locator('[data-tab="history"]').click();
-    await page.locator('[data-testid="cloud-version-row"][data-seq="1"]').getByTestId('cloud-version-restore').click();
-    await page.getByTestId('restore-note').fill('back to the first');
-    await page.getByTestId('restore-dialog').getByRole('button', { name: 'Restore' }).click();
-    await expectToast(page, 'success', 'Version 1 restored as version 6');
-    await expect(page.locator('[data-testid="cloud-version-row"][data-seq="6"]')).toContainText('Restored from #1');
-
-    // use #3 as starter content → the draft's seed = #3's files, draft saved
-    await page.getByTestId('cloud-tabs').locator('[data-tab="history"]').click();
-    await page.locator('[data-testid="cloud-version-row"][data-seq="3"]').getByTestId('cloud-version-starter').click();
-    await page.getByTestId('starter-dialog').getByRole('button', { name: 'Use as starter content' }).click();
-    await expectToast(page, 'success', 'Starter content = version #3');
-    await expect(node(page, 'lib')).toBeVisible();
-    await node(page, 'lib').click();
-    await expect(node(page, 'lib/extra.js')).toBeVisible();
-    // §21 #105 the starter content is a change in the browser until Commit
-    await commitAll(page, 'Starter content from cloud version 3');
-    const put = await lastWrite(page, /\/commits$/);
-    expect(put!.body).toContain('lib/extra.js');
   });
 
   test('compare · uncommitted: per-file content changes with a text diff; commit dialog warns about agent < 0.12', async ({ page }) => {

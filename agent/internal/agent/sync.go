@@ -573,7 +573,14 @@ func (a *Agent) outboxOnce(ctx context.Context) {
 		if err != nil {
 			return
 		}
-		resp, err := a.cloudCall(ctx, it.method, it.path, it.body, callOpts{timeout: 60 * time.Second, noTunnel: it.kind == "upload"})
+		var resp *cloudResp
+		if it.kind == "branch-push" {
+			// §21 #117 the File / volume-content bytes of the pushed commits go up first (the cloud merges them)
+			err = a.uploadPushBlobs(ctx, it.body)
+		}
+		if err == nil {
+			resp, err = a.cloudCall(ctx, it.method, it.path, it.body, callOpts{timeout: 60 * time.Second, noTunnel: it.kind == "upload"})
+		}
 		if err == nil && (resp.Status < 300 || (resp.Status >= 400 && resp.Status < 500 && resp.Status != 429 && resp.Status != 401)) {
 			if resp.Status >= 300 {
 				a.log.Warn("cloudlink", "outbox item refused by the cloud (dropped)", "kind", it.kind, "path", pathOnly(it.path), "status", resp.Status, "body", string(resp.Body))

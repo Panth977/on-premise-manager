@@ -8,7 +8,7 @@ import (
 	"opm/agent/internal/movehome"
 )
 
-// §21 #119: the check refuses a folder inside the home / a non-systemd agent; after a move into this home the start
+// §21 #119: the check refuses a folder inside the home; after a move into this home the start
 // hook rewrites the absolute paths kept in opm.db and records agent.home-moved; a failed move starts its containers.
 func TestMoveHomeAgentSide(t *testing.T) {
 	a := newVSAgent(t)
@@ -16,8 +16,8 @@ func TestMoveHomeAgentSide(t *testing.T) {
 	if ck.Ok || len(ck.Errors) == 0 {
 		t.Fatalf("inside the home: %+v", ck)
 	}
-	if !strings.Contains(strings.Join(ck.Errors, ";"), "systemd") {
-		t.Fatalf("a non-systemd agent cannot move: %v", ck.Errors)
+	if !strings.Contains(strings.Join(ck.Errors, ";"), "inside the current one") {
+		t.Fatalf("inside the home must be named: %v", ck.Errors)
 	}
 	old := "/old/opm"
 	_, _ = a.db.Exec(`INSERT INTO blobs(sha256, sizeBytes, kind, source, haveSince, path, lastUsedAt) VALUES('x', 1, 'file', 'cloud', 0, ?, 0)`, old+"/blobs/files/ab")

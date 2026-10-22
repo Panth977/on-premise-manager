@@ -485,6 +485,7 @@ if [ -f /etc/opm/agent.json ]; then
     info "agent.json: + \\"$k\\": \\"$val\\" (missing key, default)"
   done
   [ -n "$ADDED" ] && info "agent.json: previous file kept as /etc/opm/agent.json.bak"
+  find_agent_port || true
   if curl -fsS --max-time 3 "http://127.0.0.1:$AGENT_PORT/_opm/api/info" </dev/null 2>/dev/null | grep -q '"enrolled": *true'; then ENROLLED=1
   elif "$BIN" status --config /etc/opm/agent.json </dev/null 2>>"$LOG" | grep -q '"enrolled": *true'; then ENROLLED=1; fi
 else
@@ -546,10 +547,23 @@ start_service() { # → 0 when systemctl restart succeeded
   run systemctl enable opm-agent || return 1
   run systemctl restart opm-agent
 }
+# the agent port: the one the cloud named, else whichever TCP port the running opm-agent serves its GUI on (a site whose
+# config moved the agent port; a socket the unit still holds for an old port is never served)
+find_agent_port() {
+  for p in "$AGENT_PORT" $(ss -ltnpH 2>/dev/null | awk '/"opm-agent"/ { n = split($4, a, ":"); print a[n] }' | sort -un); do
+    [ -n "$p" ] || continue
+    if curl -fsS --max-time 2 "http://127.0.0.1:$p/_opm/api/info" </dev/null >/dev/null 2>&1; then
+      [ "$p" = "$AGENT_PORT" ] || { info "the agent answers on port $p (not $AGENT_PORT): using $p"; AGENT_PORT="$p"; }
+      return 0
+    fi
+  done
+  return 1
+}
 # healthy <version> <1 = /_opm/api/health (agents >= 0.10.0), else /_opm/api/info> <1 = cloud connected too>
 healthy() {
   END=$(($(date +%s) + \${OPM_HEALTH_TIMEOUT:-60}))
   while [ "$(date +%s)" -lt "$END" ]; do
+    find_agent_port || true
     if [ "$2" = 1 ]; then
       H=$(curl -fsS --max-time 3 "http://127.0.0.1:$AGENT_PORT/_opm/api/health" </dev/null 2>/dev/null || true)
       case "$H" in *"\\"version\\":\\"$1\\""*|*"\\"version\\": \\"$1\\""*)
@@ -570,6 +584,7 @@ healthy() {
 BEFORE_CLOUD=0; BK=""
 if [ "$ACTION" != fresh ]; then
   # the old agent reached the cloud before? (then the new one must too; /_opm/api/health exists from 0.10.0)
+  [ "$DRY" != 1 ] && { find_agent_port || true; }
   if [ "$DRY" != 1 ] && curl -fsS --max-time 3 "http://127.0.0.1:$AGENT_PORT/_opm/api/health" </dev/null 2>/dev/null | grep -q '"connected": *true'; then BEFORE_CLOUD=1; fi
   if [ "$DRY" = 1 ]; then info "DRY_RUN: would run: systemctl stop opm-agent (app containers keep running)"
   elif [ "$SYSTEMD" = 1 ]; then run systemctl stop opm-agent || true; info "opm-agent stopped for the swap (app containers keep running)"; fi

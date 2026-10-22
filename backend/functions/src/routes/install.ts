@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { supportsGuiUpgrade, type AgentDoc, type AgentReleaseResponse, type DepsManifest, type EnrollRequest, type EnrollResponse, type InstallToken, type PeerInfo } from '@opm/shared';
 import { col, db, nowIso } from '../core/fire.js';
+import { deploymentHeadConfig, siteRunningCommit } from '../core/branches.js';
 import { ApiError, E } from '../core/errors.js';
 import { bearerInstallToken, checkTokenState, verifyInstallToken } from '../core/auth.js';
 import { asObject, keyFingerprint, sha256Hex, V } from '../core/util.js';
@@ -296,9 +297,12 @@ export const installHandlers: Pick<Handlers, 'installScript' | 'installBinary' |
     const dep = decodeDeployment(depSnap.data()!);
     const requested = await pinnedAgent(vq || (m?.agent?.version ?? null));
     if (vq && requested && !requested.files.amd64 && !requested.files.arm64) return scriptReply(errorScript([`OPM install: agent ${vq} is not uploaded to the OPM cloud (only uploaded versions can be installed).`, 'Rerun the command without ?version= to install the pinned version.']));
-    const head = dep.head ? await loadRevision(dep.deploymentId, dep.head.revId).catch(() => null) : null;
-    // ports the agent listens on now (head config; before the first head the defaults 7080 / 8080) + the edge port
-    const headSite = head?.config.sites.find((s) => s.siteSlug === t.siteSlug)?.config;
+    // ports the agent listens on now: the config the SITE runs (its heartbeat head: a revision or, in branch mode, its
+    // agent-branch commit), else the deployment head, else the legacy head; before the first head the defaults 7080 / 8080
+    const agentDoc = await col.agents(dep.deploymentId).doc(t.siteSlug).get().catch(() => null);
+    const running = agentDoc?.exists ? await siteRunningCommit(dep.deploymentId, t.siteSlug, (agentDoc.data()!.headRevId as string | null) ?? null).catch(() => null) : null;
+    const headCfg = running?.config ?? (await deploymentHeadConfig(dep).catch(() => null)) ?? (dep.head ? (await loadRevision(dep.deploymentId, dep.head.revId).catch(() => null))?.config : null) ?? null;
+    const headSite = headCfg?.sites.find((s) => s.siteSlug === t.siteSlug)?.config;
     const draftSite = dep.draft.sites.find((s) => s.siteSlug === t.siteSlug)?.config;
     const body = installScript({
       apiBase: apiBaseOf(c),

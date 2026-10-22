@@ -214,7 +214,7 @@ func InputFromConfig(p InputParams) (*Input, []Note, error) {
 				if f.FileSlug == h.TLS.CertFileSlug && f.Content != nil && p.FileContent != nil {
 					if cert, ok := p.FileContent(strings.TrimPrefix(f.Content.Sha256, "sha256:")); ok {
 						k, _ := secret(h.TLS.KeySecretSlug)
-						in.FilesPEM[h.Hostname] = PEMPair{Cert: string(cert), Key: k}
+						in.FilesPEM[h.Hostname] = PEMPair{Cert: RepairPEM(string(cert)), Key: RepairPEM(k)}
 					}
 				}
 			}

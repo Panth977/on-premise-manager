@@ -6495,8 +6495,9 @@ Pass = every check above green; results file lists timings and the activity coun
         GUI through the cloud" (state, who works through the cloud now, Switch off / on), `GET / PUT
         /_opm/api/agent/remote-gui`; PUT through a remote session → 403 (switch it off on the site). Off: no polling,
         the open remote sessions end at once. Activity `agent.remote-gui-changed`.
-    (f) **Event streams are not carried**: `text/event-stream` (log follow) → 501 page; another site through the mesh
-        works as usual (the remote agent relays, §21 #111).
+    (f) **Event streams**: one without `follow=1|true` ends by itself (the lines of the range, then `end`) and is carried
+        as one answer (the logs pages with follow off); a follow stream → 501 page. Another site through the mesh works
+        as usual (the remote agent relays, §21 #111).
     (g) **WebSockets (terminal, MQTT client) are relayed over the site's HTTP polls** (agent 0.19.5; user: "some client
         might have refused the outbound socket connection only kept the default http connections"). The browser
         upgrades at the cloud; the cloud makes a stream and hands the request out with `ws { streamId }`; the agent
@@ -6507,7 +6508,7 @@ Pass = every check above green; results file lists timings and the activity coun
         ≤ 8 MiB). The site never opens a socket to the cloud. The terminal's `wsPath` (JSON, not rewritten) gets the
         page's base in the GUI.
     (h) Tests: `shared/src/remote-gui.test.ts`, `backend/test/42-remote-gui.test.ts` (local adapter: cookie, hand-off,
-        isolation, rewriting, the WebSocket relay, SSE 501), `agent/internal/agent/remotegui_test.go`,
+        isolation, rewriting, the WebSocket relay, SSE without follow carried / with follow 501), `agent/internal/agent/remotegui_test.go`,
         `remotegui_ws_test.go` (a host shell through a fake cloud); checked end to end with a real agent and a browser
         (navigation, deep-link reload, an actor POST, the 403 switch).
 

@@ -44,7 +44,10 @@ export async function serveRemoteGui(req: { method: string; rawUrl: string; path
   // the bare prefix → the site's status page
   if (req.path === prefix || req.path === `${prefix}/`) return { status: 302, headers: { Location: `${prefix}/_opm/app/${t.siteSlug}/status`, 'Cache-Control': 'no-store' }, body: Buffer.alloc(0) };
   if (!t.agentPath.startsWith('/_opm')) return out(page(404, 'Not found', 'Only the agent GUI (/_opm) is served through the cloud.'));
-  if ((req.headers.accept ?? '').includes('text/event-stream'))
+  // an event stream WITHOUT follow ends by itself (the lines in the range, then `end`): carried as one answer. A follow
+  // stream never ends: not carried (yet).
+  const fol = /[?&]follow=(1|true)(&|$)/.test(req.rawUrl);
+  if ((req.headers.accept ?? '').includes('text/event-stream') && fol)
     return out(page(501, 'Not available through the cloud yet', 'Live log follow works only when the agent GUI is opened on the site itself (turn follow off to read the logs here).'));
   let body: Buffer;
   try {

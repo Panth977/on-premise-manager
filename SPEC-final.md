@@ -6568,8 +6568,8 @@ Pass = every check above green; results file lists timings and the activity coun
     works for another site too (its flow already followed the target's intent). Tests:
     `agent/internal/agent/site_agent_routes_test.go`, `tests/rounde-volumes.spec.ts`.
 
-122. **A multi-site branch plan stages every site before it applies** (NEOM: "Fast-forward all sites" to cloud seq 21
-    rolled back with "apply failed on app2: image envizom-analytics:v4: blob ec0dce9bcf09 missing"). A proposal is
+122. **A multi-site branch plan stages every site before it applies** (a 4-site "Fast-forward all sites" rolled back
+    with "apply failed on app2: image <service>:v4: blob … missing"). A proposal is
     staged by every site when it arrives, but a fast-forward of several sites (and any multi-site merge plan) staged
     only the coordinator; another site then applied without the image layers and files. The snapshot step (all sites in
     parallel, before any apply, 30 min) now stages the site's revision unless it is staged already (`ensureStaged`,

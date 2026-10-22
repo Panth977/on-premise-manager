@@ -495,8 +495,27 @@ func (a *Agent) scanDrift(ctx context.Context) (*driftScan, error) {
 		ids[configDigest] = v
 		return v
 	}
-	sameImage := func(liveID, configDigest string) bool {
-		return liveID == configDigest || (liveID != "" && liveID == localID(configDigest))
+	// healed: integrity tags put back this scan (a `docker image prune -a` on the containerd store removes them while
+	// the running containers keep the image) — §21 #120
+	healed := map[string]bool{}
+	sameImage := func(liveID, configDigest, createdFrom string) bool {
+		if liveID == configDigest || (liveID != "" && liveID == localID(configDigest)) {
+			return true
+		}
+		// the agent created the container FROM opm/cfg:<config hex>: when that tag is gone the container still runs
+		// that image (a tag pointing at another image is a real change, handled above)
+		if createdFrom != "" && createdFrom == driver.ImageRef(configDigest) && localID(configDigest) == "" && liveID != "" {
+			if !healed[configDigest] {
+				healed[configDigest] = true
+				repo, tag, _ := strings.Cut(createdFrom, ":")
+				if err := a.dc.ImageTag(ctx, liveID, repo, tag); err == nil {
+					ids[configDigest] = liveID
+					a.log.Info("drift", "integrity tag restored (the image was untagged, not changed)", "tag", createdFrom, "image", shortID(liveID))
+				}
+			}
+			return true
+		}
+		return false
 	}
 	// imageFor: the catalog image with this config digest, else a local image entry
 	imageFor := func(id, hint string) (svc, ver string, spec *model.ImageSpec) {
@@ -508,7 +527,7 @@ func (a *Agent) scanDrift(ctx context.Context) (*driftScan, error) {
 			sort.Strings(keys)
 			for _, k := range keys {
 				im := cat.Images[k]
-				if sameImage(id, im.ConfigDigest) {
+				if sameImage(id, im.ConfigDigest, hint) {
 					if _, ok := hr.Catalog.Images[k]; !ok {
 						d.LocalCatalog.Images[k] = im
 						if s, ok := cat.Services[im.ServiceSlug]; ok {
@@ -612,7 +631,7 @@ func (a *Agent) scanDrift(ctx context.Context) (*driftScan, error) {
 		c := &containers[i]
 		// image
 		img := a.inspectImage(ctx, lc.Image, imgCache)
-		if !sameImage(lc.Image, b.Image.ConfigDigest) {
+		if !sameImage(lc.Image, b.Image.ConfigDigest, lc.Config.Image) {
 			svc, ver, _ := imageFor(lc.Image, lc.Config.Image)
 			c.ServiceSlug, c.Version = svc, ver
 			for _, k := range []string{key + "/image"} {

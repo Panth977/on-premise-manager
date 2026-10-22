@@ -6527,6 +6527,26 @@ Pass = every check above green; results file lists timings and the activity coun
     (e) Tests: `internal/movehome` (copy incl. modes + symlinks, rename, refusals, failure; also on Linux),
         `TestMoveHomeAgentSide` (check, path rewrite, once). Shipped as agent 0.19.1.
 
+120. **`docker image prune -a` is not an image change; the install script asks for the agent home** (a site ran
+    `docker image prune -a`; every container then showed as running a new local image, that drift was committed and
+    every later merge failed validation: "image redis:local-37aa… has no volume data / port service …").
+    (a) **Cause.** On the containerd image store (Docker ≥ 29) an image id is the manifest digest, so the agent finds the
+        catalog image of a container through its integrity tag `opm/cfg:<config hex>`. The prune removed those tags (the
+        running containers keep the images), the lookup failed and the drift scan adopted every image as a site image
+        (`<svc>:local-<id>`, ports `p<number>`, no named volumes).
+    (b) **Fix.** A container the agent created FROM `opm/cfg:<config hex>` (its `Config.Image`) still runs that image
+        when the tag is gone (a tag that points at another image is still a change): the drift scan matches it and puts
+        the tag back on the container's image (log "integrity tag restored"); `ImagePresent` does the same before an
+        apply would load the image again (the image's layers are compared with the config when the config blob is
+        there). Test `TestRestoreIntegrityTagDocker`.
+    (c) **A site that already committed such drift**: revert that drift commit on the site's Branch page (agent ≥
+        0.19.2: the tags are restored, nothing is downloaded), then merge the cloud commit.
+    (d) **Install script — the agent home.** A fresh install asks for the agent home (default /var/lib/opm, showing the
+        free space; `OPM_DATA_DIR=/path` without a terminal) and writes `dataDir` into agent.json. A reinstall / upgrade
+        to ≥ 0.19.1 shows the home's size and the free space and offers to move it (`OPM_MOVE_HOME=/path` without a
+        terminal): the same checks as §21 #119, the site's containers stopped, `move-home.json` prepared, `opm-agent
+        move-home` run; a failure leaves the home where it was and starts the containers again.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

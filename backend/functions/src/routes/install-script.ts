@@ -49,6 +49,8 @@ export function renderInstallScript(v: InstallScriptVars): string {
 #   OPM_ALLOW_DOWNGRADE=1 confirms a downgrade · OPM_RESTORE_DB_BACKUP=1 restores a compatible DB backup when needed
 #   OPM_AGENT_VERSION=x installs that uploaded version instead of the pin · OPM_SOCKET_ACTIVATION=0 no opm-agent.socket
 #   OPM_ROLLBACK=1 on a reinstall / upgrade: also roll this site back to its last backup (a stuck update is always stopped)
+#   OPM_DATA_DIR=/path agent home of a FRESH install (default /var/lib/opm; asked when there is a terminal)
+#   OPM_MOVE_HOME=/path on a reinstall / upgrade: move the agent home there (asked when there is a terminal; agent ≥ 0.19.1)
 #   DRY_RUN=1 no systemd / service changes (tests)
 # Log: /var/log/opm-install.log. Steps already done are detected and skipped. A fresh install: the token is valid for 24 h
 # until the site enrolls; after enrolling the same command only up- / downgrades this enrolled site (never re-enrolls).
@@ -184,6 +186,20 @@ ask() { # ask <question> <preset answer 1|0|""> <flag for the rerun hint> → 0 
   rerun_hint "$3"
   return 1
 }
+
+ask_text() { # ask_text <question> <default> → $ANS (the default without a terminal)
+  ANS="$2"
+  [ "$TTY" = 1 ] || return 0
+  printf '      %s [%s] ' "$1" "$2" >/dev/tty
+  read -r ANS </dev/tty || ANS=""
+  [ -n "$ANS" ] || ANS="$2"
+  logf "$1 -> $ANS"
+}
+# free bytes / human free space of the filesystem holding a path (or its nearest existing parent)
+fs_of() { d="$1"; while [ ! -e "$d" ] && [ "$d" != / ]; do d=$(dirname "$d"); done; printf '%s' "$d"; }
+free_b() { df -P -B1 "$(fs_of "$1")" 2>/dev/null | awk 'NR == 2 { print $4 }'; }
+free_h() { df -P -h "$(fs_of "$1")" 2>/dev/null | awk 'NR == 2 { print $4 " free of " $2 " on " $6 }'; }
+dev_of() { stat -c %d "$(fs_of "$1")" 2>/dev/null; }
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 logf "==== OPM install start: site $SITE deployment $DEP agent $AGENT_VERSION docker $DOCKER_VERSION dry=$DRY tty=$TTY"
@@ -438,6 +454,15 @@ fi
 
 # ───────────────────────────── 4. configuration + enrollment state (the setup is kept)
 step "Agent configuration"
+if [ "$ACTION" = fresh ] && [ ! -f /etc/opm/agent.json ]; then
+  # §21 #119 the agent home (database, downloads, snapshots, the volumes without their own location): put it on a disk
+  # with room — the agent refuses downloads / snapshots that would leave less than min(5 %, 2 GiB) free there
+  info "agent home default: /var/lib/opm ($(free_h /var/lib/opm))"
+  ask_text "Agent home (an absolute folder; on the disk with the most room)" "\${OPM_DATA_DIR:-$DATA_DIR}"
+  case "$ANS" in /*) DATA_DIR=\${ANS%/};; *) fail "the agent home must be an absolute folder (got $ANS)" "rerun and give e.g. /data/opm (or OPM_DATA_DIR=/data/opm after sudo)";; esac
+  [ -d "$(dirname "$DATA_DIR")" ] || fail "the parent folder of $DATA_DIR does not exist" "create it (or mount the disk) and rerun"
+  ok "agent home $DATA_DIR ($(free_h "$DATA_DIR"))"
+fi
 mkdir -p /etc/opm "$DATA_DIR" && chmod 700 "$DATA_DIR"
 # add a missing key with its default (never changes an existing value); agent.json.bak keeps the previous file
 add_key() { # add_key <key> <value>
@@ -463,7 +488,7 @@ if [ -f /etc/opm/agent.json ]; then
   if curl -fsS --max-time 3 "http://127.0.0.1:$AGENT_PORT/_opm/api/info" </dev/null 2>/dev/null | grep -q '"enrolled": *true'; then ENROLLED=1
   elif "$BIN" status --config /etc/opm/agent.json </dev/null 2>>"$LOG" | grep -q '"enrolled": *true'; then ENROLLED=1; fi
 else
-  printf '{"apiBase":"%s","deploymentId":"%s","siteSlug":"%s","releasePublicKey":"%s"}\\n' "$API" "$DEP" "$SITE" "$RELEASE_PUBKEY" > /etc/opm/agent.json
+  printf '{"apiBase":"%s","deploymentId":"%s","siteSlug":"%s","releasePublicKey":"%s","dataDir":"%s"}\\n' "$API" "$DEP" "$SITE" "$RELEASE_PUBKEY" "$DATA_DIR" > /etc/opm/agent.json
   ok "wrote /etc/opm/agent.json"
 fi
 if [ "$ENROLLED" = 1 ]; then
@@ -632,6 +657,53 @@ else
   done
   if [ -n "$INFO" ]; then ok "local GUI answers on port $AGENT_PORT"; else fail "the agent GUI does not answer on 127.0.0.1:$AGENT_PORT" "journalctl -u opm-agent --no-pager | tail -50"; fi
   if echo "$INFO" | grep -q '"enrolled": *true'; then ok "site $SITE is enrolled with the cloud"; else fail "the site did not enroll within 60 s (no connection to $API?)" "journalctl -u opm-agent --no-pager | tail -50 ; the agent keeps retrying with the token in /etc/opm/install-token"; fi
+fi
+
+# ───────────────────────────── 6b. agent home: show the space, offer to move it (§21 #119, agent ≥ 0.19.1)
+if [ "$ACTION" != fresh ] && [ "$DRY" != 1 ] && [ "$(ver_cmp "$TARGET" 0.19.1)" -ge 0 ]; then
+  step "Agent home"
+  info "agent home $DATA_DIR: $(du -sh "$DATA_DIR" 2>/dev/null | cut -f1) used, $(free_h "$DATA_DIR")"
+  NEW_HOME="\${OPM_MOVE_HOME:-}"
+  if [ -z "$NEW_HOME" ] && [ "$TTY" = 1 ]; then
+    if ask "Move the agent home to another folder / disk (its containers stop for the move)?" "" "OPM_MOVE_HOME=/path"; then
+      ask_text "New agent home (absolute, empty or not there yet)" ""
+      NEW_HOME="$ANS"
+    fi
+  fi
+  if [ -n "$NEW_HOME" ]; then
+    NEW_HOME=\${NEW_HOME%/}
+    case "$NEW_HOME" in /*) ;; *) fail "the new agent home must be an absolute folder (got $NEW_HOME)" "nothing was moved; rerun with e.g. OPM_MOVE_HOME=/data/opm";; esac
+    case "$NEW_HOME/" in "$DATA_DIR"/*) fail "$NEW_HOME is inside the agent home $DATA_DIR" "nothing was moved; choose a folder outside it";; esac
+    case "$DATA_DIR/" in "$NEW_HOME"/*) fail "$NEW_HOME contains the agent home $DATA_DIR" "nothing was moved; choose a folder of its own, e.g. $NEW_HOME/opm";; esac
+    [ -d "$(dirname "$NEW_HOME")" ] || fail "the parent folder of $NEW_HOME does not exist" "nothing was moved; create it (or mount the disk) and rerun"
+    if [ -e "$NEW_HOME" ] && [ -n "$(ls -A "$NEW_HOME" 2>/dev/null)" ]; then fail "$NEW_HOME is not empty" "nothing was moved; give an empty or new folder"; fi
+    MODE=copy; [ "$(dev_of "$NEW_HOME")" = "$(dev_of "$DATA_DIR")" ] && MODE=rename
+    if [ "$MODE" = copy ]; then
+      NEED=$(du -sb "$DATA_DIR" 2>/dev/null | cut -f1); FREE=$(free_b "$NEW_HOME")
+      [ -n "$NEED" ] && [ -n "$FREE" ] && [ "$FREE" -gt $((NEED + NEED / 20 + 2147483648)) ] || fail "not enough free space for the agent home at $NEW_HOME ($(free_h "$NEW_HOME"), it needs $(du -sh "$DATA_DIR" | cut -f1) + 2 GiB)" "nothing was moved"
+    fi
+    say "      $DATA_DIR → $NEW_HOME ($MODE). The site's containers stop for the move and start again from the new paths."
+    # stop the site's containers (they mount files under the agent home) and record them for the agent's restart
+    STOPPED=""
+    for cid in $(docker ps -q --filter "label=opm.deployment=$DEP" --filter "label=opm.site=$SITE" 2>/dev/null); do
+      slug=$(docker inspect -f '{{ index .Config.Labels "opm.container" }}' "$cid" 2>/dev/null || true)
+      docker stop -t 30 "$cid" >/dev/null 2>&1 && STOPPED="$STOPPED\${STOPPED:+,}\\"$slug\\""
+    done
+    info "stopped: $(printf '%s' "$STOPPED" | tr -d '"')"
+    printf '{"moveId":"install-%s","status":"prepared","from":"%s","to":"%s","mode":"%s","actor":"install script","startedAt":"%s","finishedAt":null,"sizeBytes":0,"files":0,"stopped":[%s],"oldCopy":null,"error":null}\\n' \\
+      "$(date -u +%Y%m%dT%H%M%SZ)" "$DATA_DIR" "$NEW_HOME" "$MODE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$STOPPED" > "$DATA_DIR/move-home.json"
+    OLD_HOME="$DATA_DIR"
+    if run "$BIN" move-home --config /etc/opm/agent.json --from "$DATA_DIR" --to "$NEW_HOME"; then
+      ok "agent home moved to $NEW_HOME (agent.json dataDir + systemd units updated)"
+      DATA_DIR="$NEW_HOME"
+      i=0; while [ "$i" -lt 60 ] && ! curl -fsS --max-time 3 "http://127.0.0.1:$AGENT_PORT/_opm/api/health" </dev/null >/dev/null 2>&1; do sleep 2; i=$((i + 2)); done
+      if [ "$i" -lt 60 ]; then ok "opm-agent runs from $NEW_HOME; it re-applies the containers with the new paths now"; else info "opm-agent does not answer yet: journalctl -u opm-agent --no-pager | tail -50"; fi
+      if [ "$MODE" = copy ]; then OLDC=""; for d in "$OLD_HOME".moved-*; do [ -d "$d" ] && OLDC="$d"; done; info "the old copy stays at $OLDC — delete it from Agent › Storage once all is well"; fi
+    else
+      info "the move failed (see $LOG): the agent stays in $DATA_DIR and starts its containers again"
+      for cid in $(docker ps -aq --filter "label=opm.deployment=$DEP" --filter "label=opm.site=$SITE" --filter status=exited 2>/dev/null); do docker start "$cid" >/dev/null 2>&1 || true; done
+    fi
+  fi
 fi
 
 # ───────────────────────────── 7. reachability (report only: never fails, never changes firewall rules)

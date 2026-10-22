@@ -31,7 +31,7 @@ func shortHex(d string) string {
 func ImagePresent(ctx context.Context, dc *docker.Client, img model.ImageSpec, blob BlobPath) (bool, error) {
 	im, err := dc.ImageInspect(ctx, ImageRef(img.ConfigDigest))
 	if errors.Is(err, docker.ErrNotFound) {
-		return false, nil
+		return restoreIntegrityTag(ctx, dc, img, blob), nil
 	}
 	if err != nil {
 		return false, err
@@ -197,4 +197,38 @@ func EnsureReadable(ctx context.Context, dc *docker.Client, img model.ImageSpec)
 		return true, fmt.Errorf("tag %s does not point to %s after re-tagging", ref, ImageRef(img.ConfigDigest))
 	}
 	return true, nil
+}
+
+// restoreIntegrityTag (§21 #120): `docker image prune -a` (containerd image store) removes opm/cfg:<config hex> while a
+// container created from it keeps running the image. When such a container exists (and its image has the layers of
+// the config, when the config blob is here), the tag is put back on that image instead of loading it again.
+func restoreIntegrityTag(ctx context.Context, dc *docker.Client, img model.ImageSpec, blob BlobPath) bool {
+	ref := ImageRef(img.ConfigDigest)
+	list, err := dc.ContainerList(ctx, true)
+	if err != nil {
+		return false
+	}
+	for _, c := range list {
+		if c.ImageID == "" || (c.Image != ref && !strings.HasPrefix(c.Image, "sha256:")) {
+			continue // lists the creation ref while it resolves, the image id once it does not
+		}
+		if c.Image != ref {
+			cj, err := dc.ContainerInspect(ctx, c.ID)
+			if err != nil || cj.Config.Image != ref {
+				continue
+			}
+		}
+		im, err := dc.ImageInspect(ctx, c.ImageID)
+		if err != nil {
+			continue
+		}
+		if want, err := diffIDs(blob(hexOf(img.ConfigDigest))); err == nil && !equalStrings(want, im.RootFS.Layers) {
+			continue
+		}
+		repo, tag, _ := strings.Cut(ref, ":")
+		if dc.ImageTag(ctx, c.ImageID, repo, tag) == nil {
+			return true
+		}
+	}
+	return false
 }

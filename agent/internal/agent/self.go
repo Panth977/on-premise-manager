@@ -485,7 +485,7 @@ func (a *Agent) selfRelease() *model.AgentSelfRelease {
 	if rel == nil {
 		return nil
 	}
-	rel.Newer = model.CompareAgentVersions(rel.Version, a.version) > 0
+	rel.Newer = model.CompareAgentVersions(rel.Version, a.version) >= 0 // the pin is not OLDER (equal = up to date)
 	rel.UpgradeAvailable = model.AgentUpgradeAvailable(a.version, rel.Version)
 	return rel
 }

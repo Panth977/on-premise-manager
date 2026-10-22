@@ -107,6 +107,20 @@ export async function run(cmd: string, cfg: CloudConfig, arg: Arg, flag: Flag): 
       const seedB64 = process.env.OPM_RELEASE_PRIVATE_KEY || (cfg.adapter === 'local' ? ensureReleaseKey(cfg).privateKeySeedB64 : '');
       if (!seedB64) return usage('no release key: set OPM_RELEASE_PRIVATE_KEY');
       await uploadAgentDir({ bucket: bucketShim(blobs()), dir: path.resolve(dir), version, latest: flag('latest'), seedB64 });
+      // --latest also moves the PIN (deps/manifest.json agent): sites are offered it and install scripts pin it — the
+      // pin staying behind "latest" offered the old agent everywhere
+      if (flag('latest')) {
+        const raw = await blobs().get('deps/manifest.json');
+        if (raw) {
+          const m = JSON.parse(raw.toString('utf8')) as { agent?: { version: string; notes: string | null } | null; updatedAt?: string };
+          if (m.agent?.version !== version) {
+            m.agent = { version, notes: m.agent?.version === version ? m.agent.notes : null };
+            m.updatedAt = new Date().toISOString();
+            await blobs().put('deps/manifest.json', Buffer.from(JSON.stringify(m)), { contentType: 'application/json' });
+            console.log(`pinned agent release = ${version} (deps/manifest.json)`);
+          }
+        }
+      }
       return 0;
     }
     case 'upload-deps': {

@@ -51,6 +51,9 @@ import {
   type Site,
   type Template,
   type Transfer,
+  type SharedFile,
+  FILE_MAX,
+  FILE_NOTE_MAX,
   type ValidationContext,
   type ValidationIssue,
   type Variable,
@@ -222,6 +225,7 @@ export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): P
     ensureSlugs(db); // §21 #106 mock migrate-k
     ensureGithub(db); // §21 #106 GitHub mirror seed (github.ts)
     tick(db);
+    tickFiles(db);
     const auth = headers.get('Authorization') ?? '';
     const uid = auth.startsWith('Bearer mock:') ? auth.slice('Bearer mock:'.length) : null;
     if (!uid) throw new Err('unauthenticated', 'missing or invalid ID token');
@@ -1602,7 +1606,18 @@ const handlers: Record<string, Handler> = {
       st.blobs.set(hex, all);
       stageLog.push({ op: 'put', stageId: into, sha: `sha256:${hex}`, size: all.length, at: Date.now(), multipart: true });
     } else if (u.target === 'blob') storeBlob(c.db, hex, all);
-    else {
+    else if (u.target === 'file') {
+      // §21 #123 a browser publish into the cloud: the bytes are in the cloud store → ready
+      storeBlob(c.db, `file:${u.transferId}`, all);
+      const d = c.db.deployments[u.deploymentId!]!;
+      const f = (c.db.files[d.deploymentId] ?? []).find((x) => x.fileId === u.transferId);
+      if (f && f.state === 'uploading') {
+        f.state = 'ready';
+        f.cloud = { stored: true, fetch: null };
+        cloudActivity(c, d, 'file.published', `File ${f.fileName} published`, { fileId: f.fileId, fileName: f.fileName, sizeBytes: f.sizeBytes, origin: f.origin });
+        d.agentEpoch += 1;
+      }
+    } else {
       storeBlob(c.db, `transfer:${u.transferId}`, all);
       const d = c.db.deployments[u.deploymentId!]!;
       transfer = c.db.transfers[d.deploymentId]!.find((t) => t.transferId === u.transferId) ?? null;
@@ -1850,6 +1865,7 @@ const handlers: Record<string, Handler> = {
     c.db.installTokens[id] = [];
     c.db.activities[id] = [];
     c.db.transfers[id] = [];
+    c.db.files[id] = [];
     const first = branchHelpers.create(c.db, branchHelpers.depRef(id), d, draft, c.me.uid, src ? { ref: src.info.ref, label: src.info.label, commit: src.commit, config: src.config } : null, b.message, buildCatalog(c.db, draft));
     cloudActivity(c, d, 'deployment.created', `Deployment ${d.label} created${src ? ` from ${src.info.label}${src.commit ? `@${src.commit.seq}` : ''}` : ' (empty)'}`, { label: d.label, templateId: tpl?.templateId ?? null, from: fromP });
     cloudActivity(c, d, 'branch.created', `Commit 1: ${first.message}`, { branch: { kind: 'deployment', deploymentId: id }, commitId: first.commitId, seq: 1, from: fromP });
@@ -2433,6 +2449,99 @@ const handlers: Record<string, Handler> = {
     return { deleted: true };
   },
 };
+// §21 #123 shared files (one bucket per deployment)
+function sharedFile(c: Ctx, d: Deployment): SharedFile {
+  const f = (c.db.files[d.deploymentId] ?? []).find((x) => x.fileId === c.params.fileId);
+  if (!f) throw new Err('not-found', 'file not found');
+  return f;
+}
+Object.assign(handlers, {
+  listFiles: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.transfers', 'read');
+    const all = ['1', 'true'].includes(c.query.get('unpublished') ?? '');
+    return { items: (c.db.files[d.deploymentId] ?? []).filter((f) => all || f.state !== 'unpublished').sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)) };
+  },
+  publishFile: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.transfers', 'write');
+    const b = bodyOf<{ fileName: string; sizeBytes: number; sha256: string; note?: string | null }>(c);
+    unknownFields(b, ['fileName', 'sizeBytes', 'sha256', 'note']);
+    const out: ValidationIssue[] = [];
+    if (typeof b.fileName !== 'string' || !b.fileName || b.fileName.length > 255 || /[/\\\0]/.test(b.fileName)) out.push(issue('fileName', 'V_FORMAT', 'file name must be 1–255 characters without / \\ NUL'));
+    if (!Number.isInteger(b.sizeBytes) || b.sizeBytes < 0) out.push(issue('sizeBytes', 'V_RANGE', 'sizeBytes must be a whole number ≥ 0'));
+    if (!RE.sha256.test(b.sha256 ?? '')) out.push(issue('sha256', 'V_FORMAT', 'sha256 must be sha256:<hex>'));
+    if ((b.note ?? '').length > FILE_NOTE_MAX) out.push(issue('note', 'V_LENGTH', `note must be ≤ ${FILE_NOTE_MAX} characters`));
+    throwIf(out);
+    if (b.sizeBytes > FILE_MAX) throw new Err('too-large', 'files are limited to 2 GiB');
+    const file: SharedFile = { fileId: ulid(), fileName: b.fileName, sizeBytes: b.sizeBytes, sha256: b.sha256, note: b.note?.trim() || null, publishedAt: now(), publishedBy: c.me.email, origin: { kind: 'cloud' }, state: 'uploading', unpublishedAt: null, unpublishedBy: null, cloud: { stored: false, fetch: null }, sites: [] };
+    const upload = newUpload(c, 'file', b.sizeBytes, b.sha256, d.deploymentId, file.fileId);
+    (c.db.files[d.deploymentId] ??= []).push(file);
+    return { file, upload };
+  },
+  fetchFileToCloud: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.transfers', 'read');
+    const f = sharedFile(c, d);
+    if (f.state === 'unpublished') throw new Err('gone', 'the file was unpublished');
+    if (f.cloud.stored) return f;
+    if (f.state === 'uploading') throw new Err('conflict', 'the file is still uploading');
+    if (!f.sites.length) throw new Err('conflict', 'no site holds a copy of this file');
+    if (f.cloud.fetch && !f.cloud.fetch.error) return f;
+    f.cloud.fetch = { requestedAt: now(), requestedBy: c.me.email, from: f.sites[0]!, startedAt: null, bytesDone: 0, error: null };
+    d.agentEpoch += 1;
+    return f;
+  },
+  downloadFile: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.transfers', 'read');
+    const f = sharedFile(c, d);
+    if (f.state === 'unpublished') throw new Err('gone', 'the file was unpublished');
+    if (!f.cloud.stored) throw new Err('conflict', 'the cloud has no copy yet (get it into the cloud first)');
+    const bytes = loadBlob(c.db, `file:${f.fileId}`) ?? new TextEncoder().encode(`mock content of ${f.fileName}\n`);
+    cloudActivity(c, d, 'file.downloaded', `File ${f.fileName} downloaded`, { fileId: f.fileId, where: 'cloud' });
+    return bytesResponse(bytes, f.fileName);
+  },
+  unpublishFile: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.transfers', 'write');
+    const f = sharedFile(c, d);
+    if (f.state !== 'unpublished') {
+      f.state = 'unpublished';
+      f.unpublishedAt = now();
+      f.unpublishedBy = c.me.email;
+      f.cloud = { stored: false, fetch: null };
+      f.sites = [];
+      memBlobs.delete(`file:${f.fileId}`);
+      delete c.db.blobs[`file:${f.fileId}`];
+      d.agentEpoch += 1;
+      cloudActivity(c, d, 'file.unpublished', `File ${f.fileName} unpublished`, { fileId: f.fileId, fileName: f.fileName });
+    }
+    return { deleted: true };
+  },
+} satisfies Record<string, Handler>);
+
+/** §21 #123 mock: a site asked by fileFetches starts uploading after ~1 s and is done ~4 s later (cloud.stored) */
+const FETCH_START_MS = 1000;
+const FETCH_MS = 4000;
+function tickFiles(db: MockDb) {
+  const t = Date.now();
+  for (const [depId, list] of Object.entries(db.files ?? {}))
+    for (const f of list) {
+      const fx = f.cloud.fetch;
+      if (!fx || fx.error || f.cloud.stored || f.state !== 'ready') continue;
+      const el = t - Date.parse(fx.requestedAt);
+      if (el < FETCH_START_MS) continue;
+      fx.startedAt ??= new Date(Date.parse(fx.requestedAt) + FETCH_START_MS).toISOString();
+      fx.bytesDone = Math.min(f.sizeBytes, Math.floor((f.sizeBytes * (el - FETCH_START_MS)) / FETCH_MS));
+      if (el >= FETCH_START_MS + FETCH_MS) {
+        f.cloud = { stored: true, fetch: null };
+        const d = db.deployments[depId];
+        if (d) cloudActivityAs(db, d, null, 'file.fetched', `File ${f.fileName} copied into the cloud from ${fx.from}`, { fileId: f.fileId, where: 'cloud', from: fx.from });
+      }
+    }
+}
+
 // §21 #101 volume content cloud API (mock/volume-content.ts)
 const bh = branchHandlers({
   err: (code, message, details) => new Err(code, message, details),
@@ -2649,7 +2758,7 @@ function loadBlob(db: MockDb, key: string): Uint8Array | null {
   if (db.blobs[key] !== undefined) return unb64(db.blobs[key]!);
   return null;
 }
-function newUpload(c: Ctx, target: 'blob' | 'transfer', sizeBytes: number, sha256: string, deploymentId: string | null, transferId: string | null) {
+function newUpload(c: Ctx, target: 'blob' | 'transfer' | 'file', sizeBytes: number, sha256: string, deploymentId: string | null, transferId: string | null) {
   const partSize = 8 * 1024 * 1024;
   const u: MockUpload = { uploadId: autoId(), purpose: target, deploymentId, transferId, sizeBytes, sha256, partSize, partCount: Math.max(1, Math.ceil(sizeBytes / partSize)), partsReceived: [], status: 'open', error: null, createdAt: now(), createdBy: c.me.uid, expiresAt: new Date(Date.now() + 86400_000).toISOString(), parts: {}, target };
   c.db.uploads[u.uploadId] = u;

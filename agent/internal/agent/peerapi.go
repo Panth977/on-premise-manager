@@ -46,6 +46,8 @@ func (a *Agent) peerMux() http.Handler {
 	}, 200)
 	j("GET /_opm/peer/have", func(w http.ResponseWriter, r *http.Request) (any, *httpError) { return a.haveList(), nil }, 200)
 	raw("GET /_opm/peer/blobs/{sha256}", a.servePeerBlob)
+	j("GET /_opm/peer/files", a.peerFiles, 200)                          // §21 #123
+	raw("GET /_opm/peer/files/{fileId}/content", a.servePeerFileContent) // §21 #123
 	j("POST /_opm/peer/fetch-request", a.handleFetchRequest, 202)
 	j("GET /_opm/peer/revisions/{revId}", func(w http.ResponseWriter, r *http.Request) (any, *httpError) {
 		rev, ok := a.revision(r.PathValue("revId"))

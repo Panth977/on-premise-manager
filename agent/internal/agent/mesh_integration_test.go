@@ -1022,6 +1022,55 @@ func TestTwoSiteMesh(t *testing.T) {
 		return false
 	})
 
+	// 12c. §21 #123 shared files (a new cloud): nothing is downloaded by itself; copies on request from the cloud or a
+	// peer; a site's file registered in the cloud and uploaded only when the cloud asks; unpublish drops the copies
+	fc.EnableFiles()
+	cf := fc.PublishFile("manual.pdf", []byte("cloud manual"))
+	sf := func(s *site, id string) model.SiteSharedFile {
+		var l model.ListResponse[model.SiteSharedFile]
+		app.api(t, "GET", "/_opm/api/sites/"+s.slug+"/files?unpublished=1", nil, &l)
+		for _, f := range l.Items {
+			if f.FileID == id {
+				return f
+			}
+		}
+		return model.SiteSharedFile{}
+	}
+	waitFor(t, "cloud file listed on both", 30*time.Second, func() bool { return sf(app, cf.FileID).ListedBy == "cloud" && sf(db, cf.FileID).ListedBy == "cloud" })
+	if sf(app, cf.FileID).Here || sf(db, cf.FileID).Here {
+		t.Fatal("a listed file must not be downloaded by itself")
+	}
+	if c, b := app.api(t, "POST", "/_opm/api/sites/app/files/"+cf.FileID+"/fetch", nil, nil); c != 202 {
+		t.Fatalf("fetch to app: %d %s", c, b)
+	}
+	waitFor(t, "app copy (from the cloud)", 30*time.Second, func() bool { return sf(app, cf.FileID).Here })
+	waitFor(t, "the cloud knows app holds it", 30*time.Second, func() bool { f, _ := fc.File(cf.FileID); return len(f.Sites) == 1 && f.Sites[0] == "app" })
+	if c, b := app.api(t, "POST", "/_opm/api/sites/db/files/"+cf.FileID+"/fetch", nil, nil); c != 202 {
+		t.Fatalf("fetch to db: %d %s", c, b)
+	}
+	waitFor(t, "db copy (from app over the mesh)", 30*time.Second, func() bool { return sf(db, cf.FileID).Here })
+	if len(activityData(t, db.a, "file.fetched")) != 1 || activityData(t, db.a, "file.fetched")[0]["from"] != "peer:app" {
+		t.Fatalf("db got its copy from %v", activityData(t, db.a, "file.fetched"))
+	}
+	var pub model.SiteSharedFile
+	if c, b := app.api(t, "POST", "/_opm/api/sites/db/files/upload?fileName=export.csv", []byte("a,b\n1,2\n"), &pub); c != 201 {
+		t.Fatalf("publish on db (forwarded): %d %s", c, b)
+	}
+	waitFor(t, "db's file registered in the cloud", 30*time.Second, func() bool { f, ok := fc.File(pub.FileID); return ok && f.Origin.SiteSlug == "db" && !f.Cloud.Stored })
+	time.Sleep(2 * time.Second)
+	if f, _ := fc.File(pub.FileID); f.Cloud.Stored {
+		t.Fatal("a site's file must not be uploaded until the cloud asks")
+	}
+	fc.RequestFileToCloud(pub.FileID)
+	waitFor(t, "db uploaded its copy when the cloud asked", 30*time.Second, func() bool { f, _ := fc.File(pub.FileID); return f.Cloud.Stored && string(fc.FileData(pub.FileID)) == "a,b\n1,2\n" })
+	if c, b := app.api(t, "DELETE", "/_opm/api/sites/app/files/"+cf.FileID, nil, nil); c != 200 {
+		t.Fatalf("unpublish: %d %s", c, b)
+	}
+	waitFor(t, "unpublished in the cloud; db dropped its copy", 30*time.Second, func() bool {
+		f, _ := fc.File(cf.FileID)
+		return f.State == "unpublished" && !sf(db, cf.FileID).Here && sf(db, cf.FileID).State == "unpublished"
+	})
+
 	// 12. access key rotation: old key fails, new key works, open sessions keep working
 	newKey := "ZYXWVUTSRQPONMLKJIHGFEDC"
 	fc.SetAccessKey(newKey)

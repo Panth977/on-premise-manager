@@ -5,6 +5,7 @@
  * Every per-site endpoint accepts {siteSlug} = a site slug, or "*" (GET only) = merged over the mesh.
  */
 import { REMOTE_GUI_AGENT_API, STORAGE_AGENT_API } from './remote-gui.js';
+import { FILES_AGENT_API, FILES_PEER_API } from './files.js';
 import { createClient, ep, type Client, type EndpointDef } from './http.js';
 import type * as T from './types.js';
 import type { TerminateUpdateRequest, TerminateUpdateResponse } from './agent-self.js';
@@ -119,6 +120,7 @@ export const AGENT_API = {
   ...STAGING_AGENT_API,
   // §21 #118 remote agent GUI
   ...REMOTE_GUI_AGENT_API,
+  ...FILES_AGENT_API,
   // §21 #119 storage + moving the agent home
   ...STORAGE_AGENT_API,
 } as const satisfies Record<string, EndpointDef>;
@@ -146,6 +148,8 @@ export const PEER_API = {
   sitePost: ep<void, Response>()({ method: 'POST', path: '/_opm/peer/site/{rest}', auth: P, perm: 'X-OPM-Actor + X-OPM-Session headers carry the actor', body: 'raw', res: 'raw', errors: ['not-found'], summary: 'Forwarded site action (save transfer, send from path, renew cert, upload).' }),
   // §21 #104
   ...BRANCH_PEER_API,
+  // §21 #123
+  ...FILES_PEER_API,
 } as const satisfies Record<string, EndpointDef>;
 
 export type AgentApi = typeof AGENT_API;

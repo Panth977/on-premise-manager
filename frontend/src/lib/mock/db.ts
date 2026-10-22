@@ -21,6 +21,7 @@ import type {
   Template,
   Transfer,
   Upload,
+  SharedFile,
   ImageSpec,
   RevisionCatalog,
   SiteConfig,
@@ -36,7 +37,7 @@ export interface MockUser {
 }
 export interface MockUpload extends Upload {
   parts: Record<number, string>; // base64
-  target: 'blob' | 'transfer';
+  target: 'blob' | 'transfer' | 'file';
 }
 export interface MockDb {
   v: number;
@@ -57,12 +58,14 @@ export interface MockDb {
   installTokens: Record<string, InstallToken[]>;
   activities: Record<string, Activity[]>;
   transfers: Record<string, Transfer[]>;
+  /** §21 #123 shared files per deployment (published + tombstones) */
+  files: Record<string, SharedFile[]>;
   uploads: Record<string, MockUpload>;
   blobs: Record<string, string>; // hex → base64 (small blobs only; big ones live in memory)
   seq: number;
 }
 
-export const DB_VERSION = 26; // 26: §21 #106 entity slugs + GitHub mirror (mock/github.ts); // 25: §21 #105 no working copy (mock migrate-j: config copies ≠ head auto-committed); // 24: §21 #104 branches (lazy migrate-i in mock/branches.ts: commits, merge bases, agent branches + seed scenario); 23: §21 #100 transfers store-and-forward states (ACME app: waiting / on the site / arriving / stored); 22: §21 #99 template "Postgres (dev tools)" (service postgresql, container postgress); 21: §21 #97 dev-tool presets on ACME db (postgres + redis) + secret pg-password; 20: §21 #93 ANSI update.failed log tail + hint (ACME app), North grid main with an mqtt mention (suggested depends) + an implicit containers.* ref; 19: §21 #92 upgrade commands (stored install tokens / maintenance) + agent clockSkew
+export const DB_VERSION = 27; // 27: §21 #123 shared files (ACME: in the cloud, site-only, on two sites, no copy, a tombstone); 26: §21 #106 entity slugs + GitHub mirror (mock/github.ts); // 25: §21 #105 no working copy (mock migrate-j: config copies ≠ head auto-committed); // 24: §21 #104 branches (lazy migrate-i in mock/branches.ts: commits, merge bases, agent branches + seed scenario); 23: §21 #100 transfers store-and-forward states (ACME app: waiting / on the site / arriving / stored); 22: §21 #99 template "Postgres (dev tools)" (service postgresql, container postgress); 21: §21 #97 dev-tool presets on ACME db (postgres + redis) + secret pg-password; 20: §21 #93 ANSI update.failed log tail + hint (ACME app), North grid main with an mqtt mention (suggested depends) + an implicit containers.* ref; 19: §21 #92 upgrade commands (stored install tokens / maintenance) + agent clockSkew
 const KEY = 'opm.mock.db';
 export const memBlobs = new Map<string, Uint8Array>();
 
@@ -345,6 +348,7 @@ function seed(): MockDb {
     installTokens: {},
     activities: {},
     transfers: {},
+    files: {},
     uploads: {},
     blobs: {},
     seq: 0,
@@ -934,6 +938,17 @@ function seed(): MockDb {
     { transferId: 'TrfAppDump00000000006', deploymentId: depId, siteSlug: 'app', direction: 'to-cloud', fileName: 'pg_dump.sql.gz', sizeBytes: 81_220_331, sha256: fakeSha(), storagePath: `transfers/${depId}/TrfAppDump00000000006`, uploadId: null, createdAt: ago(DAY), createdBy: 'ops@example.com', note: '', expiresAt: null, status: 'ready', savedPath: null, error: null },
   ];
 
+  // §21 #123 shared files: one in the cloud (+ a copy on app), one only on db (published from a server path), one on two
+  // sites, one nobody holds any more, one unpublished (tombstone)
+  const sf = (o: Partial<SharedFile> & Pick<SharedFile, 'fileId' | 'fileName' | 'sizeBytes' | 'publishedAt' | 'origin'>): SharedFile => ({ sha256: fakeSha(), note: null, publishedBy: SEED_USERS.admin.email, state: 'ready', unpublishedAt: null, unpublishedBy: null, cloud: { stored: false, fetch: null }, sites: [], ...o });
+  d.files[depId] = [
+    sf({ fileId: '01JF000000000000000000000A', fileName: 'license-2027.lic', sizeBytes: 1_204, publishedAt: ago(5 * HOUR), origin: { kind: 'cloud' }, note: 'new license for every site', cloud: { stored: true, fetch: null }, sites: ['app'] }),
+    sf({ fileId: '01JF000000000000000000000B', fileName: 'pg_dump.sql.gz', sizeBytes: 81_220_331, publishedAt: ago(DAY), publishedBy: 'ops@example.com', origin: { kind: 'site', siteSlug: 'db', via: 'path', sourcePath: '/var/backups/pg_dump.sql.gz' }, note: 'nightly dump for analysis', sites: ['db'] }),
+    sf({ fileId: '01JF000000000000000000000C', fileName: 'firmware-2.4.1.bin', sizeBytes: 48_234_112, publishedAt: ago(40 * MIN), publishedBy: 'ops@example.com', origin: { kind: 'site', siteSlug: 'app', via: 'browser', sourcePath: null }, note: 'for the gateway', sites: ['app', 'db'] }),
+    sf({ fileId: '01JF000000000000000000000D', fileName: 'gateway-notes.txt', sizeBytes: 3_812, publishedAt: ago(2 * DAY), origin: { kind: 'site', siteSlug: 'lab', via: 'browser', sourcePath: null } }),
+    sf({ fileId: '01JF000000000000000000000E', fileName: 'calibration-old.csv', sizeBytes: 9_812, publishedAt: ago(3 * DAY), origin: { kind: 'cloud' }, state: 'unpublished', unpublishedAt: ago(2 * DAY), unpublishedBy: SEED_USERS.admin.email }),
+  ];
+
   // a second deployment: empty, no head, not installed
   const dep2 = 'DepNorthGrid00000002';
   // §21 #93: site main runs mqtt + northwind-backend-admin (env MQTT_URL=mqtt://mqtt:1883, NO depends → suggested) +
@@ -975,6 +990,7 @@ function seed(): MockDb {
   d.installTokens[dep2] = [{ tokenHash: randHex(64), siteSlug: 'main', token: null, expiresAt: new Date(Date.now() + 20 * HOUR).toISOString(), usedAt: null, revokedAt: null, createdAt: ago(4 * HOUR), createdBy: ADMIN }];
   d.activities[dep2] = [act(dep2, '_cloud', 1, ago(DAY), ADMIN, 'cloud', 'deployment.created', 'Deployment North grid created (empty)', { label: 'North grid' }, null)];
   d.transfers[dep2] = [];
+  d.files[dep2] = [];
 
   const ae = (e: Partial<AuditLogEntry> & Pick<AuditLogEntry, 'ts' | 'op' | 'action' | 'targetType' | 'target'>): AuditLogEntry => {
     const sys = e.actor === 'system';

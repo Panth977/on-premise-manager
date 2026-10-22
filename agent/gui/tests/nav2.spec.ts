@@ -17,7 +17,7 @@ test('Sites tree (same as the cloud sidebar): every site with its pages; nodes c
   // the site of the page is open, the others closed; the pages of a site in the cloud order
   for (const k of ['status', 'containers', 'edge', 'volumes', 'devtools', 'settings', 'transfers', 'branch', 'server']) await expect(page.getByTestId(`tree-app-${k}`)).toBeVisible();
   await expect(page.getByTestId('tree-db-containers')).toBeHidden();
-  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Edge/, /^Volumes/, /^Dev tools/, /^Settings/, /^Transfers/, /^Branch/, /^Server/]);
+  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Edge/, /^Volumes/, /^Dev tools/, /^Settings/, /^Shared files/, /^Branch/, /^Server/]);
   // §21 #104 Branch: 3 uncommitted + 2 behind
   await expect(page.getByTestId('branch-badge')).toHaveText('5');
   // Containers open by default (one leaf per container), Volumes closed until opened — then remembered
@@ -79,7 +79,7 @@ test('deployment-wide pages follow the site of the URL; the site is remembered p
 test('"*" (All sites): one-site modules show "Choose a site" with an inline chooser; merged modules still work', async ({ page }) => {
   await login(page, '/_opm/app/*/transfers');
   const cases: [string, RegExp][] = [
-    ['/_opm/app/*/transfers', /Choose a site to see transfers/],
+    ['/_opm/app/*/transfers', /Choose a site to see shared files/],
     ['/_opm/app/*/network', /Choose a site to see network checks/],
     ['/_opm/app/*/containers/hello-api', /Choose a site to see container hello-api/],
     ['/_opm/app/*/agent?tab=shell', /Choose a site to see a host shell/],

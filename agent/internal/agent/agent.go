@@ -125,6 +125,7 @@ type Agent struct {
 	dataDir         string
 	legacyMigrating atomic.Bool // §21 #105 J13 migration loop running
 	xfer            xferTracker // §21 #100 store-and-forward delivery state (transfer.go)
+	fileJobs        *fileJobs   // §21 #123 copies being made on / sent from this site (files.go)
 	db              *store.DB
 	key             ed25519.PrivateKey
 	pub             ed25519.PublicKey
@@ -281,7 +282,7 @@ func New(opt Options) (*Agent, error) {
 	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, err
 	}
-	for _, d := range []string{"volumes", "files", "secrets", "blobs/sha256", "blobs/files", "notfound", "snapshots", "certs", "edge", "transfers", "tunnel", "logs", "tmp"} {
+	for _, d := range []string{"volumes", "files", "secrets", "blobs/sha256", "blobs/files", "notfound", "snapshots", "certs", "edge", "transfers", "shared-files", "tunnel", "logs", "tmp"} {
 		perm := os.FileMode(0o700)
 		if d == "volumes" || d == "files" {
 			perm = 0o755
@@ -478,8 +479,9 @@ func (a *Agent) Run(parent context.Context) error {
 	a.loadVolumeOps() // §21 #96: an action interrupted by a stop → failed, its containers started again
 	a.bindInitial()
 	a.recoverOnStart()
-	a.resumeRecovery() // §21 #110 terminate with rollback + restartAgent
-	a.migrateCommits() // §21 #104: the revision chain → branch commits (idempotent)
+	a.resumeRecovery()          // §21 #110 terminate with rollback + restartAgent
+	a.migrateCommits()          // §21 #104: the revision chain → branch commits (idempotent)
+	a.migrateTransfersToFiles() // §21 #123: copies of transfers → shared files (idempotent)
 	a.every("enroll", a.tm.EnrollRetry, a.enrollLoop)
 	a.goLoop("poll", a.pollLoop)
 	a.every("heartbeat", a.tm.Heartbeat, a.heartbeatOnce)
@@ -493,6 +495,7 @@ func (a *Agent) Run(parent context.Context) error {
 	a.every("tunnel", a.tm.TunnelExpiry, a.tunnelExpiry)
 	a.every("monitor", a.tm.Monitor, a.monitorOnce)
 	a.every("transfers", a.tm.Transfers, a.transfersOnce)
+	a.every("peer-files", time.Minute, a.peerFilesOnce) // §21 #123 the listing from sites without the cloud
 	a.every("pending", time.Minute, a.pushPendingParts)
 	a.every("housekeeping", time.Hour, a.housekeeping)
 	a.every("watchdog", time.Minute, a.watchdogOnce)            // §21 #110

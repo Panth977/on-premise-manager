@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sign } from 'node:crypto';
 import { activityHashInput, AUDIT_DEPLOYMENT_OPS, AUDIT_EXEMPT_OPS, canonicalize, CLOUD_API, createCloudClient, type Activity, type AuditLogEntry, type EndpointDef } from '@opm/shared';
-import { abucket, adb, BASE, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, sleep, uniq, type Person, type SiteKey } from './helpers.ts';
+import { abucket, adb, ADAPTER, BASE, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, sleep, uniq, type Person, type SiteKey } from './helpers.ts';
 import { depInput } from './helpers.ts';
 import { writeTar } from '../functions/src/core/tar.ts';
 import { runDaily } from '../functions/src/jobs/daily.ts';
@@ -64,6 +64,8 @@ function opmlog(deploymentId: string, signer: { siteSlug: string; key: SiteKey }
 
 // §21 #104 + #105: removed routes answer 410 gone (kept in the contract for old clients)
 // §21 #117: the cloud-copy writes of persist volumes are gone too (content is committed)
+// §21 #118 openRemoteGui needs the single-process cloud (503 elsewhere)
+const NO_ACTIVITY = new Set(['fetchFileToCloud', ...(ADAPTER === 'local' ? [] : ['openRemoteGui'])]);
 const GONE = new Set(['publish', 'resetDraftToHead', 'applyTemplateSync', 'unlinkTemplate', 'putDraftSection', 'putDraftSite', 'regenerateSecret', 'discardDeploymentWorking', 'createVolumeContentVersion', 'restoreVolumeContentVersion', 'requestVolumeSnapshot', 'sendVolumeContent', 'cancelVolumeContentPush']);
 test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud activity (deployment scope)', async () => {
   const admin = await person('admin');
@@ -83,6 +85,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
   const secretSlug = view.draft.secrets.find((s) => s.isSet)!.secretSlug;
   const dv = async () => (await admin.api.getDeployment({ deploymentId: id })).draftVersion;
   let transferId = '';
+  let fileId = '';
   let tokenHash = '';
   // deployment-scope recipes (must succeed and must write a _cloud activity)
   const recipes: Record<string, () => Promise<{ params?: Record<string, string>; body?: unknown; raw?: Buffer }>> = {
@@ -132,6 +135,10 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
     },
     createTransfer: async () => ({ params: { siteSlug: 'app' }, body: { fileName: 'notes.txt', sizeBytes: 5, sha256: 'sha256:' + sha256Hex('hello') } }),
     deleteTransfer: async () => ({ params: { transferId } }),
+    // §21 #123 shared files
+    openRemoteGui: async () => ({ params: { siteSlug: 'app' } }), // §21 #118 remote-gui.opened
+    publishFile: async () => ({ body: { fileName: 'shared.txt', sizeBytes: 5, sha256: 'sha256:' + sha256Hex('hello') } }),
+    unpublishFile: async () => ({ params: { fileId } }),
   };
   void app;
   const checked: string[] = [];
@@ -139,6 +146,8 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
     if ((AUDIT_EXEMPT_OPS as readonly string[]).includes(op)) continue;
     // §21 #104: removed routes answer 410 gone (kept in the contract for old clients)
     if (GONE.has(op)) continue;
+    // §21 #123 asking a holder for a copy writes no activity (the arrival does: file.fetched)
+    if (NO_ACTIVITY.has(op)) continue;
     if (DEP_SCOPE.test(def.path)) {
       const recipe = recipes[op];
       assert.ok(recipe, `deployment-scope op ${op} has no recipe in 09-audit.test.ts: add one (and make the op write a _cloud activity)`);
@@ -147,6 +156,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
       const res = await call(admin, def, { deploymentId: id, ...(r0.params ?? {}) }, r0.body, r0.raw);
       assert.ok(res.status < 300, `${op} must succeed for the guarantee test: ${res.status} ${res.body.toString().slice(0, 300)}`);
       if (op === 'createTransfer') transferId = res.json.transfer.transferId;
+      if (op === 'publishFile') fileId = res.json.file.fileId;
       const after = await cloudSeq(id);
       assert.ok(after > before, `${op} wrote no _cloud activity`);
       const audited = (AUDIT_DEPLOYMENT_OPS as readonly string[]).includes(op);
@@ -177,7 +187,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
   // the root deployment ops are audited in addition to their activities
   for (const op of ['patchDeployment', 'deleteDeployment'] as const) assert.ok(checked.includes(op));
   const types = new Set((await adb.collection('deployments').doc(id).collection('activities').where('siteSlug', '==', '_cloud').get()).docs.map((d) => d.data().type as string));
-  for (const t of ['transfer.sent', 'transfer.deleted', 'activities.uploaded', 'secret.revealed', 'proposal.published', 'branch.committed', 'access-key.rotated', 'install-token.created', 'install-token.revoked', 'agent.revoked', 'access-key.revealed', 'install-token.revealed', 'agent.upgrade-requested', 'agent.upgrade-cancelled'])
+  for (const t of ['transfer.sent', 'transfer.deleted', 'activities.uploaded', 'secret.revealed', 'proposal.published', 'branch.committed', 'access-key.rotated', 'install-token.created', 'install-token.revoked', 'agent.revoked', 'access-key.revealed', 'install-token.revealed', 'agent.upgrade-requested', 'agent.upgrade-cancelled', 'file.published', 'file.unpublished'])
     assert.ok(types.has(t), `missing _cloud activity ${t}`);
 });
 

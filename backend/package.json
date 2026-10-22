@@ -22,6 +22,7 @@
     "migrate-h": "tsx scripts/migrate-h.ts",
     "verify-schema": "tsx scripts/verify-schema.ts",
     "migrate-k": "tsx scripts/migrate-k.ts",
+    "migrate-m": "tsx scripts/migrate-m.ts",
     "export-branch": "tsx scripts/export-branch.ts",
     "build:server": "node build.mjs && node build-server.mjs",
     "start:local": "node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve",

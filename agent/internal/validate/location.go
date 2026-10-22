@@ -13,7 +13,7 @@ import (
 // Round D part 2: storage locations (TS StorageLocation helpers) and files rendered ONCE PER SITE.
 
 // AgentHomeReserved are the top-level names under agentHome that belong to the agent (TS AGENT_HOME_RESERVED).
-var AgentHomeReserved = []string{"site.key", "opm.db", "opm.db-wal", "opm.db-shm", "blobs", "snapshots", "certs", "edge", "transfers", "tunnel", "logs", "notfound", "rendered", "secrets", "vol", "files", "volumes"}
+var AgentHomeReserved = []string{"site.key", "opm.db", "opm.db-wal", "opm.db-shm", "blobs", "snapshots", "certs", "edge", "transfers", "tunnel", "logs", "notfound", "rendered", "secrets", "vol", "files", "volumes", "shared-files"}
 
 // AutoLocation is {kind:"auto"}.
 func AutoLocation() *model.StorageLocation { return &model.StorageLocation{Kind: "auto"} }

@@ -6576,6 +6576,38 @@ Pass = every check above green; results file lists timings and the activity coun
     rollbacks excluded): downloads happen before any container stops; a failure (e.g. the free-space floor) rolls back
     before anything changed. Test: `TestTwoSiteBranches` (the peer has a ready staging row after the fast-forward).
 
+123. **Shared files: one bucket per deployment instead of per-site send / receive** (user: "transfer GUI should be more
+    like a bucket … you can see any site or cloud's published contents and you can download it to site or browser using
+    site or using cloud … you can also publish … nothing gets auto downloaded"). Contract `shared/src/files.ts`.
+    (a) **Publish** from the cloud console (browser → the cloud: `publishFile` + an upload, purpose `file`) or from any
+        site (a browser upload through that site's agent GUI, or a path on its server — the §21 #100 picker policy). A
+        site makes the fileId (ULID) and registers the file through the outbox (`registerAgentFile`, metadata only), so
+        it publishes offline too. ≤ 2 GiB, note ≤ 500.
+    (b) **Only the listing spreads**: the cloud view carries every file (+ tombstones of 30 days) to every agent; sites
+        also merge each other's listing over the mesh (`/_opm/peer/files`, every minute), so sites without the cloud see
+        each other's files. The bytes stay where they were published (user choice: "stay on the source, fetched on
+        request"). Copies: `cloud.stored` + `sites[]`.
+    (c) **Download on request only.** A site gets a copy (`fetchToSite`, a job with progress) from a holding peer over the
+        mesh, else from the cloud copy, else it asks the cloud to fetch one (`requestAgentFileFetch` → waiting-cloud).
+        The cloud gets a copy by listing the file in `CloudView.fileFetches` for a holding site, which uploads it in
+        parts (`startAgentFileUpload`); the cloud never calls a site. Every place that got a copy keeps it and serves it.
+        On a site the copy downloads to the browser or is saved to a server path (must not exist; 0640); in the console
+        it downloads to the browser ("Get into the cloud" first when only a site holds it).
+    (d) **Unpublish** (deployment.transfers write; user choice: anyone with write, no expiry) — everywhere: tombstone,
+        every copy deleted (a copy saved to a server path stays). From a site: the cloud now, else the outbox; peers
+        learn it from the listing. "Drop this site's copy" frees disk (refused for the only copy).
+    (e) Copies on a site: `<agent home>/shared-files/<fileId>` (`files/` holds the configured Files; `shared-files` is
+        reserved). SQLite `files(fileId, data, localPath, listedBy, updatedAt)`.
+    (f) **Transfers**: the agent GUI and console pages are replaced (agent GUI: same URL, "Files"; console:
+        `/app/deployments/{id}/shared-files`, the per-site transfer URLs redirect there). Existing transfers become files
+        with fileId = transferId (cloud `scripts/migrate-m.ts`; each agent converts its copies once on start); a new
+        agent no longer downloads legacy to-site transfers by itself. The legacy endpoints stay for old agents.
+    (g) Activities `file.published`, `file.fetched`, `file.downloaded`, `file.saved`, `file.copy-dropped`,
+        `file.unpublished`. Tests: `agent/internal/agent/files_test.go` (two sites without the cloud: publish browser +
+        path, listing over the mesh, nothing by itself, copy on request, save + 409, drop + only-copy 409, unpublish
+        spreading; transfers → files), `backend/test/43-files.test.ts`, `frontend/tests/files-123.spec.ts`, the agent GUI
+        Files specs.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

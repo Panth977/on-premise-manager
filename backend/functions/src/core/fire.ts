@@ -43,6 +43,8 @@ export const col = {
   installTokens: (d: string) => db().collection('deployments').doc(d).collection('installTokens'),
   activities: (d: string) => db().collection('deployments').doc(d).collection('activities'),
   transfers: (d: string) => db().collection('deployments').doc(d).collection('transfers'),
+  /** §21 #123 shared files (core/files.ts) */
+  files: (d: string) => db().collection('deployments').doc(d).collection('files'),
   uptime: (d: string) => db().collection('deployments').doc(d).collection('uptime'),
   revokedKeys: (d: string) => db().collection('deployments').doc(d).collection('revokedKeys'),
   uploads: () => db().collection('uploads'),

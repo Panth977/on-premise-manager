@@ -222,6 +222,9 @@ func (c *Cloud) route(w http.ResponseWriter, r *http.Request, body []byte, rc re
 		if c.routeBranch(w, r, body, rc) { // §21 #104
 			return
 		}
+		if c.routeFiles(w, r, body, rc) { // §21 #123
+			return
+		}
 		if !c.routeVolumeContent(w, r, body, rc) { // §21 #101
 			writeErr(w, model.ErrNotFound, "no route "+m+" "+p, nil)
 		}
@@ -322,6 +325,7 @@ func (c *Cloud) view() model.CloudView {
 		v.DraftHead = &model.RevRef{RevID: c.head.RevID, Seq: c.head.Seq}
 	}
 	v.VolumeContent = c.viewVolumeContent() // §21 #101
+	c.viewFiles(&v)                         // §21 #123
 	v.Branch = c.viewBranch()               // §21 #104
 	return v
 }
@@ -852,6 +856,11 @@ func (c *Cloud) completeUpload(w http.ResponseWriter, id string, rc reqCtx) {
 	}
 	up.up.Status = "complete"
 	resp := model.CompleteUploadResponse{Upload: up.up}
+	if up.up.Purpose == "file" && up.up.TransferID != nil { // §21 #123
+		c.completeFileUpload(*up.up.TransferID, data)
+		writeJSON(w, 200, resp)
+		return
+	}
 	if up.up.TransferID != nil {
 		if t, ok := c.transfers[*up.up.TransferID]; ok {
 			t.Status = "ready"

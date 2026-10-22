@@ -193,7 +193,7 @@ export function baseConfig(): Config {
     if (v) v.persist = { exclude, maxBytes: maxMiB * 1024 * 1024, auto };
   };
   persistOn(app.config, 'hello-api-data', ['logs/', '*.gz'], 50);
-  persistOn(app.config, 'api-env', ['archive/'], 10);
+  // (api-env is not persisted: its legacy seed from Files is not a literal tree — §21 #117)
   persistOn(app.config, 'hello-api-2-data', [], 5, false);
   persistOn(db.config, 'redis-data', [], 50);
   // round E: the client site behind the nginx.conf of e2e/fixtures/client-nginx.conf (TLS files mode → cert file + key secret)
@@ -296,7 +296,7 @@ function northwindSite(): SiteConfig {
         backup: true,
         location: { kind: 'auto' },
         kind: 'dir',
-        seed: { kind: 'tree', entries: [{ path: 'flows.json', sha256: FLOWS_SHA, size: FLOWS.length, mode: '0644', render: 'none' }, { path: 'settings.js', sha256: NR_SETTINGS_SHA, size: new TextEncoder().encode(NR_SETTINGS).length, mode: '0644', render: 'expressions' }], dirs: ['lib'] },
+        seed: { kind: 'tree', entries: [{ path: 'flows.json', sha256: FLOWS_SHA, size: FLOWS.length, mode: '0644', render: 'none' }, { path: 'settings.js', sha256: NR_SETTINGS_SHA, size: new TextEncoder().encode(NR_SETTINGS).length, mode: '0644', render: 'none' }], dirs: ['lib'] },
         persist: { exclude: ['node_modules/', '.npm/', '*.log'], maxBytes: 50 * 1024 * 1024, auto: true },
       },
       { volumeSlug: 'admin-runtime', label: 'Admin runtime settings', description: 'One JSON file the admin app edits', backup: true, location: { kind: 'auto' }, kind: 'file', seed: { kind: 'single', sha256: API_CONFIG_SHA, size: new TextEncoder().encode(API_CONFIG_TEXT).length, mode: '0644', render: 'expressions' } },

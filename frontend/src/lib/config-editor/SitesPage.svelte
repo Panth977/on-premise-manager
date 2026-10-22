@@ -10,7 +10,7 @@
   import SearchInput from '../ui/SearchInput.svelte';
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
   import Icon from '../ui/Icon.svelte';
-  import { Plus, Trash2, Server, ArrowRightLeft, ChevronRight } from '../ui/icons';
+  import { Plus, Trash2, Server, ChevronRight } from '../ui/icons';
   import AddSiteModal from './AddSiteModal.svelte';
   import DraftBanner from './DraftBanner.svelte';
   import { siteRefs } from './refs';
@@ -27,8 +27,6 @@
   const rows = $derived(sites.filter((s) => !q || `${s.siteSlug} ${s.label} ${s.config.host ?? 'auto'}`.toLowerCase().includes(q.toLowerCase())));
   const hosts = $derived(scope.hosts(scope.working()));
   const agentOf = (slug: string) => (scope.kind === 'deployment' ? (scope.status?.sites.find((s) => s.siteSlug === slug) ?? null) : null);
-  const canSend = $derived(scope.kind === 'deployment' && scope.can('deployment.transfers', 'write'));
-  const canRecv = $derived(scope.kind === 'deployment' && scope.can('deployment.transfers', 'read'));
 
   let addOpen = $state(false);
   let rmOpen = $state(false);
@@ -98,9 +96,6 @@
               <td class="small mono nowrap">:{s.config.edge.httpPort}{s.config.edge.httpsPort ? ` · :${s.config.edge.httpsPort}` : ''} · {s.config.edge.hosts.length}h · {s.config.edge.routes.length}r</td>
             {/if}
             <td class="actions" onclick={(e) => e.stopPropagation()}>
-              {#if isDep}
-                {#if canSend || canRecv}<Button size="sm" variant="ghost" icon={ArrowRightLeft} href="{scope.base}/sites/{s.siteSlug}/transfers" tip="Send files to the site and download files it sent" data-testid="site-transfers">Transfers</Button>{/if}
-              {/if}
               {#if scope.canWrite}<Button size="sm" variant="ghost" icon={Trash2} tip="Remove" aria-label="Remove {s.siteSlug}" onclick={() => ((rm = s), (rmOpen = true))} />{/if}
               <Icon icon={ChevronRight} size={14} class="faint" />
             </td>

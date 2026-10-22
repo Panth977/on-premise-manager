@@ -22,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
   setup: 'Setup',
   status: 'Status',
   activities: 'Activities',
+  'shared-files': 'Shared files',
   diff: 'Compare',
   compare: 'Compare',
   branches: 'Agent branches',
@@ -48,8 +49,7 @@ export function scopeCrumbs(root: Crumb, scopeLabel: string, base: string, pathn
   const site = `${base}/sites/${p1}`;
   out.push({ label: p1, href: `${site}/containers`, mono: true });
   if (!p2) return out;
-  if (p2 === 'transfers' || p2 === 'send' || p2 === 'receive') out.push({ label: 'Transfers' });
-  else if ((SITE_SECTIONS as readonly string[]).includes(p2)) {
+  if ((SITE_SECTIONS as readonly string[]).includes(p2)) {
     out.push({ label: SECTION_TITLE[p2 as SiteSection], href: `${site}/${p2}` });
     if (p2 === 'containers' && p3) out.push({ label: p3 === 'new' ? 'New container' : p3, mono: p3 !== 'new' });
     if (p2 === 'edge' && p3 === 'route') out.push({ label: 'Route' });

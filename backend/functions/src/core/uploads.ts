@@ -15,6 +15,7 @@ import { hexOf } from './util.js';
 import { CloudLog } from './activities.js';
 import { decodeDeployment } from './codec.js';
 import { logger } from '../ports/index.js';
+import { markFileStored, type StoredFile } from './files.js';
 
 export type StoredUpload = Upload & { _creatorSite: string | null; _target: string; /** round E: CreateUploadRequest purpose 'seed-archive' (≤ SEED_ARCHIVE_MAX, gzip) */ _seedArchive?: boolean; /** §21 #107: joined into this commit stage (target staging/<id>/<hex>) */ _stageId?: string };
 export const UPLOAD_TTL_MS = 24 * 3600_000;
@@ -118,6 +119,16 @@ export async function completeUpload(u: StoredUpload, actor: { id: string | null
       return finishedResponse({ ...u, status: 'complete', error: null });
     }
   }
+  // §21 #123 the same for a shared file: already stored (or unpublished) with this upload's object in place
+  if (u.purpose === 'file' && u.deploymentId && u.transferId) {
+    const f = await col.files(u.deploymentId).doc(u.transferId).get();
+    const fd = f.data() as StoredFile | undefined;
+    if (fd && fd.state !== 'unpublished' && fd.cloud.stored && fd._uploadId !== u.uploadId && (await sizeOf(u._target)) === u.sizeBytes) {
+      await removePrefix(`uploads/${u.uploadId}/`).catch(() => undefined);
+      await ref.update({ status: 'complete', error: null });
+      return finishedResponse({ ...u, status: 'complete', error: null });
+    }
+  }
   const missing = Array.from({ length: u.partCount }, (_, i) => i).filter((i) => !(u.partsReceived ?? []).includes(i));
   if (missing.length) throw new ApiError('invalid', `parts missing: ${missing.slice(0, 20).join(', ')}`, { missing, errors: [{ path: 'parts', code: 'V_REQUIRED', message: 'parts missing', severity: 'error' }] });
   const hex = hexOf(u.sha256);
@@ -148,7 +159,9 @@ export async function completeUpload(u: StoredUpload, actor: { id: string | null
     } catch (e) {
       const msg = (e as Error).message.replace(/^.*?sha256 mismatch.*$/s, 'sha256 mismatch');
       await ref.update({ status: 'failed', error: msg });
-      if (u.transferId && u.deploymentId) await col.transfers(u.deploymentId).doc(u.transferId).update({ error: msg }).catch(() => undefined);
+      if (u.purpose === 'transfer' && u.transferId && u.deploymentId) await col.transfers(u.deploymentId).doc(u.transferId).update({ error: msg }).catch(() => undefined);
+      // §21 #123 a holder's copy failed verification: the console sees the error (the holder may start again)
+      if (u.purpose === 'file' && u.transferId && u.deploymentId) await failFileFetch(u.deploymentId, u.transferId, u.uploadId, msg).catch(() => undefined);
       await removePrefix(`uploads/${u.uploadId}/`).catch(() => undefined);
       throw E.bad('sha256', 'V_FORMAT', `upload verification failed: ${msg}`);
     }
@@ -157,10 +170,14 @@ export async function completeUpload(u: StoredUpload, actor: { id: string | null
   // §21 #107: a staged blob carries the verified hash (the commit trusts it instead of re-hashing)
   if (u._stageId) await blobs().setMeta(target, { opmSha256: hex });
   let transfer: Transfer | null = null;
+  let fileGone = false;
   await db().runTransaction(async (tx) => {
     if (u.purpose === 'transfer' && u.deploymentId && u.transferId) transfer = await markTransferReady(tx, u.deploymentId, u.transferId, actor);
+    if (u.purpose === 'file' && u.deploymentId && u.transferId) fileGone = !(await markFileStored(tx, u.deploymentId, u.transferId, u.uploadId, actor));
     tx.update(ref, { status: 'complete', error: null });
   });
+  // §21 #123 unpublished while the bytes were arriving: no copy is kept
+  if (fileGone) await remove(target).catch(() => undefined);
   const done: StoredUpload = { ...u, status: 'complete', error: null, partsReceived: Array.from({ length: u.partCount }, (_, i) => i) };
   return { upload: uploadView(done), blob: u.purpose === 'blob' ? { sha256: u.sha256, sizeBytes: u.sizeBytes } : null, transfer };
 }
@@ -194,5 +211,15 @@ async function markTransferReady(tx: Tx, deploymentId: string, transferId: strin
   });
   tx.update(depRef, { ...log.depUpdate(), ...(t.direction === 'to-site' ? { agentEpoch: dep.agentEpoch + 1 } : {}) });
   return next;
+}
+/** §21 #123 a fetch upload failed verification: cloud.fetch.error (only while that upload is the file's open one) */
+async function failFileFetch(deploymentId: string, fileId: string, uploadId: string, msg: string) {
+  const fRef = col.files(deploymentId).doc(fileId);
+  await db().runTransaction(async (tx) => {
+    const s = await tx.get(fRef);
+    const f = s.data() as StoredFile | undefined;
+    if (!f || f._uploadId !== uploadId) return;
+    tx.update(fRef, { _uploadId: null, ...(f.cloud.fetch ? { 'cloud.fetch.error': msg } : {}) });
+  });
 }
 export { paths };

@@ -53,7 +53,7 @@
   const ustate = new Resource(() => agentApi.upgradeState({ siteSlug: slug }));
   const config = new Resource<AgentConfigView>(() => agentApi.agentConfig({ siteSlug: slug }));
   /** §21 #91 health: this agent's public /_opm/api/health; §21 #121 another site's over the mesh (older agents: none) */
-  const health = new Resource(async () => (isSelf ? fetchHealth() : agentApi.siteAgentHealth({ siteSlug: slug }).catch(() => null)));
+  const health = new Resource(async () => (isSelf || slug === session.info?.siteSlug ? fetchHealth() : agentApi.siteAgentHealth({ siteSlug: slug }).catch(() => null)));
   function loadSite() {
     info.load();
     ustate.load();

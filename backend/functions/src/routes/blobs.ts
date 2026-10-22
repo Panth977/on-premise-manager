@@ -66,7 +66,7 @@ export const blobHandlers: Pick<Handlers, 'uploadBlob' | 'getBlob' | 'createUplo
     if (stageId) c.audit = { skip: true };
     const r = b as unknown as CreateUploadRequest;
     const v = new V();
-    if (r.purpose !== 'blob' && r.purpose !== 'seed-archive') v.err('purpose', 'V_ENUM', 'purpose must be blob or seed-archive (transfers start with POST …/transfers)');
+    if (r.purpose !== 'blob' && r.purpose !== 'seed-archive') v.err('purpose', 'V_ENUM', 'purpose must be blob or seed-archive (transfers start with POST …/transfers, shared files with POST …/files)');
     if (!Number.isInteger(r.sizeBytes) || r.sizeBytes < 0) v.err('sizeBytes', 'V_RANGE', 'sizeBytes must be an integer ≥ 0');
     if (typeof r.sha256 !== 'string' || !RE.sha256.test(r.sha256)) v.err('sha256', 'V_FORMAT', 'sha256 must be "sha256:" + 64 hex');
     v.throwIf();

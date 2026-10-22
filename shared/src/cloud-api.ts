@@ -6,6 +6,7 @@ import { createClient, ep, type AuthProvider, type Client, type EndpointDef } fr
 import type * as T from './types.js';
 import { VOLUME_CONTENT_CLOUD_API } from './volume-content.js';
 import { REMOTE_GUI_CLOUD_API } from './remote-gui.js';
+import { FILES_AGENT_CLOUD_API, FILES_CLOUD_API } from './files.js';
 import { BRANCH_CLOUD_API } from './branch.js';
 import { GITHUB_MIRROR_CLOUD_API } from './github-mirror.js';
 import { STAGING_CLOUD_API } from './staging.js';
@@ -179,6 +180,8 @@ export const CLOUD_API = {
   ...STAGING_CLOUD_API,
   // §21 #118 remote agent GUI
   ...REMOTE_GUI_CLOUD_API,
+  ...FILES_CLOUD_API,
+  ...FILES_AGENT_CLOUD_API,
 } as const satisfies Record<string, EndpointDef>;
 
 export type CloudApi = typeof CLOUD_API;

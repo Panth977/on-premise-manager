@@ -72,6 +72,8 @@ export const INDEX_REGISTRY: IndexRegistry = {
     ],
     group: ['expiresAt'],
   },
+  // §21 #123 shared files: the cloud view (state in …, unpublishedAt ≥ tombstone cutoff)
+  files: { scalar: ['state', 'unpublishedAt'] },
   uptime: { scalar: ['date'], group: ['date'] },
   volumeContent: { scalar: ['_open', 'siteSlug', 'versionCount'], composite: [['siteSlug', '_open']], group: ['versionCount'] },
   volumeContent__versions: { scalar: ['origin', 'seq', 'agentSnapshotId'] },

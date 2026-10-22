@@ -49,7 +49,7 @@ test('Config › Volumes: starter content + persist read-only, legacy File seed,
   await page.getByTestId('edit-nodered-data').click();
   const d = page.getByTestId('volume-modal');
   await expect(d.getByTestId('vm-seed-view-tree')).toContainText('settings.js');
-  await expect(d.getByTestId('vm-seed-view-tree')).toContainText('template (once per site)');
+  await expect(d.getByTestId('vm-seed-view-tree')).toContainText('as is'); // §21 #117 a persisted volume's content is literal
   await expect(d.getByTestId('vm-seed-view-tree')).toContainText('lib/');
   await expect(d.getByTestId('vm-persist')).toContainText('node_modules/');
   await expect(d.getByTestId('vm-console-link')).toHaveAttribute('href', /\/app\/deployments\/.+\/sites\/northwind\/volumes\/content\?volume=nodered-data$/);

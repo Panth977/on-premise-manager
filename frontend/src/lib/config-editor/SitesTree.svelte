@@ -11,7 +11,7 @@
   import { untrack } from 'svelte';
   import type { ValidationIssue } from '@opm/shared';
   import Icon from '../ui/Icon.svelte';
-  import { ChevronRight, Server, Boxes, Globe, HardDrive, Settings, Plus, Box, Wrench, ArrowRightLeft, Database } from '../ui/icons';
+  import { ChevronRight, Server, Boxes, Globe, HardDrive, Settings, Plus, Box, Wrench, Database } from '../ui/icons';
   import AddSiteModal from './AddSiteModal.svelte';
   import type { AnyScope } from './scope.svelte';
 
@@ -168,12 +168,6 @@
             <li role="treeitem" aria-selected={on(`${sb}/settings`)}>
               <a href="{sb}/settings" class="nav-item sub" class:on={on(`${sb}/settings`)} data-testid="tree-{s.siteSlug}-settings"><Icon icon={Settings} size={14} /><span class="grow">Settings</span>{@render badge(`${s.siteSlug}/settings`)}</a>
             </li>
-            {#if scope.kind === 'deployment' && scope.can('deployment.transfers', 'read')}
-              <!-- §21 #100: one Transfers module (Send to the site | Received from it); not part of the config draft -->
-              <li role="treeitem" aria-selected={on(`${sb}/transfers`)}>
-                <a href="{sb}/transfers" class="nav-item sub" class:on={on(`${sb}/transfers`)} data-testid="tree-{s.siteSlug}-transfers"><Icon icon={ArrowRightLeft} size={14} /><span class="grow">Transfers</span></a>
-              </li>
-            {/if}
           </ul>
         {/if}
       </li>

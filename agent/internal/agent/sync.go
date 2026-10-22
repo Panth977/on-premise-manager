@@ -203,8 +203,12 @@ func (a *Agent) reconcile(ctx context.Context, v *model.CloudView) {
 		}
 		a.applyCloudStatus(local, pm.Status)
 	}
-	// (4) transfers to this site
+	// (4) §21 #123 shared files (a new cloud lists them; the legacy transfers to this site are not downloaded any more)
+	a.filesOnView(v)
 	for _, t := range v.TransfersToSite {
+		if v.Files != nil {
+			break
+		}
 		if t.SiteSlug == a.site {
 			a.noteTransferToSite(t)
 		}

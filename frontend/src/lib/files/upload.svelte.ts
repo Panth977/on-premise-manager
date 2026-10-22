@@ -1,17 +1,17 @@
 /**
- * Cloud → site file transfers: incremental sha256 (hash-wasm), POST transfers, 8 MiB parts, complete.
+ * §21 #123 publishing a shared file from the browser into the cloud: incremental sha256 (hash-wasm), publishFile,
+ * 8 MiB parts (the generic upload endpoints), complete → the file is ready (in the cloud).
  * Progress lives in a module store so the list rows show it (and uploads continue across page changes).
- * Resumable after a reload: the pending {transferId, uploadId, name, size, lastModified} is kept in localStorage;
+ * Resumable after a reload: the pending {fileId, uploadId, name, size, lastModified} is kept in localStorage;
  * the person picks the same file again → GET /v1/uploads/{id} → only the missing parts are sent.
  */
 import { createSHA256 } from 'hash-wasm';
-import { UPLOAD_PART_SIZE, type Transfer } from '@opm/shared';
+import { UPLOAD_PART_SIZE } from '@opm/shared';
 import { api, errMsg } from '../api';
 
 export interface Pending {
   deploymentId: string;
-  siteSlug: string;
-  transferId: string;
+  fileId: string;
   uploadId: string;
   fileName: string;
   size: number;
@@ -19,30 +19,29 @@ export interface Pending {
 }
 export interface Progress {
   key: string;
-  siteSlug: string;
   deploymentId: string;
   fileName: string;
   size: number;
-  transferId: string | null;
+  fileId: string | null;
   phase: 'hashing' | 'uploading' | 'completing' | 'done' | 'error';
   done: number; // bytes hashed / uploaded
   error: string | null;
 }
 
-const KEY = 'opm.transfers.pending';
+const KEY = 'opm.files.pending';
 const HASH_CHUNK = 4 * 1024 * 1024;
 
-class TransferUploads {
+class FileUploads {
   items: Progress[] = $state([]);
   #n = 0;
-  forSite(deploymentId: string, siteSlug: string) {
-    return this.items.filter((p) => p.deploymentId === deploymentId && p.siteSlug === siteSlug);
+  forDeployment(deploymentId: string) {
+    return this.items.filter((p) => p.deploymentId === deploymentId);
   }
-  byTransfer(transferId: string) {
-    return this.items.find((p) => p.transferId === transferId) ?? null;
+  byFile(fileId: string) {
+    return this.items.find((p) => p.fileId === fileId) ?? null;
   }
-  #new(deploymentId: string, siteSlug: string, file: File): Progress {
-    const p: Progress = { key: `u${++this.#n}`, deploymentId, siteSlug, fileName: file.name, size: file.size, transferId: null, phase: 'hashing', done: 0, error: null };
+  #new(deploymentId: string, file: File): Progress {
+    const p: Progress = { key: `u${++this.#n}`, deploymentId, fileName: file.name, size: file.size, fileId: null, phase: 'hashing', done: 0, error: null };
     this.items.push(p);
     return this.items[this.items.length - 1]!;
   }
@@ -50,16 +49,16 @@ class TransferUploads {
     this.items = this.items.filter((p) => p.key !== key);
   }
 
-  /** start a new transfer; resolves with the ready transfer (throws on error, progress keeps the error) */
-  async send(deploymentId: string, siteSlug: string, file: File, note: string, onCreated?: () => void): Promise<Transfer> {
-    const p = this.#new(deploymentId, siteSlug, file);
+  /** publish a new file; resolves once it is ready in the cloud (throws on error, the progress keeps the error) */
+  async publish(deploymentId: string, file: File, note: string, onCreated?: () => void): Promise<void> {
+    const p = this.#new(deploymentId, file);
     try {
       const sha256 = await sha256File(file, (n) => (p.done = n));
-      const r = await api.createTransfer({ deploymentId, siteSlug, body: { fileName: file.name, sizeBytes: file.size, sha256, ...(note.trim() ? { note: note.trim() } : {}) } });
-      p.transferId = r.transfer.transferId;
-      savePending({ deploymentId, siteSlug, transferId: r.transfer.transferId, uploadId: r.upload.uploadId, fileName: file.name, size: file.size, lastModified: file.lastModified });
+      const r = await api.publishFile({ deploymentId, body: { fileName: file.name, sizeBytes: file.size, sha256, ...(note.trim() ? { note: note.trim() } : {}) } });
+      p.fileId = r.file.fileId;
+      savePending({ deploymentId, fileId: r.file.fileId, uploadId: r.upload.uploadId, fileName: file.name, size: file.size, lastModified: file.lastModified });
       onCreated?.();
-      return await this.#upload(p, r.upload.uploadId, file, []);
+      await this.#upload(p, r.upload.uploadId, file, []);
     } catch (e) {
       p.phase = 'error';
       p.error = errMsg(e);
@@ -68,20 +67,20 @@ class TransferUploads {
   }
 
   /** resume an interrupted upload with the same file */
-  async resume(pend: Pending, file: File): Promise<Transfer> {
+  async resume(pend: Pending, file: File): Promise<void> {
     if (file.name !== pend.fileName || file.size !== pend.size) throw new Error(`Pick the same file: ${pend.fileName} (${pend.size} bytes)`);
-    const p = this.#new(pend.deploymentId, pend.siteSlug, file);
-    p.transferId = pend.transferId;
+    const p = this.#new(pend.deploymentId, file);
+    p.fileId = pend.fileId;
     try {
       const u = await api.getUpload({ uploadId: pend.uploadId });
       if (u.status === 'complete') {
-        clearPending(pend.transferId);
+        clearPending(pend.fileId);
         p.phase = 'done';
         p.done = p.size;
-        return { transferId: pend.transferId } as Transfer;
+        return;
       }
-      if (u.status === 'failed') throw new Error(`The upload failed on the server${u.error ? `: ${u.error}` : ''}. Delete the transfer and send the file again.`);
-      return await this.#upload(p, pend.uploadId, file, u.partsReceived);
+      if (u.status === 'failed') throw new Error(`The upload failed on the server${u.error ? `: ${u.error}` : ''}. Unpublish the file and publish it again.`);
+      await this.#upload(p, pend.uploadId, file, u.partsReceived);
     } catch (e) {
       p.phase = 'error';
       p.error = errMsg(e);
@@ -89,7 +88,7 @@ class TransferUploads {
     }
   }
 
-  async #upload(p: Progress, uploadId: string, file: File, have: number[]): Promise<Transfer> {
+  async #upload(p: Progress, uploadId: string, file: File, have: number[]): Promise<void> {
     p.phase = 'uploading';
     const parts = Math.max(1, Math.ceil(file.size / UPLOAD_PART_SIZE));
     p.done = have.reduce((a, i) => a + Math.min(UPLOAD_PART_SIZE, file.size - i * UPLOAD_PART_SIZE), 0);
@@ -109,15 +108,14 @@ class TransferUploads {
       p.done += blob.size;
     }
     p.phase = 'completing';
-    const done = await api.completeUpload({ uploadId });
-    clearPending(p.transferId!);
+    await api.completeUpload({ uploadId });
+    clearPending(p.fileId!);
     p.phase = 'done';
     p.done = p.size;
     setTimeout(() => this.dismiss(p.key), 4000);
-    return done.transfer!;
   }
 }
-export const uploads = new TransferUploads();
+export const uploads = new FileUploads();
 
 export async function sha256File(file: Blob, onProgress?: (bytes: number) => void): Promise<string> {
   const h = await createSHA256();
@@ -140,22 +138,22 @@ function readAll(): Record<string, Pending> {
 }
 function savePending(p: Pending) {
   const all = readAll();
-  all[p.transferId] = p;
+  all[p.fileId] = p;
   try {
     localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
     /* ignore */
   }
 }
-export function clearPending(transferId: string) {
+export function clearPending(fileId: string) {
   const all = readAll();
-  delete all[transferId];
+  delete all[fileId];
   try {
     localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
     /* ignore */
   }
 }
-export function pendingOf(transferId: string): Pending | null {
-  return readAll()[transferId] ?? null;
+export function pendingOf(fileId: string): Pending | null {
+  return readAll()[fileId] ?? null;
 }

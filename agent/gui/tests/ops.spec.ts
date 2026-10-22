@@ -110,10 +110,10 @@ test('debug log: filters, merged *, load older', async ({ page }) => {
   await shot(page, 'debug');
 });
 
-test('transfers (§21 #100): one Send → Browser | Path (fs picker), receive → save on server (conflict) + download', async ({ page }) => {
+test('files (§21 #123): one Publish → browser | server path (fs picker); save on server (conflict) + download', async ({ page }) => {
   await login(page, '/_opm/app/app/transfers');
-  await page.getByTestId('send-open').click();
-  await page.getByTestId('send-path').click();
+  await page.getByTestId('publish-open').click();
+  await page.getByTestId('publish-path').click();
   await expect(page.getByTestId('fs-picker')).toBeVisible();
   await page.getByTestId('fs-path').fill('/var/log/app/app.log');
   await page.getByTestId('fs-go').click();
@@ -121,24 +121,24 @@ test('transfers (§21 #100): one Send → Browser | Path (fs picker), receive �
   await page.getByTestId('fs-pick').click();
   await expect(page.getByTestId('path-picked')).toHaveText('/var/log/app/app.log');
   await page.getByTestId('path-go').click();
-  await expect(page.getByTestId('sent')).toContainText('app.log');
-  await page.getByTestId('send-open').click();
-  await page.getByTestId('send-browser').click();
+  await expect(page.getByTestId('files')).toContainText('app.log');
+  await page.getByTestId('publish-open').click();
+  await page.getByTestId('publish-browser').click();
   await page.getByTestId('send-file-input').setInputFiles({ name: 'report.csv', mimeType: 'text/csv', buffer: Buffer.from('a,b\n1,2\n') });
   await page.getByTestId('file-go').click();
-  await expect(page.getByTestId('sent')).toContainText('report.csv');
+  await expect(page.getByTestId('files')).toContainText('report.csv');
   await shot(page, 'send');
 
-  await expect(page.getByTestId('received')).toContainText('license-2027.key');
-  await page.getByTestId('save-TrfLicense0000000002').click();
+  await expect(page.getByTestId('files')).toContainText('plant-layout.pdf');
+  await page.getByTestId('save-FilPlantLayout0000000001').click();
   await page.getByTestId('save-path').fill('/srv/drop/exists');
   await page.getByTestId('save-go').click();
   await expect(page.getByText('already exists on app')).toBeVisible();
-  await page.getByTestId('save-path').fill('/srv/drop/license-2027.key');
+  await page.getByTestId('save-path').fill('/srv/drop/plant-layout.pdf');
   await page.getByTestId('save-go').click();
-  await expect(page.getByTestId('received')).toContainText('/srv/drop/license-2027.key');
+  await expect(page.getByTestId('save-modal')).toBeHidden();
   const dl = page.waitForEvent('download');
-  await page.getByTestId('dl-TrfManual00000000007').click();
+  await page.getByTestId('dl-FilManual000000000000008').click();
   await dl;
   await shot(page, 'receive');
 });

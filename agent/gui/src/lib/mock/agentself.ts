@@ -561,6 +561,10 @@ export async function agentFetch(url: URL, init: RequestInit, ctx: AgentMockCtx)
       const h = healthOf();
       return ctx.json(h.status, h.body);
     }
+    // §21 #121 another site's health over the mesh (always 200; the mock answers with this agent's checks)
+    if (/^\/_opm\/api\/sites\/[^/]+\/agent\/health$/.test(url.pathname) && method === 'GET') {
+      return ctx.json(200, healthOf().body);
+    }
     const s = ctx.requireSession();
     const actor = () => ctx.requireActor(headers, s);
 

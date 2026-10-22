@@ -248,6 +248,7 @@ func (a *Agent) finishHomeMove() {
 			`UPDATE blobs SET path = ? || substr(path, ?) WHERE path LIKE ?`,
 			`UPDATE debug_index SET file = ? || substr(file, ?) WHERE file LIKE ?`,
 			`UPDATE transfers SET localPath = ? || substr(localPath, ?) WHERE localPath LIKE ?`,
+			`UPDATE files SET localPath = ? || substr(localPath, ?) WHERE localPath LIKE ?`, // §21 #123
 		} {
 			if _, err := a.db.Exec(q, to, len(from)+1, from+"/%"); err != nil {
 				a.log.Warn("gui", "move: path rewrite failed", "error", err.Error())

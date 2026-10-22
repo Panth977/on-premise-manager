@@ -11,6 +11,8 @@ export const paths = {
   blob: (hex: string) => `blobs/sha256/${hex}`,
   file: (hex: string) => `files/${hex}`,
   transfer: (dep: string, tid: string) => `transfers/${dep}/${tid}`,
+  /** §21 #123 the cloud copy of a shared file (a file migrated from a transfer keeps its transfers/… object) */
+  sharedFile: (dep: string, fileId: string) => `shared-files/${dep}/${fileId}`,
   uploadPart: (uid: string, n: number) => `uploads/${uid}/part-${n}`,
   logo: (dep: string) => `logos/${dep}`,
   bundle: (dep: string, name: string) => `activity-bundles/${dep}/${name}`,

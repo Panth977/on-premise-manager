@@ -33,7 +33,7 @@ const pages: [string, string, (p: Page) => Promise<void>][] = [
   ['13-container-editor', `${D}/sites/app/containers/${SEED.svcApi}`, async () => {}],
   ['14-diff', `${D}/diff`, async () => {}],
   ['15-history', `${D}/history`, async () => {}],
-  ['16-transfers', `${D}/sites/app/transfers`, async () => {}],
+  ['16-shared-files', `${D}/shared-files`, async () => {}],
   ['17-templates', '/app/templates', async () => {}],
   ['18-template-overview', T, async () => {}],
   ['19-template-variables', `${T}/variables`, async () => {}],

@@ -1019,7 +1019,9 @@ var ActivityTypes = []string{
 	"proposal.staged", "proposal.stale", "proposal.superseded", "proposal.approved", "update.started",
 	"update.snapshot", "update.applied", "update.failed", "update.rolled-back", "update.abandoned", "update.terminated", "update.recovered",
 	"config.local-change", "snapshot.created", "snapshot.downloaded", "snapshot.imported", "snapshot.deleted",
-	"snapshot.rolled-back", "volume.seeded", "volume.reset-to-seed", "transfer.sent", "transfer.received", "transfer.saved", "secret.revealed",
+	"snapshot.rolled-back", "volume.seeded", "volume.reset-to-seed", "transfer.sent", "transfer.received", "transfer.saved",
+	"file.published", "file.fetched", "file.downloaded", "file.saved", "file.copy-dropped", "file.unpublished", // §21 #123
+	"secret.revealed",
 	"secret.regenerated", "secret.fetched", "internet.tunnel.started", "internet.tunnel.stopped", "internet.tunnel.revoked",
 	"internet.tunnel.expired", "debug.downloaded", "edge.reloaded", "edge.reload-failed", "cert.issued",
 	"cert.renewed", "cert.failed", "cert.local-ca-downloaded", "site.unreachable", "site.reachable",
@@ -1190,6 +1192,9 @@ type CloudView struct {
 	Branch *CloudBranchView `json:"branch,omitempty"`
 	// §21 #118 sites with an open remote GUI session (absent on old clouds)
 	RemoteGui []RemoteGuiCloudItem `json:"remoteGui,omitempty"`
+	// §21 #123 shared files: the listing (+ tombstones) and the copies the cloud wants from a site; nil on old clouds
+	Files       []SharedFile    `json:"files,omitempty"`
+	FileFetches []FileFetchItem `json:"fileFetches,omitempty"`
 	// to-site transfers deleted in the cloud (all sites; each agent drops its own copy; absent on old clouds)
 	DeletedTransfersToSite []DeletedTransfer `json:"deletedTransfersToSite,omitempty"`
 }

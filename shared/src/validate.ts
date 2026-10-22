@@ -1097,7 +1097,7 @@ export function normalizeFileDef(f: FileDef | (Omit<FileDef, 'render' | 'locatio
 
 // ───────────────────────────────────────────────────────────── storage locations (round D)
 /** Top-level names under agentHome that belong to the agent itself (a "./" location may not use them, except its own kind dir). */
-export const AGENT_HOME_RESERVED = ['site.key', 'opm.db', 'opm.db-wal', 'opm.db-shm', 'blobs', 'snapshots', 'certs', 'edge', 'transfers', 'tunnel', 'logs', 'notfound', 'rendered', 'secrets', 'vol', 'files', 'volumes'] as const;
+export const AGENT_HOME_RESERVED = ['site.key', 'opm.db', 'opm.db-wal', 'opm.db-shm', 'blobs', 'snapshots', 'certs', 'edge', 'transfers', 'tunnel', 'logs', 'notfound', 'rendered', 'secrets', 'vol', 'files', 'volumes', 'shared-files'] as const;
 export const AUTO_LOCATION: StorageLocation = { kind: 'auto' };
 export function normalizeLocation(l: StorageLocation | null | undefined): StorageLocation {
   if (!l || typeof l !== 'object' || l.kind !== 'path') return { kind: 'auto' };

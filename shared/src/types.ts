@@ -1445,6 +1445,12 @@ export const ACTIVITY_TYPES = [
   'transfer.sent',
   'transfer.received',
   'transfer.saved',
+  'file.published', //      §21 #123 data { fileId, fileName, sizeBytes, origin }
+  'file.fetched', //        a copy arrived (data { fileId, where: 'cloud' | <site>, from })
+  'file.downloaded', //     to a browser (data { fileId, where: 'cloud' | <site> })
+  'file.saved', //          written to a server path (data { fileId, path })
+  'file.copy-dropped', //   a site deleted its copy (data { fileId })
+  'file.unpublished', //    data { fileId, fileName }
   'secret.revealed',
   'secret.regenerated', //   §21 #84 (cloud: regenerateSecret; data { secretSlug, draftVersion })
   'secret.fetched',
@@ -1603,7 +1609,7 @@ export interface TransferDelivery {
 }
 export type TransferMeta = Pick<Transfer, 'transferId' | 'siteSlug' | 'direction' | 'fileName' | 'sizeBytes' | 'sha256' | 'status' | 'createdAt' | 'createdBy' | 'note' | 'expiresAt'>;
 
-export type UploadPurpose = 'blob' | 'transfer' | 'seed-archive'; // seed-archive (round E): .tar.gz volume starter content ≤ SEED_ARCHIVE_MAX
+export type UploadPurpose = 'blob' | 'transfer' | 'seed-archive' | 'file'; // file: §21 #123 shared files (Upload.transferId = the fileId) // seed-archive (round E): .tar.gz volume starter content ≤ SEED_ARCHIVE_MAX
 export interface Upload {
   uploadId: Id;
   purpose: UploadPurpose;
@@ -1658,6 +1664,9 @@ export interface CloudView {
   agentUpgrades?: AgentUpgradeRequest[];
   /** §21 #101 persist-to-cloud volumes with a PENDING push or an open snapshot request (all sites; each agent filters its own) */
   volumeContent?: import('./volume-content.js').VolumeContentCloudItem[];
+  /** §21 #123 shared files: the whole listing (+ tombstones) and the copies the cloud wants from a site; absent on old clouds */
+  files?: import('./files.js').SharedFile[];
+  fileFetches?: import('./files.js').CloudViewFiles['fileFetches'];
   /** §21 #118 sites with an open remote GUI session (each agent long-polls agentRemoteGuiNext while its site is listed) */
   remoteGui?: import('./remote-gui.js').RemoteGuiCloudItem[];
   /** §21 #104 the deployment branch head (what the sites should run) + the newest commits; absent on old clouds */

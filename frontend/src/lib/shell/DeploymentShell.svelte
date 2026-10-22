@@ -19,7 +19,7 @@
   import Spinner from '../ui/Spinner.svelte';
   import ErrorState from '../ui/ErrorState.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
-  import { LayoutDashboard, KeyRound, Activity, ScrollText, Variable, Lock, Files, GitCompare, History, ArrowLeft, Rocket, GitBranch } from '../ui/icons';
+  import { LayoutDashboard, KeyRound, Activity, ScrollText, Variable, Lock, Files, GitCompare, History, ArrowLeft, Rocket, GitBranch, FolderOpen } from '../ui/icons';
 
   let { id, children }: { id: string; children: Snippet } = $props();
   // svelte-ignore state_referenced_locally
@@ -51,6 +51,7 @@
       { href: `${base}/setup`, label: 'Setup', icon: KeyRound, show: scope.can('deployment.setup', 'read') },
       { href: `${base}/status`, label: 'Status', icon: Activity, show: true },
       { href: `${base}/activities`, label: 'Activities', icon: ScrollText, show: scope.can('deployment.activities', 'read') },
+      { href: `${base}/shared-files`, label: 'Shared files', icon: FolderOpen, show: scope.can('deployment.transfers', 'read'), testid: 'nav-shared-files' },
       { href: `${base}/variables`, label: 'Variables', icon: Variable, show: cfg, group: 'Config' },
       { href: `${base}/secrets`, label: 'Secrets', icon: Lock, show: cfg, group: 'Config' },
       { href: `${base}/files`, label: 'Files', icon: Files, show: cfg, group: 'Config' },

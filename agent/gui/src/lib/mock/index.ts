@@ -67,6 +67,7 @@ import { createBranchMock } from './branch'; // §21 #104 branches
 import { configBlobs, type BlobNeed, type CreateStageRequest } from '@opm/shared/staging'; // §21 #107 commit staging
 import { sha256 as sha256Bytes, toHex } from '@opm/shared/hash';
 import { hostFsFile, hostFsList } from './hostfs';
+import { createFilesMock } from './files'; // §21 #123 shared files
 
 type Json = Record<string, unknown>;
 class MockError extends Error {
@@ -1624,6 +1625,22 @@ const H: Partial<Record<keyof typeof AGENT_API, Handler>> = {
     return { accepted: true };
   },
 };
+
+// §21 #123 shared files: one listing for the deployment; here / job / sources per site (lib/mock/files.ts)
+Object.assign(
+  H,
+  createFilesMock({
+    fail: (code, message, details = {}) => {
+      throw new MockError(code, message, details);
+    },
+    needSite,
+    needReach,
+    reachable,
+    sites: ALL_SITES,
+    addActivity,
+    fileResponse: (body, name) => fileResponse(body, name),
+  }),
+);
 
 // §21 #104 branches: this site's branch, the cloud branch, uncommitted (edits + drift); the old local-proposal /
 // approve endpoints are gone (410) — merges replace them

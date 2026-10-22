@@ -24,6 +24,7 @@ import { volumeContentHandlers } from './routes/volume-content.js';
 import { branchHandlers } from './routes/branches.js';
 import { agentBranchHandlers } from './routes/agent-branches.js';
 import { remoteGuiHandlers } from './routes/remote-gui.js';
+import { fileHandlers } from './routes/files.js';
 import { githubMirrorHandlers } from './routes/github-mirror.js';
 import { runImport } from './core/importer.js';
 import { runDaily } from './jobs/daily.js';
@@ -52,6 +53,7 @@ const handlers: Handlers = {
   ...agentBranchHandlers,
   ...githubMirrorHandlers,
   ...remoteGuiHandlers,
+  ...fileHandlers, // §21 #123
 };
 setHandlers(handlers);
 

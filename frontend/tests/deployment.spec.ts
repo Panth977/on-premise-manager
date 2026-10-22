@@ -128,32 +128,6 @@ test.describe('deployment scope', () => {
     await expect(page.getByTestId('drop-zone')).toBeVisible();
   });
 
-  test('send a file to a site, then delete it', async ({ page }) => {
-    await login(page, 'admin', `${D}/sites/app/transfers`);
-    await expect(page.getByTestId('transfer-row')).toHaveCount(3); // §21 #100 mock: saved, waiting for the site, on the site
-    await page.getByTestId('send-file').click();
-    await page.getByTestId('send-file-input').setInputFiles({ name: 'hello.txt', mimeType: 'text/plain', buffer: Buffer.from('hello site\n'.repeat(100)) });
-    await page.getByTestId('send-note').fill('test note');
-    await page.getByTestId('send-submit').click();
-    await expectToast(page, 'success', 'hello.txt sent');
-    const row = page.getByTestId('transfer-row').filter({ hasText: 'hello.txt' });
-    await expect(row).toContainText('stored · waiting for the site');
-    await expect(row).toContainText('test note');
-    await row.getByTestId('delete-transfer').click();
-    await page.getByTestId('confirm-ok').click();
-    await expect(row).toContainText('expired');
-  });
-
-  test('receive: download a file sent by the site', async ({ page }) => {
-    await login(page, 'admin', `${D}/sites/db/transfers`);
-    const row = page.getByTestId('receive-row').first();
-    await expect(row).toContainText('redis-dump');
-    const dl = page.waitForEvent('download');
-    await row.getByTestId('download').click();
-    expect((await dl).suggestedFilename()).toBe('redis-dump-2026-10-05.rdb');
-    await expect(row).toContainText('downloaded');
-  });
-
   test('§21 #105 review the browser changes → commit (message, suggest) → discard', async ({ page }) => {
     await login(page, 'admin', `${D}/variables`);
     await page.getByTestId('val-greeting').fill('Hi there');

@@ -39,8 +39,8 @@ export const MODULES: NavModule[] = [
   { k: 'devtools/history', label: 'History', icon: 'history', sec: 'devtools', one: true },
   { k: 'agent', label: 'Agent', icon: 'server', sec: 'agent' },
   { k: 'debug', label: 'Debug', icon: 'bug', sec: 'agent' },
-  // §21 #100: Send + Receive are one module (left = send to the cloud, right = receive from the cloud)
-  { k: 'transfers', label: 'Transfers', icon: 'swap', sec: 'agent', one: true },
+  // §21 #123: Files — the deployment's shared bucket as this site sees it (URL /transfers kept; replaced §21 #100 send/receive)
+  { k: 'transfers', label: 'Shared files', icon: 'folder', sec: 'agent', one: true },
   { k: 'internet', label: 'Internet', icon: 'globe', sec: 'agent', wide: true },
   { k: 'sites', label: 'Sites', icon: 'grid', sec: 'deployment', wide: true },
   { k: 'variables', label: 'Variables', icon: 'variable', sec: 'deployment', wide: true },

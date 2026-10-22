@@ -170,6 +170,7 @@ func (a *Agent) buildSiteMux() http.Handler {
 	mux.Handle("/devtools/", a.devtoolsSiteHandler()) // §21 #97 dev tools (devtools_hook.go)
 	a.registerSelfRoutes(h)                           // §21 #90 agent self-management (self.go)
 	a.registerVolumeSyncRoutes(h)                     // §21 #101 volume content sync (vcapply.go)
+	a.registerFileRoutes(h)                           // §21 #123 shared files (files.go)
 	a.registerSiteBranchAPI(h)                        // §21 #111 per-site branch + its runs (branch.go)
 	h("GET /transfers", authSession, a.handleListTransfers)
 	h("POST /transfers/upload", authActor, a.handleSendFromBrowser)

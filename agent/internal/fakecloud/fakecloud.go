@@ -68,6 +68,7 @@ type Cloud struct {
 	transfers   map[string]*model.Transfer
 	transferDat map[string][]byte
 	uploads     map[string]*upload
+	filesSt     *fileState // §21 #123
 	blocked     map[string]bool
 	requests    []string
 	vc          map[string]*vcVol // §21 #101 volume content per "<site>:<volume>" (volcontent.go)

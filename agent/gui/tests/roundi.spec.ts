@@ -434,8 +434,8 @@ test('§21 #91: no socket unit → health card says ports close for a moment', a
   await knobs(page, { 'opm.mock.noSocket': '1' });
   await agentPage(page);
   await expect(page.getByTestId('socket-activated')).toContainText('no socket activation');
-  // db's page has no health card (health is this agent only)
+  // §21 #121 db's page shows db's health too (over the mesh)
   await open(page, '/_opm/app/db/agent');
   await expect(page.getByTestId('agent-cards')).toBeVisible();
-  await expect(page.getByTestId('card-health')).toHaveCount(0);
+  await expect(page.getByTestId('card-health')).toHaveCount(1);
 });

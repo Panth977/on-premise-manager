@@ -29,7 +29,7 @@ import { CloudLog, appendCloud, ingestSiteLog } from '../core/activities.js';
 import { isTerminal, OPEN_STATUSES } from '../core/catalog.js';
 import { paths, noRedirectFor, serveObject, exists } from '../core/storage.js';
 import { fetchLayer } from '../core/importer.js';
-import { completeUpload, loadUpload, newUpload, putPart, uploadView } from '../core/uploads.js';
+import { completeUpload, expectedPartSize, loadUpload, newUpload, putPart, uploadView } from '../core/uploads.js';
 import { verifyAgent, type AgentAuth } from '../core/auth.js';
 import { dispatch, type Ctx, type Handlers } from '../core/router.js';
 import { Reply } from '../core/reply.js';
@@ -40,6 +40,7 @@ import { newTransfer, validateTransferBody } from './transfers.js';
 import { agentReleaseInfo, cleanProgress, liveRequests, settleUpgrade, upgradeProgressError } from './agent-upgrade.js';
 import { pushBlobAllowed, storeVolumeSync, volumeContentCloudItems, volumeSyncError } from './volume-content.js';
 import { remoteGuiCloudItems } from './remote-gui.js';
+import { filesCloudItems, type StoredFile } from '../core/files.js';
 import { allowedCommits, cloudBranchView, legacyHeadMirror, storeHeartbeatBranch } from './agent-branches.js';
 import { bcol, encodeCommit } from '../core/branches.js';
 import { commitStats, type Commit } from '@opm/shared';
@@ -82,7 +83,7 @@ const RELAY_MAX = 4 * 1024 * 1024;
 
 // ───────────────────────────────────────── cloud view
 export async function buildCloudView(deploymentId: string, dep: StoredDeployment): Promise<CloudView> {
-  const [open, recent, transfers, deletedTransfers, agents, release, volumeContent, branch] = await Promise.all([
+  const [open, recent, transfers, deletedTransfers, agents, release, volumeContent, branch, files] = await Promise.all([
     col.proposals(deploymentId).where('status', 'in', [...OPEN_STATUSES]).get(),
     col.proposals(deploymentId).orderBy('revId', 'desc').limit(25).get(),
     col.transfers(deploymentId).where('direction', '==', 'to-site').where('status', '==', 'ready').get(),
@@ -91,6 +92,7 @@ export async function buildCloudView(deploymentId: string, dep: StoredDeployment
     agentReleaseInfo().catch(() => null),
     volumeContentCloudItems(deploymentId), // §21 #101
     cloudBranchView(deploymentId, dep), // §21 #104
+    filesCloudItems(deploymentId), // §21 #123
   ]);
   const openP = open.docs.map((d) => d.data() as Proposal);
   const terminal = recent.docs
@@ -127,6 +129,9 @@ export async function buildCloudView(deploymentId: string, dep: StoredDeployment
     branch,
     // §21 #118 sites with an open remote GUI session (their agents long-poll for the browser's requests)
     remoteGui: remoteGuiCloudItems(deploymentId),
+    // §21 #123 shared files: the whole listing (+ tombstones) and the copies the cloud wants from a site
+    files: files.files,
+    fileFetches: files.fileFetches,
   };
 }
 
@@ -712,7 +717,19 @@ export const agentHandlers: Pick<
   },
   async putAgentUploadPart(c) {
     const u = await loadUpload(c.params.uploadId!, { kind: 'agent', deploymentId: A(c).deploymentId, siteSlug: A(c).siteSlug });
-    return putPart(u, c.params.index!, c.body);
+    const r = await putPart(u, c.params.index!, c.body);
+    // §21 #123 a holder sending its copy: the console follows cloud.fetch.bytesDone
+    if (u.purpose === 'file' && u.deploymentId && u.transferId) {
+      const fRef = col.files(u.deploymentId).doc(u.transferId);
+      const bytesDone = r.received.reduce((n, i) => n + expectedPartSize(u, i), 0);
+      await db()
+        .runTransaction(async (tx) => {
+          const f = (await tx.get(fRef)).data() as StoredFile | undefined;
+          if (f?.cloud.fetch && f._uploadId === u.uploadId) tx.update(fRef, { 'cloud.fetch.bytesDone': bytesDone });
+        })
+        .catch(() => undefined);
+    }
+    return r;
   },
   async completeAgentUpload(c) {
     const u = await loadUpload(c.params.uploadId!, { kind: 'agent', deploymentId: A(c).deploymentId, siteSlug: A(c).siteSlug });

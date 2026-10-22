@@ -44,7 +44,6 @@
 
   const slug = $derived(page.params.siteSlug ?? '*');
   const all = $derived(slug === '*');
-  const isSelf = $derived(!!overview.data?.self && overview.data.self === slug);
 
   // ───────── data
   const vols = new Resource(() => tools.toolsVolumes({ siteSlug: slug }));
@@ -517,7 +516,7 @@
                   <dd>
                     {#if st?.seed}
                       <SeedView seed={st.seed} compact />{#if st.seeded}&nbsp;· applied <Time ts={st.seeded.at} /> ({st.seeded.entries} entries){:else} · not applied{/if}
-                      {#if isSelf}<Btn size="xs" icon="rotate" disabled={!canWrite} onclick={() => (resetOpen = true)} data-testid="vol-reset">Reset to starter content…</Btn>{:else}<span class="tiny muted">(reset from site {slug}'s own agent GUI)</span>{/if}
+                      <Btn size="xs" icon="rotate" disabled={!canWrite} onclick={() => (resetOpen = true)} data-testid="vol-reset">Reset to starter content…</Btn>
                     {:else}<span class="muted">none (starts empty)</span>{/if}
                   </dd>
                   <dt>Duplicate</dt><dd><button class="linklike small" onclick={() => (dupOpen = true)} data-testid="vol-duplicate">Duplicate as a new data volume…</button></dd>

@@ -637,6 +637,13 @@ func TestTwoSiteBranches(t *testing.T) {
 	if r := waitRun(app, run.UpdateID); r.Result == nil || !r.Result.Ok || len(r.Sites) != 2 {
 		t.Fatalf("fast-forward run %+v", r.Result)
 	}
+	// §21 #122 every site staged its revision before the apply (not only the coordinator): images and files were
+	// downloaded there — a peer without them failed with "blob … missing" and the whole update rolled back
+	if h := db.a.head(); h == nil {
+		t.Fatal("db has no head after the fast-forward")
+	} else if row, ok := db.a.staging(h.RevID, "db"); !ok || row.Staging != model.StagingReady {
+		t.Fatalf("db did not stage its fast-forward revision: %+v %v", row, ok)
+	}
 	for _, s := range []*site{app, db} {
 		hc := s.a.headCommit()
 		if hc == nil || hc.Kind != "merge" || hc.Source == nil || *hc.Source.CommitID != cm2.CommitID || hc.Message != "release 2 everywhere" {

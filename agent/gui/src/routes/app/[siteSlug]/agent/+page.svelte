@@ -52,8 +52,8 @@
   const info = new Resource<AgentSelfInfo>(async () => (await agentSelfList(slug))[0]);
   const ustate = new Resource(() => agentApi.upgradeState({ siteSlug: slug }));
   const config = new Resource<AgentConfigView>(() => agentApi.agentConfig({ siteSlug: slug }));
-  /** §21 #91 /_opm/api/health is THIS agent only (public) — shown on this site's page */
-  const health = new Resource(() => fetchHealth());
+  /** §21 #91 health: this agent's public /_opm/api/health; §21 #121 another site's over the mesh (older agents: none) */
+  const health = new Resource(async () => (isSelf ? fetchHealth() : agentApi.siteAgentHealth({ siteSlug: slug }).catch(() => null)));
   function loadSite() {
     info.load();
     ustate.load();
@@ -64,6 +64,7 @@
     void slug;
     untrack(() => {
       info.reset();
+      health.reset();
       ustate.reset();
       config.reset();
       checked = null;
@@ -82,7 +83,7 @@
     return () => clearInterval(t);
   });
   const i = $derived(info.data);
-  const h = $derived(isSelf ? (health.data ?? null) : null);
+  const h = $derived(health.data ?? null);
   /** DB schema of the running build: /health, else /info (this site only; absent before 0.10.0) */
   const schema = $derived(isSelf ? (h?.schema ?? session.info?.schema ?? null) : null);
   const oldAgent = $derived(!info.loaded && errCode(info.error) === 'not-found');
@@ -580,7 +581,7 @@
       <!-- ─────────────────────────── release + upgrade -->
       <h2 class="sect">Release and upgrade</h2>
       <ProcessCard siteSlug={slug} /><!-- §21 #112 -->
-      {#if isSelf}<StorageCard /><!-- §21 #119 -->{/if}
+      <StorageCard site={slug} /><!-- §21 #119, any site §21 #121 -->
       <section class="card" data-testid="release-card">
         <div class="card-body stack">
           <div class="rel">
@@ -659,7 +660,7 @@
           {#if remoteRestart}<p class="small"><span class="spin" aria-hidden="true"></span> {slug} is restarting…</p>{/if}
           <div class="row"><Btn icon="rotate" disabled={!!blocked || remoteRestart} title={blocked ?? ''} onclick={openRestart} data-testid="restart-open">Restart agent…</Btn></div>
         </section>
-        {#if isSelf}<RemoteGuiCard /><!-- §21 #118 -->{/if}
+        <RemoteGuiCard site={slug} /><!-- §21 #118, any site §21 #121 -->
         <section class="card card-pad c" data-testid="support-card">
           <h3><Icon name="archive" size={15} />Support bundle</h3>
           <p class="small muted">One <span class="mono">.tar.gz</span> for the operations team. Secrets are masked; the download is logged.</p>

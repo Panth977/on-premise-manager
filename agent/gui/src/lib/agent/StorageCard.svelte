@@ -16,18 +16,24 @@
   import Progress from '$lib/ui/Progress.svelte';
   import Time from '$lib/ui/Time.svelte';
 
+  /** §21 #121 any site: this one in process, another over the mesh */
+  let { site }: { site: string } = $props();
   let v = $state<StorageView | null>(null);
   let err = $state<string | null>(null);
   async function load() {
     try {
-      v = await api.agentStorage({});
+      v = await api.siteAgentStorage({ siteSlug: site });
       err = null;
     } catch (e) {
       err = errMessage(e);
     }
   }
-  onMount(() => {
+  $effect(() => {
+    void site;
+    v = null;
     void load();
+  });
+  onMount(() => {
     const t = setInterval(() => !document.hidden && void load(), 20_000);
     return () => clearInterval(t);
   });
@@ -42,7 +48,7 @@
   async function runCheck() {
     checking = true;
     try {
-      check = await api.checkMoveHome({ body: { to } });
+      check = await api.siteCheckMoveHome({ siteSlug: site, body: { to } });
     } catch (e) {
       toasts.err(e, 'Check failed');
     } finally {
@@ -52,10 +58,10 @@
   async function move() {
     busy = true;
     try {
-      await api.moveHome({ body: { to, typed } });
+      await api.siteMoveHome({ siteSlug: site, body: { to, typed } });
       open = false;
       moving = true;
-      toasts.ok('Moving the agent home', 'The agent stops, moves the folder and starts again from the new place. This page reconnects by itself.');
+      toasts.ok(`Moving the agent home of ${site}`, 'The agent stops, moves the folder and starts again from the new place. This page reconnects by itself.');
       waitBack();
     } catch (e) {
       toasts.err(e, 'Not moved');
@@ -66,7 +72,7 @@
   function waitBack() {
     const t = setInterval(async () => {
       try {
-        const x = await api.agentStorage({});
+        const x = await api.siteAgentStorage({ siteSlug: site });
         if (x.move && (x.move.status === 'done' || x.move.status === 'failed')) {
           clearInterval(t);
           moving = false;
@@ -84,7 +90,7 @@
   async function deleteOld() {
     busy = true;
     try {
-      await api.deleteOldHome({ body: { to: '', typed: delTyped } });
+      await api.siteDeleteOldHome({ siteSlug: site, body: { to: '', typed: delTyped } });
       delOpen = false;
       toasts.ok('Old copy deleted');
       await load();

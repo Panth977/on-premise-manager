@@ -144,6 +144,18 @@ func (a *Agent) buildSiteMux() http.Handler {
 	h("POST /volumes/{volumeSlug}/snapshot", authActor, a.handleSnapshotVolume)
 	h("GET /volumes/{volumeSlug}/backups", authSession, a.handleVolumeBackups) // §21 #112
 	h("GET /agent/process", authSession, a.handleAgentProcess)                 // §21 #112 self-metrics
+	// §21 #121 every site is managed from any site: the agent page's cards of another site come over the mesh
+	h("GET /agent/health", authSession, func(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {
+		h := a.health(r.Context())
+		w.Header().Set("Cache-Control", "no-store")
+		return h, 200, nil
+	})
+	h("GET /agent/storage", authSession, a.handleStorage)
+	h("POST /agent/move-home/check", authActor, a.handleMoveHomeCheck)
+	h("POST /agent/move-home", authActor, a.handleMoveHome)
+	h("POST /agent/move-home/delete-old", authActor, a.handleDeleteOldHome)
+	h("GET /agent/remote-gui", authSession, a.handleGetRemoteGui)
+	h("PUT /agent/remote-gui", authActor, a.handlePutRemoteGui)
 	h("GET /volume-copies", authSession, a.handleListVolumeCopies)
 	h("POST /volume-copies/{copyId}/delete", authActor, a.handleDeleteVolumeCopy)
 	h("GET /intents/{intentId}", authSession, a.handleGetIntent) // §21 #95 (intents held by this site, e.g. a forwarded volume reset)
@@ -225,6 +237,11 @@ func (a *Agent) handleSiteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.reachable(slug) {
 		writeErr(w, herr(model.ErrUnavailable, "site "+slug+" is not reachable", nil))
+		return
+	}
+	// §21 #121 through the cloud no site's remote GUI is switched (the target cannot see that the person is remote)
+	if r.Method == http.MethodPut && strings.HasPrefix(rest, "agent/remote-gui") && remoteOf(r) != nil {
+		writeErr(w, herr(model.ErrForbidden, "switch the remote GUI on / off on a site itself, not through the cloud", nil))
 		return
 	}
 	// actor-required forwards: check the actor here (the target trusts the signed headers)

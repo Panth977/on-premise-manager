@@ -6558,6 +6558,24 @@ Pass = every check above green; results file lists timings and the activity coun
         terminal): the same checks as §21 #119, the site's containers stopped, `move-home.json` prepared, `opm-agent
         move-home` run; a failure leaves the home where it was and starts the containers again.
 
+121. **Every site is managed from any site** (user: "it is very likely a client might not open the port … to the public
+    server for some servers, so one site can let me manage all sites is very important"; the Storage card of app2 was
+    missing on app1's agent GUI). The agent page's cards of another site come over the mesh like the rest of the
+    per-site API: `GET /_opm/api/sites/{site}/agent/health` (always 200, ok in the body), `…/agent/storage`,
+    `POST …/agent/move-home/check | move-home | move-home/delete-old`, `GET | PUT …/agent/remote-gui` (registered on the
+    site mux: self in process, another site `/_opm/peer/site/…`). Through the cloud no site's remote GUI is switched
+    (the forwarding site refuses: the target cannot see that the person is remote). Volume "Reset to starter content"
+    works for another site too (its flow already followed the target's intent). Tests:
+    `agent/internal/agent/site_agent_routes_test.go`, `tests/rounde-volumes.spec.ts`.
+
+122. **A multi-site branch plan stages every site before it applies** (NEOM: "Fast-forward all sites" to cloud seq 21
+    rolled back with "apply failed on app2: image envizom-analytics:v4: blob ec0dce9bcf09 missing"). A proposal is
+    staged by every site when it arrives, but a fast-forward of several sites (and any multi-site merge plan) staged
+    only the coordinator; another site then applied without the image layers and files. The snapshot step (all sites in
+    parallel, before any apply, 30 min) now stages the site's revision unless it is staged already (`ensureStaged`,
+    rollbacks excluded): downloads happen before any container stops; a failure (e.g. the free-space floor) rolls back
+    before anything changed. Test: `TestTwoSiteBranches` (the peer has a ready staging row after the fast-forward).
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

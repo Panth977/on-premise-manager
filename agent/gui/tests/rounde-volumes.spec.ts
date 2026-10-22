@@ -50,8 +50,8 @@ test('Backups: kind / starts with / seeded, Reset to starter content (wait + ACC
   await expect(card.getByTestId('svseed-app-api-env')).toContainText('(legacy) from Files api-config');
   await expect(card.getByTestId('svseed-app-api-env')).toContainText('seeded');
   await expect(page.getByTestId('site-volumes-northwind').getByTestId('svseed-northwind-admin-runtime')).toContainText('1 file');
-  // peers: reset only from that site's own agent GUI
-  await expect(page.getByTestId('reset-northwind-nodered-data')).toBeDisabled();
+  // peers: reset works from any site (forwarded over the mesh)
+  await expect(page.getByTestId('reset-northwind-nodered-data')).toBeEnabled(); // §21 #121 another site's volume: reset over the mesh
   await card.getByTestId('reset-app-api-env').click();
   const flow = page.getByTestId('reset-flow');
   await expect(flow.getByTestId('countdown')).toBeVisible();

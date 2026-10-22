@@ -662,6 +662,9 @@ func (a *Agent) execStep(ctx context.Context, plan *model.UpdatePlan, step strin
 		a.finishSiteUpdate(plan.UpdateID)
 		return nil
 	case model.StepSnapshot:
+		if err := a.ensureStaged(ctx, plan); err != nil { // §21 #122 before any site applies
+			return err
+		}
 		return a.preUpdateSnapshot(ctx, plan, st)
 	case model.StepApply:
 		if err := a.requireLock(plan); err != nil {
@@ -683,6 +686,41 @@ func (a *Agent) execStep(ctx context.Context, plan *model.UpdatePlan, step strin
 		return a.rollbackSite(ctx, plan, st)
 	}
 	return fmt.Errorf("unknown step %s", step)
+}
+
+// ensureStaged stages the plan's revision on this site unless it already is (§21 #122): a proposal is staged by every
+// site when it arrives, but a multi-site branch plan (fast-forward all sites, a merge for several sites) was staged
+// only on the coordinator — another site then applied without the image layers / files ("blob … missing") and the
+// whole update rolled back. Runs in the snapshot step (all sites in parallel, before any apply, 30 min): downloads
+// happen before a container is stopped, and a failure rolls back before anything changed.
+func (a *Agent) ensureStaged(ctx context.Context, plan *model.UpdatePlan) error {
+	if plan.Kind == "rollback" {
+		return nil // a snapshot restore brings its own images and files
+	}
+	rev := plan.RevisionFor(a.site)
+	if rev == nil {
+		return nil
+	}
+	if row, ok := a.staging(rev.RevID, a.site); ok && row.Staging == model.StagingReady {
+		return nil
+	}
+	if plan.Kind == "merge" {
+		a.markBranchRev(rev.RevID)
+	}
+	if err := a.putRevision(rev); err != nil {
+		return fmt.Errorf("stage on %s: %w", a.site, err)
+	}
+	a.log.Info("update", "staging the revision before the apply", "revId", rev.RevID, "updateId", plan.UpdateID)
+	a.stage(ctx, rev.RevID)
+	row, ok := a.staging(rev.RevID, a.site)
+	if !ok || row.Staging != model.StagingReady {
+		msg := "staging did not finish"
+		if ok && row.Error != nil {
+			msg = *row.Error
+		}
+		return fmt.Errorf("staging on %s failed: %s", a.site, msg)
+	}
+	return nil
 }
 
 func (a *Agent) requireLock(plan *model.UpdatePlan) error {

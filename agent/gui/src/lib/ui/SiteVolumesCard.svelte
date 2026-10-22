@@ -90,7 +90,7 @@
               </td>
               <td class="actions">
                 {#if v.declared && v.seed}
-                  <Btn size="xs" variant="danger" icon="refresh" disabled={!self} title={self ? 'Wipe the volume and write the starter content again (snapshot first)' : 'Open the agent GUI of this site to reset its volumes'} onclick={() => ((resetFor = v.volumeSlug), (resetOpen = true))} data-testid="reset-{siteSlug}-{v.volumeSlug}">Reset to starter content…</Btn>
+                  <Btn size="xs" variant="danger" icon="refresh" title="Wipe the volume and write the starter content again (snapshot first)" onclick={() => ((resetFor = v.volumeSlug), (resetOpen = true))} data-testid="reset-{siteSlug}-{v.volumeSlug}">Reset to starter content…</Btn>
                 {/if}
               </td>
             </tr>

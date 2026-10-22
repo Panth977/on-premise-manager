@@ -5,6 +5,7 @@
  * the GUI again from the console) and fails the requests in flight. The cloud never calls a site: agents long-poll.
  */
 import { randomBytes } from 'node:crypto';
+import type { RemoteGuiWsFrame } from '@opm/shared';
 import { REMOTE_GUI_CONNECTED_SEC, REMOTE_GUI_LIMITS, REMOTE_GUI_REQUEST_TIMEOUT_SEC, REMOTE_GUI_SESSION_SEC, type RemoteGuiActor, type RemoteGuiCloudItem, type RemoteGuiRequest } from '@opm/shared';
 
 export interface RemoteSession {
@@ -177,4 +178,74 @@ export function _resetRemoteGui() {
   queues.clear();
   waiters.clear();
   lastPoll.clear();
+  streams.clear();
+}
+
+// ───────────────────────── §21 #118 g WebSocket streams (browser ⇄ cloud ⇄ site, the site long-polls)
+export interface WsStream {
+  streamId: string;
+  deploymentId: string;
+  siteSlug: string;
+  /** browser → site, waiting for the site's recv */
+  toSite: RemoteGuiWsFrame[];
+  recvWaiter: ((r: { frames: RemoteGuiWsFrame[]; closed: boolean }) => void) | null;
+  /** site → browser (set once the browser socket is upgraded) */
+  toBrowser: ((f: RemoteGuiWsFrame) => void) | null;
+  closed: boolean;
+  lastAt: number;
+}
+const streams = new Map<string, WsStream>();
+export function newStream(deploymentId: string, siteSlug: string): WsStream {
+  const s: WsStream = { streamId: id(), deploymentId, siteSlug, toSite: [], recvWaiter: null, toBrowser: null, closed: false, lastAt: Date.now() };
+  streams.set(s.streamId, s);
+  return s;
+}
+export function streamOf(streamId: string, deploymentId: string, siteSlug: string): WsStream | null {
+  const s = streams.get(streamId);
+  return s && s.deploymentId === deploymentId && s.siteSlug === siteSlug ? s : null;
+}
+/** a message from the browser (or the browser's close) */
+export function toSite(s: WsStream, f: RemoteGuiWsFrame | null) {
+  s.lastAt = Date.now();
+  if (f) s.toSite.push(f);
+  else s.closed = true;
+  if (s.recvWaiter) {
+    const w = s.recvWaiter;
+    s.recvWaiter = null;
+    w({ frames: s.toSite.splice(0), closed: s.closed });
+  }
+  if (s.closed && !s.toSite.length) setTimeout(() => streams.delete(s.streamId), 60_000).unref?.();
+}
+/** the site's long-poll for browser messages */
+export function recv(s: WsStream, waitMs: number, signal?: AbortSignal): Promise<{ frames: RemoteGuiWsFrame[]; closed: boolean }> {
+  s.lastAt = Date.now();
+  if (s.toSite.length || s.closed || waitMs <= 0) return Promise.resolve({ frames: s.toSite.splice(0), closed: s.closed });
+  return new Promise((resolve) => {
+    const t = setTimeout(() => {
+      if (s.recvWaiter === done) s.recvWaiter = null;
+      resolve({ frames: s.toSite.splice(0), closed: s.closed });
+    }, waitMs);
+    t.unref?.();
+    const done = (r: { frames: RemoteGuiWsFrame[]; closed: boolean }) => {
+      clearTimeout(t);
+      resolve(r);
+    };
+    s.recvWaiter = done;
+    signal?.addEventListener('abort', () => {
+      if (s.recvWaiter === done) s.recvWaiter = null;
+      clearTimeout(t);
+      resolve({ frames: [], closed: s.closed });
+    });
+  });
+}
+/** messages from the site to the browser; a close frame ends the stream */
+export function toBrowser(s: WsStream, frames: RemoteGuiWsFrame[]): boolean {
+  s.lastAt = Date.now();
+  if (!s.toBrowser) return false;
+  for (const f of frames) s.toBrowser(f);
+  if (frames.some((f) => f.op === 'close')) {
+    s.closed = true;
+    toSite(s, null);
+  }
+  return true;
 }

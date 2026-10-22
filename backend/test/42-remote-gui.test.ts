@@ -2,9 +2,8 @@
  * §21 #118 remote agent GUI on the single-process cloud (local adapter only): no cookie → 401 page; openRemoteGui sets
  * the cookie (Path = the remote prefix) and lists the site in the cloud view; a browser request waits until the site's
  * long-poll takes it (only that site's), the posted answer comes back with every /_opm path re-prefixed, redirects
- * rewritten, the agent's cookies dropped; WebSocket / event-stream requests answer 501.
+ * rewritten, the agent's cookies dropped; a WebSocket is relayed over the site's long-polls; event streams answer 501.
  */
-import http from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { remoteGuiPrefix, type RemoteGuiNextResponse } from '@opm/shared';
@@ -27,7 +26,7 @@ async function answer(key: SiteKey, dep: string, site: string, reqId: string, st
   return (await r.json()) as { accepted: boolean };
 }
 
-test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, streams 501', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
+test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, SSE 501', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;
@@ -94,18 +93,35 @@ test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rew
   assert.equal(post.headers.get('location'), `${prefix}/_opm/app/app/branch`);
   assert.equal(post.body.toString(), '{"href":"/_opm/x"}');
 
-  // streams are not carried (v1)
-  // (fetch refuses an Upgrade header: a plain node:http request)
-  const wsStatus = await new Promise<number>((resolve, reject) => {
-    const u = new URL(`${BASE}${prefix}/_opm/api/sites/app/tools/terminal`);
-    const r = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: 'GET', headers: { Cookie: cookie, Upgrade: 'websocket', Connection: 'Upgrade' } }, (res) => {
-      res.resume();
-      resolve(res.statusCode ?? 0);
-    });
-    r.on('error', reject);
-    r.end();
-  });
-  assert.equal(wsStatus, 501);
+  // a WebSocket (§21 #118 g): the browser upgrades at the cloud; the site answers 101 and relays the frames over its
+  // HTTP long-polls (recv / send) — the site never opens a socket to the cloud
+  const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}${prefix}/_opm/api/sites/app/tools/terminal`, { headers: { Cookie: cookie } } as unknown as string[]);
+  ws.binaryType = 'arraybuffer';
+  const opened = new Promise<void>((res, rej) => ((ws.onopen = () => res()), (ws.onerror = () => rej(new Error('ws error')))));
+  const wsItem = (await next(app.key, id, 'app', 10)).items[0]!;
+  assert.ok(wsItem.ws?.streamId, 'the request names its stream');
+  assert.equal(wsItem.path, '/_opm/api/sites/app/tools/terminal');
+  assert.deepEqual(await answer(app.key, id, 'app', wsItem.reqId, 101, {}, ''), { accepted: true });
+  await opened;
+  const sp = `/v1/agent/remote-gui/ws/${wsItem.ws!.streamId}`;
+  const agentCall = async (method: 'GET' | 'POST', path: string, body: unknown) => {
+    const b = body === null ? null : Buffer.from(JSON.stringify(body));
+    const r = await fetch(BASE + path, { method, ...(b ? { body: b } : {}), headers: { ...signHeaders(app.key, id, 'app', method, path, b), ...(b ? { 'Content-Type': 'application/json' } : {}) } });
+    assert.equal(r.status, 200, await r.clone().text());
+    return r.json();
+  };
+  const gotMsg = new Promise<string>((res) => (ws.onmessage = (e) => res(typeof e.data === 'string' ? e.data : Buffer.from(e.data as ArrayBuffer).toString())));
+  assert.deepEqual(await agentCall('POST', `${sp}/send`, { frames: [{ op: 'text', dataB64: Buffer.from('$ hello').toString('base64') }] }), { accepted: true });
+  assert.equal(await gotMsg, '$ hello');
+  ws.send('ls\n');
+  const rv = (await agentCall('GET', `${sp}/recv?wait=5`, null)) as { frames: { op: string; dataB64: string }[]; closed: boolean };
+  assert.deepEqual(rv.frames.map((f) => [f.op, Buffer.from(f.dataB64, 'base64').toString()]), [['text', 'ls\n']]);
+  const closedP = new Promise<void>((res) => (ws.onclose = () => res()));
+  ws.close();
+  await closedP;
+  const rc = (await agentCall('GET', `${sp}/recv?wait=5`, null)) as { closed: boolean };
+  assert.equal(rc.closed, true, 'the browser closing ends the stream for the site');
+  // an event stream is not carried (v1)
   const sse = await raw('GET', `${prefix}/_opm/api/logs/follow`, { headers: { Cookie: cookie, Accept: 'text/event-stream' } });
   assert.equal(sse.status, 501);
   // the cookie of site app does not open site db

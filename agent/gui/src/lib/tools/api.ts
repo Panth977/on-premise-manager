@@ -5,6 +5,7 @@
  * lib/mock/tools.ts installs fake EventSource / WebSocket classes with setStreamImpl().
  */
 import { createToolsClient, TOOLS_API, type ToolsClient } from '@opm/shared/agent-tools';
+import { base } from '$app/paths';
 import { isMock, onApiError, opmFetch, saveBlob } from '$lib/api';
 import { session } from '$lib/state/session.svelte';
 
@@ -171,7 +172,9 @@ function safeJson(s: unknown): unknown {
 /** WebSocket to a terminal ticket path (ws:// or wss:// like the page). */
 export function openTerminalSocket(wsPath: string): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WS(`${proto}//${location.host}${wsPath}`);
+  // the agent answers /_opm/…; through the cloud (§21 #118 g) the page's base carries the remote prefix (JSON is not
+  // rewritten; the regex form is left alone by the cloud's rewriting, base is not)
+  const ws = new WS(`${proto}//${location.host}${wsPath.replace(/^\/_opm(?=\/)/, base)}`);
   ws.binaryType = 'arraybuffer';
   return ws;
 }

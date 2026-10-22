@@ -760,6 +760,28 @@ type RemoteGuiRequest struct {
 	Headers   map[string]string `json:"headers"`
 	BodyB64   *string           `json:"bodyB64"`
 	Actor     RemoteGuiActor    `json:"actor"`
+	// WS (§21 #118 g): a WebSocket upgrade relayed frame by frame
+	WS *struct {
+		StreamID string `json:"streamId"`
+	} `json:"ws,omitempty"`
+}
+
+// RemoteGuiWsFrame is TS RemoteGuiWsFrame.
+type RemoteGuiWsFrame struct {
+	Op      string `json:"op"` // text | binary | close
+	DataB64 string `json:"dataB64"`
+	Code    int    `json:"code,omitempty"`
+}
+
+// RemoteGuiWsRecvResponse is TS RemoteGuiWsRecvResponse.
+type RemoteGuiWsRecvResponse struct {
+	Frames []RemoteGuiWsFrame `json:"frames"`
+	Closed bool               `json:"closed"`
+}
+
+// RemoteGuiWsSendRequest is TS RemoteGuiWsSendRequest.
+type RemoteGuiWsSendRequest struct {
+	Frames []RemoteGuiWsFrame `json:"frames"`
 }
 
 // RemoteGuiNextResponse is TS RemoteGuiNextResponse.

@@ -96,9 +96,8 @@
     };
     ws.onerror = () => {
       if (conn !== 'connecting') return;
-      // §21 #118 f: the cloud carries requests, not WebSockets (yet)
       reason = session.session?.remote
-        ? 'The terminal does not work through the cloud yet: open the agent GUI on the site itself (its own address) for a shell.'
+        ? 'The connection through the cloud failed (the site needs agent 0.19.5 or newer, or the ticket expired) — open the terminal again.'
         : 'The agent refused the connection (ticket expired or used, or the session limit).';
     };
     ws.onclose = (e: CloseEvent) => {

@@ -6495,11 +6495,21 @@ Pass = every check above green; results file lists timings and the activity coun
         GUI through the cloud" (state, who works through the cloud now, Switch off / on), `GET / PUT
         /_opm/api/agent/remote-gui`; PUT through a remote session → 403 (switch it off on the site). Off: no polling,
         the open remote sessions end at once. Activity `agent.remote-gui-changed`.
-    (f) **Not carried (v1)**: WebSocket upgrades and event streams (terminal, MQTT client, log follow) → 501 page;
-        another site through the mesh works as usual (the remote agent relays, §21 #111).
-    (g) Tests: `shared/src/remote-gui.test.ts`, `backend/test/42-remote-gui.test.ts` (local adapter: cookie, hand-off,
-        isolation, rewriting, 501), `agent/internal/agent/remotegui_test.go`; checked end to end with a real agent and
-        a browser (navigation, deep-link reload, an actor POST, the 403 switch).
+    (f) **Event streams are not carried**: `text/event-stream` (log follow) → 501 page; another site through the mesh
+        works as usual (the remote agent relays, §21 #111).
+    (g) **WebSockets (terminal, MQTT client) are relayed over the site's HTTP polls** (agent 0.19.5; user: "some client
+        might have refused the outbound socket connection only kept the default http connections"). The browser
+        upgrades at the cloud; the cloud makes a stream and hands the request out with `ws { streamId }`; the agent
+        dials its own GUI port on 127.0.0.1 as the cloud person (session cookie + actor token, same origin) and answers
+        the upgrade's result (101 + Sec-WebSocket-Protocol, or the refusal's status). Then the agent only makes HTTP
+        calls: `GET /v1/agent/remote-gui/ws/{streamId}/recv?wait≤30` (the browser's messages; `closed` = the browser
+        left) and `POST …/send` (its messages, base64 frames `text | binary | close`, those within 15 ms in one call,
+        ≤ 8 MiB). The site never opens a socket to the cloud. The terminal's `wsPath` (JSON, not rewritten) gets the
+        page's base in the GUI.
+    (h) Tests: `shared/src/remote-gui.test.ts`, `backend/test/42-remote-gui.test.ts` (local adapter: cookie, hand-off,
+        isolation, rewriting, the WebSocket relay, SSE 501), `agent/internal/agent/remotegui_test.go`,
+        `remotegui_ws_test.go` (a host shell through a fake cloud); checked end to end with a real agent and a browser
+        (navigation, deep-link reload, an actor POST, the 403 switch).
 
 119. **Storage at a glance + moving the agent home to another disk** (user: an agent upgrade was refused "because there was
     no enough space" (the §21 #112 floor: a download that would leave less than min(5 % of the disk, 2 GiB) free) —

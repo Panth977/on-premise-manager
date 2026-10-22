@@ -14,7 +14,7 @@ import { handleApi } from '../app.js';
 import { logger, adapterKind } from '../ports/index.js';
 import type { CloudConfig } from './config.js';
 import { serveStatic } from './static.js';
-import { readRemoteBody, serveRemoteGui } from './remote-gui.js';
+import { handleRemoteUpgrade, readRemoteBody, serveRemoteGui } from './remote-gui.js';
 
 export interface LocalHttpHandlers {
   blob(req: { method: string; url: string; headers: Record<string, string | undefined> }): Promise<{ status: number; headers: Record<string, string>; body: Buffer | string | Readable | null }>;
@@ -55,7 +55,7 @@ function send(res: http.ServerResponse, status: number, headers: Record<string, 
 export const VERSION = process.env.OPM_CLOUD_VERSION ?? 'dev';
 
 export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null): http.Server {
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const rawUrl = req.url || '/';
     const qi = rawUrl.indexOf('?');
     const path = qi >= 0 ? rawUrl.slice(0, qi) : rawUrl;
@@ -114,4 +114,14 @@ export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null):
       else res.destroy();
     }
   });
+  // §21 #118 g WebSocket upgrades of the remote agent GUI (anything else: refused)
+  server.on('upgrade', (req, socket, head) => {
+    try {
+      if (!handleRemoteUpgrade(req, socket, head)) socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    } catch (e) {
+      logger.error('remote gui upgrade failed', { error: (e as Error)?.message });
+      socket.destroy();
+    }
+  });
+  return server;
 }

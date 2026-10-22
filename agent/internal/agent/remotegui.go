@@ -205,6 +205,7 @@ func remoteGuiForbidden(method, path string) bool {
 
 func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 	w := &remoteWriter{h: http.Header{}}
+	var ws *remoteSess
 	func() {
 		u, err := url.Parse(it.Path)
 		if err != nil || !(u.Path == "/_opm" || strings.HasPrefix(u.Path, "/_opm/")) || strings.HasPrefix(u.Path, "/_opm/peer") {
@@ -219,6 +220,10 @@ func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 		sess, err := a.remoteSession(it.SessionID, it.Actor)
 		if err != nil {
 			writeErr(w, herr(model.ErrForbidden, err.Error(), nil))
+			return
+		}
+		if it.WS != nil && it.WS.StreamID != "" { // §21 #118 g a WebSocket: relayed (remotegui_ws.go)
+			ws = sess
 			return
 		}
 		var body []byte
@@ -250,6 +255,10 @@ func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 		r.Host = "opm-remote"
 		a.handlerFor("agent").ServeHTTP(w, r)
 	}()
+	if ws != nil {
+		a.serveRemoteWS(ctx, it, ws)
+		return
+	}
 	if w.status == 0 {
 		w.status = 200
 	}

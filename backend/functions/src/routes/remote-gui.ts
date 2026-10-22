@@ -13,12 +13,12 @@ import { CloudLog } from '../core/activities.js';
 import { Reply } from '../core/reply.js';
 import { jsonHeaders, type Handlers } from '../core/router.js';
 import { adapterKind } from '../ports/index.js';
-import { activeSites, connected, deliver, next, openSession } from '../core/remote-gui.js';
+import { activeSites, connected, deliver, next, openSession, recv, streamOf, toBrowser } from '../core/remote-gui.js';
 
 /** the cookie of a remote session (one per site; Path = the remote prefix) */
 export const remoteCookieName = (siteSlug: string) => `opm_remote_${siteSlug.replace(/-/g, '_')}`;
 
-export const remoteGuiHandlers: Pick<Handlers, 'openRemoteGui' | 'agentRemoteGuiNext' | 'agentRemoteGuiResult'> = {
+export const remoteGuiHandlers: Pick<Handlers, 'openRemoteGui' | 'agentRemoteGuiNext' | 'agentRemoteGuiResult' | 'agentRemoteGuiWsRecv' | 'agentRemoteGuiWsSend'> = {
   async openRemoteGui(c) {
     const dep = await loadDep(c);
     needDep(c, dep, 'deployment.config', 'publish');
@@ -48,6 +48,26 @@ export const remoteGuiHandlers: Pick<Handlers, 'openRemoteGui' | 'agentRemoteGui
     const w = Number(c.query.get('wait') ?? 25);
     const waitMs = Number.isFinite(w) ? Math.max(0, Math.min(30, Math.floor(w))) * 1000 : 25_000;
     return { items: await next(deploymentId, siteSlug, waitMs, c.signal) };
+  },
+
+  async agentRemoteGuiWsRecv(c) {
+    const { deploymentId, siteSlug } = c.agent!;
+    const s = streamOf(c.params.streamId!, deploymentId, siteSlug);
+    if (!s) return { frames: [], closed: true };
+    const w = Number(c.query.get('wait') ?? 25);
+    return recv(s, Number.isFinite(w) ? Math.max(0, Math.min(30, Math.floor(w))) * 1000 : 25_000, c.signal);
+  },
+
+  async agentRemoteGuiWsSend(c) {
+    const { deploymentId, siteSlug } = c.agent!;
+    if (c.body.length > 8 * 1024 * 1024) throw E.tooLarge('at most 8 MiB per call');
+    const s = streamOf(c.params.streamId!, deploymentId, siteSlug);
+    if (!s || s.closed) return { accepted: false };
+    const b = c.json<{ frames?: unknown }>();
+    const frames = (Array.isArray(b.frames) ? b.frames : []).filter(
+      (f): f is { op: 'text' | 'binary' | 'close'; dataB64: string; code?: number } => !!f && typeof f === 'object' && ['text', 'binary', 'close'].includes((f as { op?: string }).op ?? '') && typeof (f as { dataB64?: unknown }).dataB64 === 'string',
+    );
+    return { accepted: toBrowser(s, frames) };
   },
 
   async agentRemoteGuiResult(c) {

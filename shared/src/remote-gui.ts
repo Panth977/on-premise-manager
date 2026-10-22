@@ -7,7 +7,7 @@
  * email prompt) and posts the response with `agentRemoteGuiResult` — the same store-and-forward idea as the browser
  * internet tunnel (§9.10), the other way round. The cloud serves the answer with every `/_opm` path re-prefixed
  * (`rewriteRemoteText`), so the unchanged agent GUI build runs under the remote prefix.
- * Not through the cloud (v1): WebSocket upgrades and event streams (terminal, MQTT client, log follow) — 501.
+ * WebSockets (terminal, MQTT client) are relayed frame by frame (§21 #118 g); event streams (log follow) are not — 501.
  */
 import { ep } from './http.js';
 import type { Slug, Ts } from './types.js';
@@ -55,6 +55,23 @@ export interface RemoteGuiRequest {
   headers: Record<string, string>;
   bodyB64: string | null;
   actor: RemoteGuiActor;
+  /** §21 #118 g: a WebSocket upgrade — the agent opens it against its own GUI port, answers 101 (or the refusal) as
+   * the result, then relays frames through agentRemoteGuiWsRecv / agentRemoteGuiWsSend until either side closes */
+  ws?: { streamId: string } | null;
+}
+/** one WebSocket message relayed through the cloud (close: code + reason in dataB64 as UTF-8) */
+export interface RemoteGuiWsFrame {
+  op: 'text' | 'binary' | 'close';
+  dataB64: string;
+  code?: number;
+}
+export interface RemoteGuiWsRecvResponse {
+  frames: RemoteGuiWsFrame[];
+  /** the browser side is gone: close the local socket */
+  closed: boolean;
+}
+export interface RemoteGuiWsSendRequest {
+  frames: RemoteGuiWsFrame[];
 }
 export interface RemoteGuiNextResponse {
   items: RemoteGuiRequest[];
@@ -96,6 +113,8 @@ export function rewriteRemoteLocation(loc: string, prefix: string): string {
 export const REMOTE_GUI_CLOUD_API = {
   openRemoteGui: ep<void, OpenRemoteGuiResponse>()({ method: 'POST', path: '/v1/deployments/{deploymentId}/remote-gui/{siteSlug}/session', auth: 'human', perm: 'deployment.config.publish', body: 'none', res: 'json', errors: ['not-found', 'forbidden', 'unavailable'], activities: ['remote-gui.opened'], summary: '§21 #118: open the site\'s agent GUI through the cloud: sets the remote session cookie (Path = the remote prefix, 8 h sliding) and lists the site in the cloud view so its agent starts long-polling. unavailable: this cloud cannot hold remote sessions (multi-instance).' }),
   agentRemoteGuiNext: ep<void, RemoteGuiNextResponse, { wait?: number }>()({ method: 'GET', path: '/v1/agent/remote-gui/next', auth: 'agent', perm: 'site key (requests of the signer site only)', body: 'none', res: 'json', errors: [], summary: '§21 #118: long-poll (wait ≤ 30 s) for browser requests of open remote sessions of the signer site (≤ 8 per answer).' }),
+  agentRemoteGuiWsRecv: ep<void, RemoteGuiWsRecvResponse, { wait?: number }>()({ method: 'GET', path: '/v1/agent/remote-gui/ws/{streamId}/recv', auth: 'agent', perm: 'site key (the site of the stream)', body: 'none', res: 'json', errors: ['not-found'], summary: '§21 #118 g: long-poll (wait ≤ 30 s) for the browser\'s WebSocket messages of a relayed stream; closed = the browser left.' }),
+  agentRemoteGuiWsSend: ep<RemoteGuiWsSendRequest, { accepted: boolean }>()({ method: 'POST', path: '/v1/agent/remote-gui/ws/{streamId}/send', auth: 'agent', perm: 'site key (the site of the stream)', body: 'json', res: 'json', errors: ['not-found', 'too-large'], summary: '§21 #118 g: WebSocket messages from the site to the browser (≤ 8 MiB per call); a close frame ends the stream.' }),
   agentRemoteGuiResult: ep<void, { accepted: boolean }>()({ method: 'POST', path: '/v1/agent/remote-gui/{reqId}/result', auth: 'agent', perm: 'site key (the site the request went to)', body: 'raw', res: 'json', errors: ['too-large'], summary: '§21 #118: the response to one forwarded request — raw body ≤ 64 MiB, status in X-OPM-Remote-Status, headers in X-OPM-Remote-Headers (base64 JSON). accepted=false: the browser gave up (timeout).' }),
 } as const;
 

@@ -1033,6 +1033,7 @@ var ActivityTypes = []string{
 	"agent.upgrade-started", "agent.upgraded", "agent.upgrade-failed", "agent.rolled-back", "agent.restarted",
 	"agent.config-changed", "agent.support-bundle-downloaded", "agent.upgrade-requested", "agent.upgrade-cancelled",
 	"remote-gui.opened", "remote-gui.session", "agent.remote-gui-changed", // §21 #118
+	"agent.home-move-started", "agent.home-moved", "agent.home-move-failed", "agent.home-old-deleted", // §21 #119
 	// §21 #94 Template sync (cloud-only types; mirrored for TestActivityTypesMirror)
 	"draft.template-synced", "deployment.template-unlinked",
 	// §21 #96 volume manager

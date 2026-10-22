@@ -79,6 +79,8 @@ func main() {
 		err = cmdSystemdUnits(args)
 	case "upgrade-watch": // hidden (started by the agent before an upgrade restart)
 		err = cmdUpgradeWatch(args)
+	case "move-home": // hidden (started by the agent: §21 #119 move the agent home while the agent is stopped)
+		err = cmdMoveHome(args)
 	case "help", "-h", "--help":
 		usage()
 	default:

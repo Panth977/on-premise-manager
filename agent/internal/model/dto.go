@@ -792,3 +792,47 @@ type SessionView struct {
 	LoginResponse
 	Remote *SessionRemote `json:"remote"`
 }
+
+// ───────────────────────── §21 #119 storage + moving the agent home (TS shared/src/agent-self.ts)
+
+// StorageFs is one filesystem OPM uses (TS StorageFilesystem).
+type StorageFs struct {
+	Path       string   `json:"path"` // a representative path on it (the first role's)
+	TotalBytes int64    `json:"totalBytes"`
+	FreeBytes  int64    `json:"freeBytes"`
+	UsedBytes  int64    `json:"usedBytes"`
+	FloorBytes int64    `json:"floorBytes"` // the free space the agent never uses
+	Roles      []string `json:"roles"`      // "agent home", "Docker data", "volume <slug>", …
+}
+
+// StorageView is GET /_opm/api/agent/storage (TS StorageView).
+type StorageView struct {
+	Home          string      `json:"home"`
+	HomeBytes     *int64      `json:"homeBytes"` // null while it is being measured
+	HomeFiles     int         `json:"homeFiles"`
+	DockerRootDir *string     `json:"dockerRootDir"`
+	Filesystems   []StorageFs `json:"filesystems"`
+	Move          any         `json:"move"` // the current / last move (movehome.State) or null
+	CanMove       bool        `json:"canMove"`
+	CannotMove    *string     `json:"cannotMove"`
+	MeasuredAt    *Ts         `json:"measuredAt"`
+}
+
+// MoveHomeRequest is POST /_opm/api/agent/move-home/check and /move-home.
+type MoveHomeRequest struct {
+	To    string `json:"to"`
+	Typed string `json:"typed,omitempty"`
+}
+
+// MoveHomeCheck is TS MoveHomeCheck.
+type MoveHomeCheck struct {
+	Ok               bool     `json:"ok"`
+	To               string   `json:"to"`
+	SameFilesystem   bool     `json:"sameFilesystem"`
+	SizeBytes        int64    `json:"sizeBytes"`
+	TargetFreeBytes  int64    `json:"targetFreeBytes"`
+	TargetTotalBytes int64    `json:"targetTotalBytes"`
+	Errors           []string `json:"errors"`
+	Warnings         []string `json:"warnings"`
+	Containers       []string `json:"containers"` // stopped during the move
+}

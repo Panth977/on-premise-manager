@@ -40,6 +40,7 @@
   import ConfigCard from '$lib/agent/ConfigCard.svelte';
   import ProcessCard from '$lib/agent/ProcessCard.svelte';
   import RemoteGuiCard from '$lib/agent/RemoteGuiCard.svelte';
+  import StorageCard from '$lib/agent/StorageCard.svelte';
   import UpgradeAll from '$lib/agent/UpgradeAll.svelte';
 
   const slug = $derived(page.params.siteSlug ?? '*');
@@ -579,6 +580,7 @@
       <!-- ─────────────────────────── release + upgrade -->
       <h2 class="sect">Release and upgrade</h2>
       <ProcessCard siteSlug={slug} /><!-- §21 #112 -->
+      {#if isSelf}<StorageCard /><!-- §21 #119 -->{/if}
       <section class="card" data-testid="release-card">
         <div class="card-body stack">
           <div class="rel">

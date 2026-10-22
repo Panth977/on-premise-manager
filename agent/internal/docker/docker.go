@@ -949,3 +949,19 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (*Stats, error) 
 	out.MemMb = float64(mem) / (1024 * 1024)
 	return out, nil
 }
+
+// Info is the part of GET /info the agent reads (§21 #119 storage view).
+type Info struct {
+	DockerRootDir string `json:"DockerRootDir"`
+	Images        int    `json:"Images"`
+	Containers    int    `json:"Containers"`
+}
+
+// Info returns the daemon's data root and counts.
+func (c *Client) Info(ctx context.Context) (*Info, error) {
+	var v Info
+	if err := c.jsonDo(ctx, "GET", "/info", nil, nil, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}

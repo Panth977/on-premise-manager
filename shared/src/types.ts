@@ -1497,6 +1497,11 @@ export const ACTIVITY_TYPES = [
   'remote-gui.opened', //         cloud: data { siteSlug, sessionId } (a person opened the site's agent GUI through the cloud)
   'remote-gui.session', //        agent: data { sessionId, cloudSessionId, email } (the agent session made for that person)
   'agent.remote-gui-changed', //  agent: data { enabled }
+  // §21 #119 moving the agent home
+  'agent.home-move-started', //   agent: data { from, to, mode, sizeBytes, stopped }
+  'agent.home-moved', //          agent: data { from, to, mode, oldCopy, sizeBytes, files }
+  'agent.home-move-failed', //    agent: data { from, to, error }
+  'agent.home-old-deleted', //    agent: data { path, sizeBytes }
   // §21 #94 Template sync (cloud)
   'draft.template-synced', //        data { templateId, fromVersion, toVersion, relinked, previousTemplateId?, taken, skipped, conflicts, draftVersion, keys }
   'deployment.template-unlinked', // data { templateId, baseVersion }

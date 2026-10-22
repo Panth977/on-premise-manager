@@ -472,6 +472,7 @@ func (a *Agent) Run(parent context.Context) error {
 			a.checkAliases(ctx, "start")          // §21 #93: every managed container answers on its slug
 		}
 	}()
+	a.finishHomeMove() // §21 #119 a moved agent home: paths in opm.db, the containers re-applied (movehome.go)
 	a.moveFileBlobs()
 	a.moveLegacyVolumes(nil)
 	a.loadVolumeOps() // §21 #96: an action interrupted by a stop → failed, its containers started again

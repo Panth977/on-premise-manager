@@ -33,6 +33,10 @@ func (a *Agent) apiHandler() http.Handler {
 	h("POST /_opm/api/logout", authSession, a.handleLogout)
 	h("GET /_opm/api/session", authSession, a.handleSession)
 	h("GET /_opm/api/agent/remote-gui", authSession, a.handleGetRemoteGui) // §21 #118
+	h("GET /_opm/api/agent/storage", authSession, a.handleStorage)         // §21 #119
+	h("POST /_opm/api/agent/move-home/check", authSession, a.handleMoveHomeCheck)
+	h("POST /_opm/api/agent/move-home", authActor, a.handleMoveHome)
+	h("POST /_opm/api/agent/move-home/delete-old", authActor, a.handleDeleteOldHome)
 	h("PUT /_opm/api/agent/remote-gui", authActor, a.handlePutRemoteGui)
 	h("POST /_opm/api/actor", authSession, a.handleActor)
 	h("GET /_opm/api/actors/recent", authSession, func(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {

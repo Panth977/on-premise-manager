@@ -6501,6 +6501,32 @@ Pass = every check above green; results file lists timings and the activity coun
         isolation, rewriting, 501), `agent/internal/agent/remotegui_test.go`; checked end to end with a real agent and
         a browser (navigation, deep-link reload, an actor POST, the 403 switch).
 
+119. **Storage at a glance + moving the agent home to another disk** (user: an agent upgrade was refused "because there was
+    no enough space" (the §21 #112 floor: a download that would leave less than min(5 % of the disk, 2 GiB) free) —
+    "in latest GUI also give option to see the available volume size and how much is free and let me move the complete
+    opm dir to another place").
+    (a) **Agent › Storage** (`GET /_opm/api/agent/storage`): every disk OPM uses — the agent home, Docker's data root
+        (`/info` DockerRootDir: images and container layers, usually the biggest), each volume with its own location —
+        grouped per filesystem with total / used / free and the floor; "nearly full" below 2 × the floor (downloads,
+        agent upgrades, snapshots and volume copies are refused below the floor). The size of the agent home (walked in
+        the background, kept 10 min) and the last move.
+    (b) **Move agent home…** (`POST …/agent/move-home/check { to }`, then `POST …/agent/move-home { to, typed: MOVE }`):
+        refused unless the folder is absolute, outside / not containing the home, empty or absent with an existing
+        parent, the target disk has the home's size + 5 % + its floor free (another disk), the agent runs under
+        systemd, no update runs, and no volume / File has a fixed location inside the home. The agent stops this site's
+        containers, checkpoints opm.db, writes `<home>/move-home.json` (prepared) and starts `opm-agent move-home`
+        (systemd-run, hidden command, `internal/movehome`), which stops the service and moves the folder: the same
+        filesystem → one rename; another → `cp -a`, every file verified (count + bytes), the old folder renamed
+        `<home>.moved-<time>`; then agent.json `dataDir` (a .bak first), the systemd units + boot guard for the new
+        folder, and the service started. At start the agent rewrites the absolute paths opm.db keeps (blobs, debug log
+        index, transfer paths), re-applies its head (the containers get the new mount paths) and records
+        `agent.home-moved`. A failure leaves everything at the old place (agent.json untouched, a partial copy removed),
+        restarts the agent there and starts the stopped containers (`agent.home-move-failed`).
+    (c) **The old copy** stays until "Delete old copy…" (typed DELETE, `…/move-home/delete-old`, `agent.home-old-deleted`).
+    (d) Docker's own data root is not moved (a Docker setting: `data-root` in /etc/docker/daemon.json).
+    (e) Tests: `internal/movehome` (copy incl. modes + symlinks, rename, refusals, failure; also on Linux),
+        `TestMoveHomeAgentSide` (check, path rewrite, once). Shipped as agent 0.19.1.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

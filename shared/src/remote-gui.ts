@@ -104,3 +104,64 @@ export const REMOTE_GUI_AGENT_API = {
   getRemoteGui: ep<void, RemoteGuiSetting>()({ method: 'GET', path: '/_opm/api/agent/remote-gui', auth: 'session', perm: null, body: 'none', res: 'json', errors: [], summary: '§21 #118: whether this site serves its GUI to the cloud (default on) + the open remote sessions.' }),
   putRemoteGui: ep<RemoteGuiSetting, RemoteGuiSetting>()({ method: 'PUT', path: '/_opm/api/agent/remote-gui', auth: 'session+actor', perm: null, body: 'json', res: 'json', errors: ['invalid', 'forbidden'], activities: ['agent.remote-gui-changed'], summary: '§21 #118: turn the remote GUI on / off (not from a remote session: switch it off on the site).' }),
 } as const;
+
+// ───────────────────────── §21 #119 storage + moving the agent home (agent GUI › Agent › Storage)
+
+/** one filesystem OPM uses (several roles share one when they are on the same disk) */
+export interface StorageFilesystem {
+  path: string;
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+  /** the free space the agent never uses (min(5 % of the disk, 2 GiB)): downloads / snapshots below it are refused */
+  floorBytes: number;
+  roles: string[];
+}
+export interface MoveHomeState {
+  moveId: string;
+  status: 'prepared' | 'copying' | 'copied' | 'done' | 'failed';
+  from: string;
+  to: string;
+  mode: 'rename' | 'copy';
+  actor: string;
+  startedAt: Ts;
+  finishedAt: Ts | null;
+  sizeBytes: number;
+  files: number;
+  stopped: string[];
+  /** the old home kept after a copy (delete it to free that space) */
+  oldCopy: string | null;
+  error: string | null;
+}
+export interface StorageView {
+  home: string;
+  homeBytes: number | null;
+  homeFiles: number;
+  dockerRootDir: string | null;
+  filesystems: StorageFilesystem[];
+  move: MoveHomeState | null;
+  canMove: boolean;
+  cannotMove: string | null;
+  measuredAt: Ts | null;
+}
+export interface MoveHomeRequest {
+  to: string;
+  typed?: string;
+}
+export interface MoveHomeCheck {
+  ok: boolean;
+  to: string;
+  sameFilesystem: boolean;
+  sizeBytes: number;
+  targetFreeBytes: number;
+  targetTotalBytes: number;
+  errors: string[];
+  warnings: string[];
+  containers: string[];
+}
+export const STORAGE_AGENT_API = {
+  agentStorage: ep<void, StorageView>()({ method: 'GET', path: '/_opm/api/agent/storage', auth: 'session', perm: null, body: 'none', res: 'json', errors: [], summary: '§21 #119: the disks OPM uses (agent home, Docker data, volumes with their own location): total / used / free, the home size, the current / last move.' }),
+  checkMoveHome: ep<MoveHomeRequest, MoveHomeCheck>()({ method: 'POST', path: '/_opm/api/agent/move-home/check', auth: 'session', perm: null, body: 'json', res: 'json', errors: ['invalid'], summary: '§21 #119: can the agent home move there (absolute, empty, outside the home, enough free space, systemd, no update running)?' }),
+  moveHome: ep<MoveHomeRequest, MoveHomeState>()({ method: 'POST', path: '/_opm/api/agent/move-home', auth: 'session+actor', perm: null, body: 'json', res: 'json', ok: 202, errors: ['invalid'], activities: ['agent.home-move-started'], summary: '§21 #119: typed MOVE — stops this site\'s containers and hands over to `opm-agent move-home` (the agent restarts from the new folder; containers are re-applied).' }),
+  deleteOldHome: ep<MoveHomeRequest, MoveHomeState>()({ method: 'POST', path: '/_opm/api/agent/move-home/delete-old', auth: 'session+actor', perm: null, body: 'json', res: 'json', errors: ['invalid', 'not-found'], activities: ['agent.home-old-deleted'], summary: '§21 #119: typed DELETE — remove the old copy kept after a move.' }),
+} as const;

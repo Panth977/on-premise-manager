@@ -8,6 +8,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import Btn from '$lib/ui/Btn.svelte';
   import { toasts } from '$lib/state/toast.svelte';
+  import { session } from '$lib/state/session.svelte';
   import { openTerminalSocket } from './api';
   import { loadXterm, TERM_THEME, type XTerminal, type XFitAddon } from './xterm';
 
@@ -94,7 +95,11 @@
       term?.write(new Uint8Array(e.data as ArrayBuffer));
     };
     ws.onerror = () => {
-      if (conn === 'connecting') reason = 'The agent refused the connection (ticket expired or used, or the session limit).';
+      if (conn !== 'connecting') return;
+      // §21 #118 f: the cloud carries requests, not WebSockets (yet)
+      reason = session.session?.remote
+        ? 'The terminal does not work through the cloud yet: open the agent GUI on the site itself (its own address) for a shell.'
+        : 'The agent refused the connection (ticket expired or used, or the session limit).';
     };
     ws.onclose = (e: CloseEvent) => {
       if (pingT) clearInterval(pingT);

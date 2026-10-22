@@ -35,8 +35,20 @@ func cmdMoveHome(args []string) error {
 	bin, _ := os.Executable()
 	return movehome.Run(movehome.Options{
 		ConfigPath: *cfg, From: *from, To: *to,
-		Stop:  func() error { return systemctl("stop", selfupgrade.ServiceFile) },
-		Start: func() error { return systemctl("start", selfupgrade.ServiceFile) },
+		// the SOCKET too: a socket-activated agent is started again by any connection (peers ping it every few
+		// seconds) and would write into the home while it is copied — §21 #119 the copy then never matches
+		Stop: func() error {
+			if selfupgrade.SocketInstalled("") {
+				_ = systemctl("stop", selfupgrade.SocketFile)
+			}
+			return systemctl("stop", selfupgrade.ServiceFile)
+		},
+		Start: func() error {
+			if selfupgrade.SocketInstalled("") {
+				_ = systemctl("start", selfupgrade.SocketFile)
+			}
+			return systemctl("start", selfupgrade.ServiceFile)
+		},
 		Units: func(dir string) error {
 			_, err := selfupgrade.InstallUnits(selfupgrade.UnitOptions{ConfigPath: *cfg, Binary: bin, DataDir: dir, Socket: selfupgrade.SocketInstalled(""), ScriptPath: selfupgrade.DefaultGuardScript})
 			return err

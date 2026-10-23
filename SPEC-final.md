@@ -6608,6 +6608,18 @@ Pass = every check above green; results file lists timings and the activity coun
         spreading; transfers → files), `backend/test/43-files.test.ts`, `frontend/tests/files-123.spec.ts`, the agent GUI
         Files specs.
 
+124. **A site's Status page loads in parts** (user: the page took more than 3 minutes to load; "split the apis into
+    small ones"). (a) `GET sites/{s}/status/overview` (host, agent version, agent warnings; no Docker call),
+    `…/status/containers`, `…/status/uptime?range=24h|30d`, `…/status/edge` (edge report + certs): each answers one
+    `SiteStatus` per site with only its part filled. `…/status` (everything) stays. (b) Container CPU / RAM come from the
+    monitoring sampler's latest sample (every 15 s), not a live `docker stats` per container (about 2 s each, one after
+    another); the container inspects run 8 at a time. (c) `*` asks every site at once instead of one after another.
+    (d) The page loads and refreshes each part on its own (overview + containers every 10 s, edge 30 s, uptime 60 s);
+    a site whose agent predates the split answers `not-found` and the page falls back to `…/status`. (e) The GUI `poll`
+    helper skips a tick while the previous call is still running: before, a load slower than the 10 s interval was
+    always replaced by a newer request and its answer dropped, so a slow page never filled in. Test: the merged views
+    step of `TestTwoSiteMesh`.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

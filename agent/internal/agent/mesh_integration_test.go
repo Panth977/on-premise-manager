@@ -925,6 +925,36 @@ func TestTwoSiteMesh(t *testing.T) {
 	if c, b := app.api(t, "GET", "/_opm/api/sites/*/status", nil, &stl); c != 200 || len(stl.Items) != 2 {
 		t.Fatalf("status *: %d %s", c, b)
 	}
+	// §21 #124 the status parts: each fills only its own part, for one site (forwarded) and for "*"
+	for _, tc := range []struct {
+		path string
+		ok   func(model.SiteStatus) bool
+	}{
+		{"db/status/overview", func(s model.SiteStatus) bool { return s.Host != nil && s.AgentVersion != nil && len(s.Containers) == 0 && s.Edge == nil }},
+		{"db/status/containers", func(s model.SiteStatus) bool { return len(s.Containers) > 0 && s.Host == nil && len(s.Uptime24h) == 0 }},
+		{"db/status/uptime", func(s model.SiteStatus) bool { return len(s.Uptime24h) > 0 && len(s.Uptime30d) == 0 && len(s.Containers) == 0 }},
+		{"db/status/uptime?range=30d", func(s model.SiteStatus) bool { return len(s.Uptime30d) > 0 && len(s.Uptime24h) == 0 }},
+		{"db/status/edge", func(s model.SiteStatus) bool { return s.Edge != nil && s.Host == nil }},
+		{"*/status/containers", func(s model.SiteStatus) bool { return len(s.Containers) > 0 && s.Reachable }},
+	} {
+		var pl model.ListResponse[model.SiteStatus]
+		c, b := app.api(t, "GET", "/_opm/api/sites/"+tc.path, nil, &pl)
+		want := 1
+		if strings.HasPrefix(tc.path, "*") {
+			want = 2
+		}
+		if c != 200 || len(pl.Items) != want {
+			t.Fatalf("%s: %d %s", tc.path, c, b)
+		}
+		for _, it := range pl.Items {
+			if !tc.ok(it) {
+				t.Fatalf("%s: wrong parts %s", tc.path, b)
+			}
+		}
+	}
+	if c, _ := app.api(t, "GET", "/_opm/api/sites/db/status/uptime?range=7d", nil, nil); c != 422 {
+		t.Fatalf("bad range: %d", c)
+	}
 	var acts model.PageResponse[model.Activity]
 	if c, _ := app.api(t, "GET", "/_opm/api/sites/db/activities?limit=5", nil, &acts); c != 200 || len(acts.Items) != 5 || acts.Items[0].SiteSlug != "db" {
 		t.Fatalf("forwarded activities: %d %+v", c, acts.Items)

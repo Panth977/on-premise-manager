@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"opm/agent/internal/diff"
@@ -129,6 +130,9 @@ func (a *Agent) buildSiteMux() http.Handler {
 	h := func(pattern string, kind authKind, fn apiFn) { mux.HandleFunc(pattern, a.withAuth(kind, fn)) }
 	h("GET /status", authSession, a.handleSiteStatus)
 	h("GET /status-cache", authSession, a.handleSiteStatus)
+	for _, part := range []string{"overview", "containers", "uptime", "edge"} {
+		h("GET /status/"+part, authSession, a.handleStatusPart(part))
+	}
 	h("GET /volumes", authSession, a.handleSiteVolumes)
 	h("POST /volumes/{volumeSlug}/reset/start", authActor, a.handleResetVolumeStart)
 	h("POST /volumes/{volumeSlug}/reset", authActor, a.handleResetVolume)
@@ -383,21 +387,32 @@ func (a *Agent) handleMerged(w http.ResponseWriter, r *http.Request, rest string
 		return p
 	}
 	switch base {
-	case "status":
-		items := []model.SiteStatus{}
-		for _, s := range a.allSites() {
-			var lr model.ListResponse[model.SiteStatus]
+	case "status", "status/overview", "status/containers", "status/uptime", "status/edge":
+		// every site at once (one slow site no longer holds up the others); the full status is remembered for
+		// sites that stop answering, a part only fills in what the cache does not have
+		sites := a.allSites()
+		items := make([]model.SiteStatus, len(sites))
+		var wg sync.WaitGroup
+		for i, s := range sites {
 			if s != a.site && !a.reachable(s) {
-				items = append(items, a.cachedStatus(s))
+				items[i] = a.cachedStatus(s)
 				continue
 			}
-			if err := a.fetchSiteJSON(r.Context(), r, s, "status", &lr); err != nil || len(lr.Items) == 0 {
-				items = append(items, a.cachedStatus(s))
-				continue
-			}
-			a.rememberStatus(s, lr.Items[0])
-			items = append(items, lr.Items...)
+			wg.Add(1)
+			go func(i int, s string) {
+				defer wg.Done()
+				var lr model.ListResponse[model.SiteStatus]
+				if err := a.fetchSiteJSON(r.Context(), r, s, withQ(base), &lr); err != nil || len(lr.Items) == 0 {
+					items[i] = a.cachedStatus(s)
+					return
+				}
+				if base == "status" {
+					a.rememberStatus(s, lr.Items[0])
+				}
+				items[i] = lr.Items[0]
+			}(i, s)
 		}
+		wg.Wait()
 		writeJSON(w, 200, model.ListResponse[model.SiteStatus]{Items: items})
 	case "activities":
 		lim := qInt(r, "limit", 100)

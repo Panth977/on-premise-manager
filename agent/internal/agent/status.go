@@ -154,9 +154,9 @@ func (a *Agent) containerStatuses(ctx context.Context) []model.ContainerStatus {
 	}
 	existing, _ := a.drv.Existing(ctx)
 	seen := map[string]bool{}
+	bmap := map[string]*driver.Built{}
 	if site != nil {
 		builts, _ := a.buildSite(hr, site)
-		bmap := map[string]*driver.Built{}
 		for _, b := range builts {
 			bmap[b.ContainerSlug] = b
 		}
@@ -170,9 +170,7 @@ func (a *Agent) containerStatuses(ctx context.Context) []model.ContainerStatus {
 			}
 			h := a.drv.HealthOf(c.ContainerSlug)
 			cs.Health, cs.Ready, cs.Restarts = h.Health, h.Ready, h.Restarts
-			if ex, ok := existing[c.ContainerSlug]; ok {
-				a.fillContainer(ctx, &cs, ex, bmap[c.ContainerSlug])
-			} else if !c.Enabled {
+			if _, ok := existing[c.ContainerSlug]; !ok && !c.Enabled {
 				cs.State = "disabled"
 			}
 			out = append(out, cs)
@@ -182,10 +180,25 @@ func (a *Agent) containerStatuses(ctx context.Context) []model.ContainerStatus {
 		if seen[sid] {
 			continue
 		}
-		cs := model.ContainerStatus{SiteSlug: a.site, ContainerSlug: sid, ServiceSlug: ex.Service, Managed: true, State: ex.State, Health: "none", Ports: []model.ContainerPortStatus{}}
-		a.fillContainer(ctx, &cs, ex, nil)
-		out = append(out, cs)
+		out = append(out, model.ContainerStatus{SiteSlug: a.site, ContainerSlug: sid, ServiceSlug: ex.Service, Managed: true, State: ex.State, Health: "none", Ports: []model.ContainerPortStatus{}})
 	}
+	// docker inspect of every managed container, 8 at a time
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i := range out {
+		ex, ok := existing[out[i].ContainerSlug]
+		if !ok {
+			continue
+		}
+		b := bmap[out[i].ContainerSlug]
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(cs *model.ContainerStatus) {
+			defer func() { <-sem; wg.Done() }()
+			a.fillContainer(ctx, cs, ex, b)
+		}(&out[i])
+	}
+	wg.Wait()
 	// containers on this host that OPM does not manage (greyed on the status page)
 	if list, err := a.dc.ContainerList(ctx, true); err == nil {
 		for _, c := range list {
@@ -233,13 +246,20 @@ func (a *Agent) fillContainer(ctx context.Context, cs *model.ContainerStatus, ex
 			cs.Ports = append(cs.Ports, ps)
 		}
 	}
+	// CPU / RAM from the sampler's latest sample (a live docker stats call takes ~2 s per container)
 	if cj.State.Running {
-		sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		if st, err := a.dc.ContainerStats(sctx, ex.ID); err == nil {
-			cpu, mem := st.CPUPct, st.MemMb
-			cs.CPUPct, cs.MemMb = &cpu, &mem
+		if m := a.Tools().Metrics; m != nil {
+			if smp := m.Latest(cs.ContainerSlug); smp != nil {
+				if smp.CPUPct != nil {
+					cpu := *smp.CPUPct
+					cs.CPUPct = &cpu
+				}
+				if smp.MemBytes != nil {
+					mem := *smp.MemBytes / (1 << 20)
+					cs.MemMb = &mem
+				}
+			}
 		}
-		cancel()
 	}
 }
 
@@ -259,6 +279,44 @@ func (a *Agent) siteStatus(ctx context.Context) model.SiteStatus {
 		st.AgentWarnings = w
 	}
 	return st
+}
+
+// §21 #124 the status page loads in parts, each its own small request (one ListResponse[SiteStatus] item with only
+// that part filled): overview (host, agent version, warnings), containers, uptime (?range=24h|30d), edge (+ certs).
+func (a *Agent) statusShell() model.SiteStatus {
+	now := nowTs()
+	return model.SiteStatus{SiteSlug: a.site, Reachable: true, LastSeenAt: &now, Containers: []model.ContainerStatus{},
+		Uptime24h: []model.UptimeSeries{}, Uptime30d: []model.UptimeSeries{}, Certs: []model.CertStatus{}}
+}
+
+func (a *Agent) handleStatusPart(part string) func(http.ResponseWriter, *http.Request) (any, int, *httpError) {
+	return func(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {
+		st := a.statusShell()
+		switch part {
+		case "overview":
+			hm := a.hostMetrics()
+			v := a.version
+			st.Host, st.AgentVersion = &hm, &v
+			if ws := a.selfWarnings(); len(ws) > 0 {
+				st.AgentWarnings = ws
+			}
+		case "containers":
+			st.Containers = a.containerStatuses(r.Context())
+		case "uptime":
+			switch r.URL.Query().Get("range") {
+			case "", "24h":
+				st.Uptime24h = a.uptime24h()
+			case "30d":
+				st.Uptime30d = a.uptime30d()
+			default:
+				return nil, 0, herr(model.ErrInvalid, "range must be 24h or 30d", nil)
+			}
+		case "edge":
+			er := a.edgeReport()
+			st.Edge, st.Certs = &er, er.Certs
+		}
+		return model.ListResponse[model.SiteStatus]{Items: []model.SiteStatus{st}}, 200, nil
+	}
 }
 
 var statusCache sync.Map // instance/site → model.SiteStatus (cache of last answers; keyed per agent instance)

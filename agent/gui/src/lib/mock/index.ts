@@ -1410,6 +1410,23 @@ const H: Partial<Record<keyof typeof AGENT_API, Handler>> = {
     needSite(c.params.siteSlug, true);
     return { items: (c.params.siteSlug === '*' ? ALL_SITES : [c.params.siteSlug]).map((s) => siteStatus(s)) };
   },
+  // §21 #124 the parts: the mock answers each with the whole status (the page only reads its own part)
+  siteStatusOverview: (c) => {
+    needSite(c.params.siteSlug, true);
+    return { items: (c.params.siteSlug === '*' ? ALL_SITES : [c.params.siteSlug]).map((s) => siteStatus(s)) };
+  },
+  siteStatusContainers: (c) => {
+    needSite(c.params.siteSlug, true);
+    return { items: (c.params.siteSlug === '*' ? ALL_SITES : [c.params.siteSlug]).map((s) => siteStatus(s)) };
+  },
+  siteStatusUptime: (c) => {
+    needSite(c.params.siteSlug, true);
+    return { items: (c.params.siteSlug === '*' ? ALL_SITES : [c.params.siteSlug]).map((s) => siteStatus(s)) };
+  },
+  siteStatusEdge: (c) => {
+    needSite(c.params.siteSlug, true);
+    return { items: (c.params.siteSlug === '*' ? ALL_SITES : [c.params.siteSlug]).map((s) => siteStatus(s)) };
+  },
   containerLogs: (c) => {
     needSite(c.params.siteSlug, false);
     needReach(c.params.siteSlug);

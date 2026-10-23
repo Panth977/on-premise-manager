@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { api, apiPath, download, errMessage } from '$lib/api';
+  import { api, apiPath, download, errCode, errMessage } from '$lib/api';
   import { Resource, poll } from '$lib/state/resource.svelte';
   import { toasts } from '$lib/state/toast.svelte';
   import { fmtDateTime, bytes } from '$lib/format';
   import { containerTone } from '$lib/ui/tones';
-  import type { CertStatus, ContainerLogsResponse } from '@opm/shared/types';
+  import type { CertStatus, ContainerLogsResponse, ListResponse, SiteStatus } from '@opm/shared/types';
   import PageHead from '$lib/ui/PageHead.svelte';
   import Load from '$lib/ui/Load.svelte';
   import Empty from '$lib/ui/Empty.svelte';
@@ -35,13 +35,46 @@
   import MetricsDrawer from '$lib/tools/MetricsDrawer.svelte';
 
   const slug = $derived(page.params.siteSlug ?? '*');
-  const status = new Resource(() => api.siteStatus({ siteSlug: slug }));
+  // §21 #124 the page loads in parts, each its own small request and refresh: a slow part (containers) no longer holds
+  // up the rest. An agent older than the split (no status/* routes → not-found) answers with the full status instead.
+  const whole = (p: Promise<ListResponse<SiteStatus>>) => p.catch((e) => (errCode(e) === 'not-found' && slug !== '*' ? api.siteStatus({ siteSlug: slug }) : Promise.reject(e)));
+  const overview = new Resource(() => whole(api.siteStatusOverview({ siteSlug: slug })));
+  const ctrs = new Resource(() => whole(api.siteStatusContainers({ siteSlug: slug })));
+  let range = $state<'24h' | '30d'>('24h');
+  const uptime = new Resource(() => whole(api.siteStatusUptime({ siteSlug: slug, query: { range } })));
+  const edgeR = new Resource(() => whole(api.siteStatusEdge({ siteSlug: slug })));
   $effect(() => {
     void slug;
-    status.reset();
-    return poll(() => status.load(), 10_000);
+    overview.reset();
+    ctrs.reset();
+    edgeR.reset();
+    const stops = [poll(() => overview.load(), 10_000), poll(() => ctrs.load(), 10_000), poll(() => edgeR.load(), 30_000)];
+    return () => stops.forEach((f) => f());
   });
-  const items = $derived(status.data?.items ?? []);
+  $effect(() => {
+    void slug;
+    void range;
+    uptime.reset();
+    return poll(() => uptime.load(), 60_000);
+  });
+  /** one SiteStatus per site, each part from its own request */
+  const items = $derived.by((): SiteStatus[] => {
+    const by = new Map<string, SiteStatus>();
+    const pick = (r: Resource<ListResponse<SiteStatus>>, f: (to: SiteStatus, from: SiteStatus) => void) => {
+      for (const x of r.data?.items ?? []) {
+        let to = by.get(x.siteSlug);
+        if (!to) by.set(x.siteSlug, (to = { siteSlug: x.siteSlug, reachable: x.reachable, lastSeenAt: x.lastSeenAt, agentVersion: null, host: null, containers: [], uptime24h: [], uptime30d: [], certs: [], edge: null }));
+        to.reachable = to.reachable && x.reachable;
+        f(to, x);
+      }
+    };
+    pick(overview, (t, f) => ((t.host = f.host), (t.agentVersion = f.agentVersion), (t.agentWarnings = f.agentWarnings), (t.lastSeenAt = f.lastSeenAt)));
+    pick(ctrs, (t, f) => (t.containers = f.containers));
+    pick(uptime, (t, f) => ((t.uptime24h = f.uptime24h), (t.uptime30d = f.uptime30d)));
+    pick(edgeR, (t, f) => ((t.edge = f.edge), (t.certs = f.certs)));
+    return [...by.values()];
+  });
+  const reload = () => (overview.load(), ctrs.load(), edgeR.load());
   const mon = new Resource(async () => {
     const m = (await tools.metricsSummary({ siteSlug: slug })) as MetricsSummary;
     const host: MetricsSeriesResponse | null = await tools.metricsSeries({ siteSlug: slug, query: { subject: 'host', range: '1h' } }).catch(() => null);
@@ -56,7 +89,6 @@
   let hOpen = $state(false);
   const svcOf = (slug: string) => draft.base?.catalog?.services[slug];
   const all = $derived(slug === '*');
-  let range = $state<'24h' | '30d'>('24h');
 
   // certificates
   let renewFor = $state<CertStatus | null>(null);
@@ -67,7 +99,7 @@
       const r = await api.renewCert({ hostname: renewFor.hostname, query: { site: renewFor.siteSlug } });
       if (r.status === 'renewed') toasts.ok(`Certificate renewed for ${r.cert.hostname}`, r.cert.notAfter ? `valid until ${fmtDateTime(r.cert.notAfter)}` : undefined);
       else toasts.push('bad', `Renewal failed for ${r.cert.hostname}`, r.cert.lastError ?? undefined);
-      status.load();
+      edgeR.load();
     } catch (e) {
       toasts.err(e, 'Renew failed');
       return false;
@@ -145,8 +177,7 @@
 
 <PageHead icon="gauge" eyebrow={all ? 'All sites' : `Site ${slug}`} title={all ? 'Status · all sites' : `Status · ${slug}`} sub="Containers, host, uptime and certificates. Refreshes every 10 s." />
 
-<Load loading={status.loading} loaded={status.loaded} error={status.error} retry={() => status.load()} rows={8}>
-  <div class="stack">
+<div class="stack">
     {#each items.filter((s) => !s.reachable) as s (s.siteSlug)}
       <div class="banner warn small"><Icon name="wifiOff" /><div class="grow">Site <strong>{s.siteSlug}</strong> does not answer — its data below is the last cached state.</div><Stale lastSeenAt={s.lastSeenAt} /></div>
     {/each}
@@ -165,6 +196,7 @@
       <div class="banner info small"><Icon name="info" /><div class="grow">Site <strong>{s.siteSlug}</strong> runs the default edge on port {s.edge?.boundPorts[0] ?? 80}: no configuration applied yet — approve the first update to serve your routes.</div></div>
     {/each}
 
+    {#if !overview.loaded}<Load loading={overview.loading} loaded={overview.loaded} error={overview.error} retry={() => overview.load()} rows={3}>{''}</Load>{/if}
     {#if !all}
       {#each items as s (s.siteSlug)}
         {@const ag = agentOf(s.siteSlug)}
@@ -212,10 +244,12 @@
 
     {/if}
 
-    {#each items as s (s.siteSlug)}{#if s.reachable}<MismatchHint siteSlug={s.siteSlug} containers={s.containers} onchanged={() => status.load()} />{/if}{/each}
+    {#each items as s (s.siteSlug)}{#if s.reachable && s.containers.length}<MismatchHint siteSlug={s.siteSlug} containers={s.containers} onchanged={() => ctrs.load()} />{/if}{/each}
     <section class="card">
       <div class="card-head"><h2>Containers</h2><span class="row"><span class="muted small">"not managed" = containers without the OPM labels of this deployment</span><a class="btn sm" href={appHref(slug, 'containers')} data-testid="status-open-tools"><Icon name="container" size={14} />Open Containers</a></span></div>
-      {#if items.every((s) => s.containers.length === 0)}
+      {#if !ctrs.loaded}
+        <div class="card-body"><Load loading={ctrs.loading} loaded={ctrs.loaded} error={ctrs.error} retry={() => ctrs.load()} rows={6}>{''}</Load></div>
+      {:else if items.every((s) => s.containers.length === 0)}
         <Empty icon="box" title="No containers" text="No container runs on {all ? 'any site' : slug} yet. Containers start when a cloud commit is merged on the Branch page." />
       {:else}
         <div class="table-wrap">
@@ -239,7 +273,7 @@
                     <td class="small mono">{fmtPorts(c.ports)}</td>
                     <td class="small"><Time ts={c.startedAt} /></td>
                     <!-- quick actions: tabs of the container page + restart / stop / start -->
-                    <td class="actions">{#if c.managed && s.reachable}<ContainerActions c={{ siteSlug: s.siteSlug, ref: c.containerSlug, state: c.state as ToolsContainerState, failedCopy: false, expectedRunning: c.enabled, manuallyStopped: null }} onchanged={() => status.load()} />{/if}</td>
+                    <td class="actions">{#if c.managed && s.reachable}<ContainerActions c={{ siteSlug: s.siteSlug, ref: c.containerSlug, state: c.state as ToolsContainerState, failedCopy: false, expectedRunning: c.enabled, manuallyStopped: null }} onchanged={() => ctrs.load()} />{/if}</td>
                   </tr>
                 {/each}
               {/each}
@@ -258,6 +292,7 @@
         </div>
       </div>
       <div class="card-body stack tight" data-testid="uptime">
+        {#if !uptime.loaded}<Load loading={uptime.loading} loaded={uptime.loaded} error={uptime.error} retry={() => uptime.load()} rows={4}>{''}</Load>{/if}
         {#each items as s (s.siteSlug)}
           {#if all}<div class="section-title" style="margin-top:4px">{s.siteSlug}</div>{/if}
           {#each range === '24h' ? s.uptime24h : s.uptime30d as u (u.subject)}
@@ -270,7 +305,9 @@
 
     <section class="card">
       <div class="card-head"><h2>Certificates</h2><span class="muted small">edge TLS per host</span></div>
-      {#if items.every((s) => s.certs.length === 0)}
+      {#if !edgeR.loaded}
+        <div class="card-body"><Load loading={edgeR.loading} loaded={edgeR.loaded} error={edgeR.error} retry={() => edgeR.load()} rows={2}>{''}</Load></div>
+      {:else if items.every((s) => s.certs.length === 0)}
         <Empty icon="shield" title="No TLS hosts" text="No edge host uses TLS on {all ? 'any site' : slug}." />
       {:else}
         <div class="table-wrap">
@@ -323,8 +360,7 @@
         {:else}<span class="skel" style="height:120px"></span>{/if}
       </div>
     </section>
-  </div>
-</Load>
+</div>
 
 <Confirm bind:open={renewOpen} title="Renew certificate?" confirmLabel="Renew now" message="{renewFor?.hostname} on {renewFor?.siteSlug}: {renewFor?.mode === 'acme' ? 'a new ACME order' : renewFor?.mode === 'internal' ? 'a new certificate from the site local CA' : 're-read the certificate files'}." onconfirm={renew} />
 

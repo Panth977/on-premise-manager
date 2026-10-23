@@ -49,12 +49,23 @@ export class Resource<T> {
  */
 export function poll(fn: () => unknown, ms: number): () => void {
   let stopped = false;
-  untrack(() => fn());
+  // a tick is skipped while the previous call is still running: a slow answer is never thrown away by a newer request
+  let busy = false;
+  const run = () => {
+    if (busy) return;
+    const r = untrack(() => fn());
+    if (r instanceof Promise) {
+      busy = true;
+      const done = () => (busy = false);
+      r.then(done, done);
+    }
+  };
+  run();
   const t = setInterval(() => {
-    if (!stopped && document.visibilityState === 'visible') untrack(() => fn());
+    if (!stopped && document.visibilityState === 'visible') run();
   }, ms);
   const vis = () => {
-    if (document.visibilityState === 'visible' && !stopped) untrack(() => fn());
+    if (document.visibilityState === 'visible' && !stopped) run();
   };
   document.addEventListener('visibilitychange', vis);
   return () => {

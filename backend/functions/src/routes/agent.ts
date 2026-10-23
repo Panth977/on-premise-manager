@@ -40,6 +40,7 @@ import { newTransfer, validateTransferBody } from './transfers.js';
 import { agentReleaseInfo, cleanProgress, liveRequests, settleUpgrade, upgradeProgressError } from './agent-upgrade.js';
 import { pushBlobAllowed, storeVolumeSync, volumeContentCloudItems, volumeSyncError } from './volume-content.js';
 import { remoteGuiCloudItems } from './remote-gui.js';
+import { portTunnelCloudItems } from './port-tunnels.js';
 import { filesCloudItems, type StoredFile } from '../core/files.js';
 import { allowedCommits, cloudBranchView, legacyHeadMirror, storeHeartbeatBranch } from './agent-branches.js';
 import { bcol, encodeCommit } from '../core/branches.js';
@@ -83,7 +84,7 @@ const RELAY_MAX = 4 * 1024 * 1024;
 
 // ───────────────────────────────────────── cloud view
 export async function buildCloudView(deploymentId: string, dep: StoredDeployment): Promise<CloudView> {
-  const [open, recent, transfers, deletedTransfers, agents, release, volumeContent, branch, files] = await Promise.all([
+  const [open, recent, transfers, deletedTransfers, agents, release, volumeContent, branch, files, tunnels] = await Promise.all([
     col.proposals(deploymentId).where('status', 'in', [...OPEN_STATUSES]).get(),
     col.proposals(deploymentId).orderBy('revId', 'desc').limit(25).get(),
     col.transfers(deploymentId).where('direction', '==', 'to-site').where('status', '==', 'ready').get(),
@@ -93,6 +94,7 @@ export async function buildCloudView(deploymentId: string, dep: StoredDeployment
     volumeContentCloudItems(deploymentId), // §21 #101
     cloudBranchView(deploymentId, dep), // §21 #104
     filesCloudItems(deploymentId), // §21 #123
+    portTunnelCloudItems(deploymentId), // §21 #125
   ]);
   const openP = open.docs.map((d) => d.data() as Proposal);
   const terminal = recent.docs
@@ -132,6 +134,8 @@ export async function buildCloudView(deploymentId: string, dep: StoredDeployment
     // §21 #123 shared files: the whole listing (+ tombstones) and the copies the cloud wants from a site
     files: files.files,
     fileFetches: files.fileFetches,
+    // §21 #125 port tunnels (absent: this cloud carries none; the agent does not poll)
+    ...(tunnels ? { tunnels } : {}),
   };
 }
 

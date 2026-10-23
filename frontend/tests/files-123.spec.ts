@@ -136,6 +136,11 @@ test.describe('shared files (§21 #123)', () => {
       const db = JSON.parse(localStorage.getItem('opm.mock.db')!);
       db.accounts[uid].access.push({ resource: 'deployment.transfers', actions: ['read'], scope: { kind: 'all' } });
       localStorage.setItem('opm.mock.db', JSON.stringify(db));
+      // a pending debounced save of the page's in-memory DB must not overwrite the edit before the reload
+      const set = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k: string, v: string) {
+        if (k !== 'opm.mock.db') set.call(this, k, v);
+      };
     }, SEED.uidViewer);
     await page.goto(URL_FILES);
     await expect(page.getByTestId('file-row')).toHaveCount(4);

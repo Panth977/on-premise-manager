@@ -22,6 +22,7 @@ import type {
   Transfer,
   Upload,
   SharedFile,
+  PortTunnelStatus,
   ImageSpec,
   RevisionCatalog,
   SiteConfig,
@@ -60,12 +61,14 @@ export interface MockDb {
   transfers: Record<string, Transfer[]>;
   /** §21 #123 shared files per deployment (published + tombstones) */
   files: Record<string, SharedFile[]>;
+  /** §21 #125 port tunnels per deployment (with their live state; the mock has no listeners) */
+  tunnels: Record<string, PortTunnelStatus[]>;
   uploads: Record<string, MockUpload>;
   blobs: Record<string, string>; // hex → base64 (small blobs only; big ones live in memory)
   seq: number;
 }
 
-export const DB_VERSION = 27; // 27: §21 #123 shared files (ACME: in the cloud, site-only, on two sites, no copy, a tombstone); 26: §21 #106 entity slugs + GitHub mirror (mock/github.ts); // 25: §21 #105 no working copy (mock migrate-j: config copies ≠ head auto-committed); // 24: §21 #104 branches (lazy migrate-i in mock/branches.ts: commits, merge bases, agent branches + seed scenario); 23: §21 #100 transfers store-and-forward states (ACME app: waiting / on the site / arriving / stored); 22: §21 #99 template "Postgres (dev tools)" (service postgresql, container postgress); 21: §21 #97 dev-tool presets on ACME db (postgres + redis) + secret pg-password; 20: §21 #93 ANSI update.failed log tail + hint (ACME app), North grid main with an mqtt mention (suggested depends) + an implicit containers.* ref; 19: §21 #92 upgrade commands (stored install tokens / maintenance) + agent clockSkew
+export const DB_VERSION = 28; // 28: §21 #125 port tunnels (ACME: one edge http tunnel of app on port 2000); 27: §21 #123 shared files (ACME: in the cloud, site-only, on two sites, no copy, a tombstone); 26: §21 #106 entity slugs + GitHub mirror (mock/github.ts); // 25: §21 #105 no working copy (mock migrate-j: config copies ≠ head auto-committed); // 24: §21 #104 branches (lazy migrate-i in mock/branches.ts: commits, merge bases, agent branches + seed scenario); 23: §21 #100 transfers store-and-forward states (ACME app: waiting / on the site / arriving / stored); 22: §21 #99 template "Postgres (dev tools)" (service postgresql, container postgress); 21: §21 #97 dev-tool presets on ACME db (postgres + redis) + secret pg-password; 20: §21 #93 ANSI update.failed log tail + hint (ACME app), North grid main with an mqtt mention (suggested depends) + an implicit containers.* ref; 19: §21 #92 upgrade commands (stored install tokens / maintenance) + agent clockSkew
 const KEY = 'opm.mock.db';
 export const memBlobs = new Map<string, Uint8Array>();
 
@@ -349,6 +352,7 @@ function seed(): MockDb {
     activities: {},
     transfers: {},
     files: {},
+    tunnels: {},
     uploads: {},
     blobs: {},
     seq: 0,
@@ -949,6 +953,11 @@ function seed(): MockDb {
     sf({ fileId: '01JF000000000000000000000E', fileName: 'calibration-old.csv', sizeBytes: 9_812, publishedAt: ago(3 * DAY), origin: { kind: 'cloud' }, state: 'unpublished', unpublishedAt: ago(2 * DAY), unpublishedBy: SEED_USERS.admin.email }),
   ];
 
+  // §21 #125 port tunnels: the edge (http) of app on public port 2000, switched on on app, one open connection
+  d.tunnels[depId] = [
+    { tunnelId: '01JT000000000000000000000A', siteSlug: 'app', target: { kind: 'edge', scheme: 'http' }, publicPort: 2000, label: 'Plant web', createdAt: ago(DAY), createdBy: SEED_USERS.admin.email, address: 'opm.example.com:2000', listening: true, listenError: null, enabledOnSite: true, route: { kind: 'direct' }, openConnections: 1, lastConnectionAt: ago(4 * MIN), lastError: null },
+  ];
+
   // a second deployment: empty, no head, not installed
   const dep2 = 'DepNorthGrid00000002';
   // §21 #93: site main runs mqtt + northwind-backend-admin (env MQTT_URL=mqtt://mqtt:1883, NO depends → suggested) +
@@ -991,6 +1000,7 @@ function seed(): MockDb {
   d.activities[dep2] = [act(dep2, '_cloud', 1, ago(DAY), ADMIN, 'cloud', 'deployment.created', 'Deployment North grid created (empty)', { label: 'North grid' }, null)];
   d.transfers[dep2] = [];
   d.files[dep2] = [];
+  d.tunnels[dep2] = [];
 
   const ae = (e: Partial<AuditLogEntry> & Pick<AuditLogEntry, 'ts' | 'op' | 'action' | 'targetType' | 'target'>): AuditLogEntry => {
     const sys = e.actor === 'system';

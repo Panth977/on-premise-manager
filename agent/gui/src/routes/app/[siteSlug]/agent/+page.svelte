@@ -41,6 +41,7 @@
   import ProcessCard from '$lib/agent/ProcessCard.svelte';
   import RemoteGuiCard from '$lib/agent/RemoteGuiCard.svelte';
   import StorageCard from '$lib/agent/StorageCard.svelte';
+  import TunnelsCard from '$lib/agent/TunnelsCard.svelte';
   import UpgradeAll from '$lib/agent/UpgradeAll.svelte';
 
   const slug = $derived(page.params.siteSlug ?? '*');
@@ -670,6 +671,8 @@
           <div class="row"><Btn icon="download" busy={sbBusy} onclick={supportBundle} data-testid="support-bundle">Download support bundle</Btn></div>
         </section>
       </div>
+      <div class="gap"></div>
+      <TunnelsCard site={slug} /><!-- §21 #125 port tunnels, any site -->
 
       <div class="gap"></div>
       {#if !i.configPath && config.error}

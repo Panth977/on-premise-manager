@@ -21,6 +21,7 @@ const PAGE_TITLES: Record<string, string> = {
   sites: 'Sites',
   setup: 'Setup',
   status: 'Status',
+  tunnels: 'Tunnels',
   activities: 'Activities',
   'shared-files': 'Shared files',
   diff: 'Compare',

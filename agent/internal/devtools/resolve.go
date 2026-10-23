@@ -454,3 +454,22 @@ func (s *Service) containerAddr(ctx context.Context, hc *HeadContainer, p *HeadP
 	}
 	return "", "", unavailable("container %s has no address on the site network and port %s is not published", hc.ContainerSlug, p.Name)
 }
+
+// ContainerPortAddr is the TCP address of a container port (by port name) as the agent reaches it: the container IP
+// on its site network when it answers, else the published host port (§21 #125 port tunnels).
+func (s *Service) ContainerPortAddr(ctx context.Context, containerSlug, portName string) (string, error) {
+	hc, e := s.headContainer(containerSlug)
+	if e != nil {
+		return "", e
+	}
+	for i := range hc.Ports {
+		if hc.Ports[i].Name == portName {
+			addr, _, e := s.containerAddr(ctx, hc, &hc.Ports[i])
+			if e != nil {
+				return "", e
+			}
+			return addr, nil
+		}
+	}
+	return "", invalid("container %s has no port %s", containerSlug, portName)
+}

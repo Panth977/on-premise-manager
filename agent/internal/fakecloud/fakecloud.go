@@ -69,6 +69,8 @@ type Cloud struct {
 	transferDat map[string][]byte
 	uploads     map[string]*upload
 	filesSt     *fileState // §21 #123
+	tunSt       *tunState  // §21 #125
+	tunOnce     sync.Once
 	blocked     map[string]bool
 	requests    []string
 	vc          map[string]*vcVol // §21 #101 volume content per "<site>:<volume>" (volcontent.go)

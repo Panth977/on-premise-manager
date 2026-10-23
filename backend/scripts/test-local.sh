@@ -12,6 +12,8 @@ PUB="$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync("
 export OPM_TEST_ADAPTER=local OPM_ADAPTER=local OPM_DATA_DIR="$DATA" OPM_TEST_HOOKS=1 OPM_LOCAL_STRICT=1
 export OPM_TEST_SERVER="http://127.0.0.1:$PORT" OPM_PUBLIC_URL="http://127.0.0.1:$PORT"
 export OPM_FRONTEND_ORIGINS="http://localhost:5173,http://localhost:4173,http://localhost:5002"
+# §21 #125 port tunnels listen on these (test/44)
+export TUNNEL_FREE_PORTS="${TUNNEL_FREE_PORTS:-28700-28703}"
 export OPM_OUTBOX_MIN_AGE_MS="${OPM_OUTBOX_MIN_AGE_MS:-1000}" OPM_BLOB_REDIRECT="${OPM_BLOB_REDIRECT:-0}" OPM_RELEASE_PUBLIC_KEY="$PUB" GCLOUD_PROJECT=local
 OPM_PORT="$PORT" OPM_HOST=127.0.0.1 node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve >"$LOG" 2>&1 &
 SRV=$!

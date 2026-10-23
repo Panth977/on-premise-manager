@@ -6,6 +6,7 @@
  */
 import { REMOTE_GUI_AGENT_API, STORAGE_AGENT_API } from './remote-gui.js';
 import { FILES_AGENT_API, FILES_PEER_API } from './files.js';
+import { PORT_TUNNELS_AGENT_API } from './tunnels.js';
 import { createClient, ep, type Client, type EndpointDef } from './http.js';
 import type * as T from './types.js';
 import type { TerminateUpdateRequest, TerminateUpdateResponse } from './agent-self.js';
@@ -126,6 +127,7 @@ export const AGENT_API = {
   // §21 #118 remote agent GUI
   ...REMOTE_GUI_AGENT_API,
   ...FILES_AGENT_API,
+  ...PORT_TUNNELS_AGENT_API,
   // §21 #119 storage + moving the agent home
   ...STORAGE_AGENT_API,
 } as const satisfies Record<string, EndpointDef>;

@@ -1101,6 +1101,111 @@ func TestTwoSiteMesh(t *testing.T) {
 		return f.State == "unpublished" && !sf(db, cf.FileID).Here && sf(db, cf.FileID).State == "unpublished"
 	})
 
+	// 12d. §21 #125 port tunnels: a tunnel is off on its site until switched on there; on, the agent carries a client
+	// connection both ways (cloud recv → target, target → cloud send); a tunnel of db is carried by app over the mesh
+	// (db checks its own switch); the agents report their switches, remote GUI and reachable peers in each poll
+	echo := func() (int, func()) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				go func() {
+					defer c.Close()
+					buf := make([]byte, 4096)
+					for {
+						n, err := c.Read(buf)
+						if n > 0 {
+							_, _ = c.Write(append([]byte("echo:"), buf[:n]...))
+						}
+						if err != nil {
+							return
+						}
+					}
+				}()
+			}
+		}()
+		return ln.Addr().(*net.TCPAddr).Port, func() { ln.Close() }
+	}
+	appPort, stopA := echo()
+	defer stopA()
+	dbPort, stopD := echo()
+	defer stopD()
+	tA := model.PortTunnelCloudItem{TunnelID: "tun-app", SiteSlug: "app", Target: model.PortTunnelTarget{Kind: "host", Port: appPort}, PublicPort: 2001, CreatedAt: nowTs(), CreatedBy: "ops@acme.example"}
+	tD := model.PortTunnelCloudItem{TunnelID: "tun-db", SiteSlug: "db", Target: model.PortTunnelTarget{Kind: "host", Port: dbPort}, PublicPort: 2002, CreatedAt: nowTs(), CreatedBy: "ops@acme.example"}
+	fc.EnableTunnels(tA, tD)
+	var tl model.SitePortTunnelsResponse
+	waitFor(t, "tunnels listed on app", 30*time.Second, func() bool {
+		app.api(t, "GET", "/_opm/api/sites/app/tunnels", nil, &tl)
+		return tl.CloudTunnels && len(tl.Items) == 1 && tl.Items[0].TunnelID == "tun-app" && !tl.Items[0].Enabled
+	})
+	waitFor(t, "app polls the cloud for tunnels", 40*time.Second, func() bool {
+		r, ok := fc.TunnelReportOf("app")
+		return ok && r.RemoteGui == "1" && len(r.Enabled) == 0 && len(r.Reach) == 1 && r.Reach[0] == "db"
+	})
+	// off → refused with the reason
+	off := fc.OpenTunnel("app", "tun-app", "app")
+	select {
+	case <-off.Closed():
+	case <-time.After(20 * time.Second):
+		t.Fatal("a connection to a switched-off tunnel must be closed")
+	}
+	if !strings.Contains(off.Err(), "switched off") {
+		t.Fatalf("off: %q", off.Err())
+	}
+	// switch on (on app's own GUI) → the next poll reports it
+	if c, b := app.api(t, "PUT", "/_opm/api/sites/app/tunnels/tun-app", map[string]bool{"enabled": true}, nil); c != 200 {
+		t.Fatalf("switch on: %d %s", c, b)
+	}
+	waitFor(t, "app reports tun-app on", 30*time.Second, func() bool {
+		r, _ := fc.TunnelReportOf("app")
+		return len(r.Enabled) == 1 && r.Enabled[0] == "tun-app"
+	})
+	tc := fc.OpenTunnel("app", "tun-app", "app")
+	tc.Write([]byte("hello"))
+	waitFor(t, "echo through app's tunnel", 20*time.Second, func() bool { return tc.Received() == "echo:hello" })
+	tc.Write([]byte("again"))
+	waitFor(t, "second round", 20*time.Second, func() bool { return tc.Received() == "echo:helloecho:again" })
+	tc.CloseClient()
+	select {
+	case <-tc.Closed():
+	case <-time.After(20 * time.Second):
+		t.Fatal("the agent must end the connection after the client closed and the target closed")
+	}
+	// db's tunnel carried by app over the mesh: off on db → refused; switched on (from app's GUI, forwarded) → echo
+	viaOff := fc.OpenTunnel("app", "tun-db", "db")
+	select {
+	case <-viaOff.Closed():
+	case <-time.After(20 * time.Second):
+		t.Fatal("db's switched-off tunnel must be refused")
+	}
+	if !strings.Contains(viaOff.Err(), "switched off on site db") {
+		t.Fatalf("via off: %q", viaOff.Err())
+	}
+	if c, b := app.api(t, "PUT", "/_opm/api/sites/db/tunnels/tun-db", map[string]bool{"enabled": true}, nil); c != 200 {
+		t.Fatalf("switch db on (forwarded): %d %s", c, b)
+	}
+	via := fc.OpenTunnel("app", "tun-db", "db")
+	via.Write([]byte("over the mesh"))
+	waitFor(t, "echo through db's tunnel via app", 20*time.Second, func() bool { return via.Received() == "echo:over the mesh" })
+	via.CloseClient()
+	select {
+	case <-via.Closed():
+	case <-time.After(20 * time.Second):
+		t.Fatal("the via connection must end")
+	}
+	if len(activityData(t, app.a, "tunnel.enabled")) != 1 || len(activityData(t, db.a, "tunnel.enabled")) != 1 {
+		t.Fatal("tunnel.enabled activities")
+	}
+	if c, _ := app.api(t, "PUT", "/_opm/api/sites/app/tunnels/nope", map[string]bool{"enabled": true}, nil); c != 404 {
+		t.Fatalf("unknown tunnel: %d", c)
+	}
+
 	// 12. access key rotation: old key fails, new key works, open sessions keep working
 	newKey := "ZYXWVUTSRQPONMLKJIHGFEDC"
 	fc.SetAccessKey(newKey)

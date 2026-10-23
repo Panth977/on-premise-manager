@@ -64,8 +64,8 @@ function opmlog(deploymentId: string, signer: { siteSlug: string; key: SiteKey }
 
 // §21 #104 + #105: removed routes answer 410 gone (kept in the contract for old clients)
 // §21 #117: the cloud-copy writes of persist volumes are gone too (content is committed)
-// §21 #118 openRemoteGui needs the single-process cloud (503 elsewhere)
-const NO_ACTIVITY = new Set(['fetchFileToCloud', ...(ADAPTER === 'local' ? [] : ['openRemoteGui'])]);
+// §21 #118 openRemoteGui and §21 #125 port tunnels need the single-process cloud (503 elsewhere)
+const NO_ACTIVITY = new Set(['fetchFileToCloud', ...(ADAPTER === 'local' ? [] : ['openRemoteGui', 'createPortTunnel', 'deletePortTunnel'])]);
 const GONE = new Set(['publish', 'resetDraftToHead', 'applyTemplateSync', 'unlinkTemplate', 'putDraftSection', 'putDraftSite', 'regenerateSecret', 'discardDeploymentWorking', 'createVolumeContentVersion', 'restoreVolumeContentVersion', 'requestVolumeSnapshot', 'sendVolumeContent', 'cancelVolumeContentPush']);
 test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud activity (deployment scope)', async () => {
   const admin = await person('admin');
@@ -86,6 +86,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
   const dv = async () => (await admin.api.getDeployment({ deploymentId: id })).draftVersion;
   let transferId = '';
   let fileId = '';
+  let tunnelId = '';
   let tokenHash = '';
   // deployment-scope recipes (must succeed and must write a _cloud activity)
   const recipes: Record<string, () => Promise<{ params?: Record<string, string>; body?: unknown; raw?: Buffer }>> = {
@@ -139,6 +140,8 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
     openRemoteGui: async () => ({ params: { siteSlug: 'app' } }), // §21 #118 remote-gui.opened
     publishFile: async () => ({ body: { fileName: 'shared.txt', sizeBytes: 5, sha256: 'sha256:' + sha256Hex('hello') } }),
     unpublishFile: async () => ({ params: { fileId } }),
+    createPortTunnel: async () => ({ body: { siteSlug: 'app', publicPort: 28703, target: { kind: 'host', port: 5432 } } }), // §21 #125 tunnel.created
+    deletePortTunnel: async () => ({ params: { tunnelId } }), // tunnel.deleted
   };
   void app;
   const checked: string[] = [];
@@ -157,6 +160,7 @@ test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud
       assert.ok(res.status < 300, `${op} must succeed for the guarantee test: ${res.status} ${res.body.toString().slice(0, 300)}`);
       if (op === 'createTransfer') transferId = res.json.transfer.transferId;
       if (op === 'publishFile') fileId = res.json.file.fileId;
+      if (op === 'createPortTunnel') tunnelId = res.json.tunnelId;
       const after = await cloudSeq(id);
       assert.ok(after > before, `${op} wrote no _cloud activity`);
       const audited = (AUDIT_DEPLOYMENT_OPS as readonly string[]).includes(op);

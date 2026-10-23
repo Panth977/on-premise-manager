@@ -109,6 +109,11 @@ import {
   slugifyLabel,
   uniqueSlug,
   ENTITY_SLUG_RE,
+  validatePortTunnel,
+  portTunnelTargetText,
+  type CreatePortTunnelRequest,
+  type PortTunnelStatus,
+  type PortTunnelsResponse,
 } from '@opm/shared';
 import { githubHandlers, ensureGithub } from './github';
 import { ensureVcSeed, volumeContentHandlers } from './volume-content';
@@ -2541,6 +2546,81 @@ function tickFiles(db: MockDb) {
       }
     }
 }
+
+// §21 #125 port tunnels (mock: no listeners; public ports 2000-2010 of host opm.example.com).
+// localStorage['opm.mock.tunnels'] = 'unavailable' → a cloud that cannot carry tunnels (Firebase-like answer).
+const TUNNEL_HOST = 'opm.example.com';
+const TUNNEL_PORTS = Array.from({ length: 11 }, (_, i) => 2000 + i);
+function tunnelsUnavailable(): string | null {
+  try {
+    if (localStorage.getItem('opm.mock.tunnels') === 'unavailable') return 'Port tunnels need the single-process cloud on a VM (opm-cloud); this cloud cannot listen on ports.';
+  } catch {
+    /* no storage */
+  }
+  return null;
+}
+const tunnelsOf = (db: MockDb, depId: string) => ((db.tunnels ??= {})[depId] ??= []);
+const usedTunnelPorts = (db: MockDb) => new Set(Object.values(db.tunnels ?? {}).flatMap((l) => l.map((t) => t.publicPort)));
+/** a site counts as connected when its agent is online; the agent GUI switch: app on, db off (seed), others on */
+function siteConnected(db: MockDb, depId: string, siteSlug: string): boolean {
+  const a = db.agents[depId]?.[siteSlug];
+  return !!a?.online;
+}
+Object.assign(handlers, {
+  listPortTunnels: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.config', 'read');
+    const sites = d.draft.sites.map((s) => s.siteSlug);
+    const reason = tunnelsUnavailable();
+    if (reason) return { available: false, reason, host: TUNNEL_HOST, freePorts: [], agents: sites.map((siteSlug) => ({ siteSlug, connected: false, enabledOnSite: null })), items: [] } satisfies PortTunnelsResponse;
+    const used = usedTunnelPorts(c.db);
+    const agents = sites.map((siteSlug) => {
+      const connected = siteConnected(c.db, d.deploymentId, siteSlug);
+      return { siteSlug, connected, enabledOnSite: connected ? siteSlug !== 'db' : null };
+    });
+    const items = tunnelsOf(c.db, d.deploymentId)
+      .map((t) => ({ ...t, address: `${TUNNEL_HOST}:${t.publicPort}` }))
+      .sort((a, b) => a.publicPort - b.publicPort);
+    return { available: true, reason: null, host: TUNNEL_HOST, freePorts: TUNNEL_PORTS.filter((p) => !used.has(p)), agents, items } satisfies PortTunnelsResponse;
+  },
+  createPortTunnel: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.config', 'publish');
+    const reason = tunnelsUnavailable();
+    if (reason) throw new Err('unavailable', reason);
+    const b = bodyOf<CreatePortTunnelRequest>(c);
+    const bad = validatePortTunnel(b);
+    if (bad) throw invalid([issue('body', 'V_FORMAT', bad)], bad);
+    if (!d.draft.sites.some((s) => s.siteSlug === b.siteSlug)) throw new Err('not-found', `site ${b.siteSlug} does not exist`);
+    if (!TUNNEL_PORTS.includes(b.publicPort)) throw invalid([issue('publicPort', 'V_RANGE', `port ${b.publicPort} is not one of the cloud's tunnel ports (TUNNEL_FREE_PORTS)`)]);
+    if (usedTunnelPorts(c.db).has(b.publicPort)) throw new Err('conflict', `port ${b.publicPort} is already used by another tunnel`);
+    const connected = siteConnected(c.db, d.deploymentId, b.siteSlug);
+    const t: PortTunnelStatus = { tunnelId: ulid(), siteSlug: b.siteSlug, target: b.target, publicPort: b.publicPort, label: b.label?.trim() || null, createdAt: now(), createdBy: c.me.email, address: `${TUNNEL_HOST}:${b.publicPort}`, listening: true, listenError: null, enabledOnSite: connected ? false : null, route: connected ? { kind: 'direct' } : null, openConnections: 0, lastConnectionAt: null, lastError: null };
+    tunnelsOf(c.db, d.deploymentId).push(t);
+    d.agentEpoch += 1;
+    cloudActivity(c, d, 'tunnel.created', `Tunnel ${portTunnelTargetText(t.target)} of site ${t.siteSlug} on port ${t.publicPort} added (off until switched on on the site)`, { tunnelId: t.tunnelId, siteSlug: t.siteSlug, target: t.target, publicPort: t.publicPort });
+    return t;
+  },
+  deletePortTunnel: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.config', 'publish');
+    const list = tunnelsOf(c.db, d.deploymentId);
+    const i = list.findIndex((t) => t.tunnelId === c.params.tunnelId);
+    if (i < 0) throw new Err('not-found', 'tunnel not found');
+    const [t] = list.splice(i, 1);
+    d.agentEpoch += 1;
+    cloudActivity(c, d, 'tunnel.deleted', `Tunnel ${portTunnelTargetText(t!.target)} of site ${t!.siteSlug} on port ${t!.publicPort} removed`, { tunnelId: t!.tunnelId, siteSlug: t!.siteSlug, publicPort: t!.publicPort });
+    return { deleted: true };
+  },
+  // §21 #118 the remote agent GUI: the mock has no remote sessions → a blank page named after the site
+  openRemoteGui: (c: Ctx) => {
+    const d = dep(c);
+    needDep(c, d, 'deployment.config', 'publish');
+    const site = c.params.siteSlug!;
+    if (!d.draft.sites.some((s) => s.siteSlug === site) && !c.db.agents[d.deploymentId]?.[site]) throw new Err('not-found', `site ${site} not found`);
+    return { url: `about:blank#opm-remote-${site}`, expiresAt: new Date(Date.now() + 8 * 3600_000).toISOString(), connected: siteConnected(c.db, d.deploymentId, site) };
+  },
+} satisfies Record<string, Handler>);
 
 // §21 #101 volume content cloud API (mock/volume-content.ts)
 const bh = branchHandlers({

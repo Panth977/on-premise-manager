@@ -496,6 +496,7 @@ func (a *Agent) Run(parent context.Context) error {
 	a.every("monitor", a.tm.Monitor, a.monitorOnce)
 	a.every("transfers", a.tm.Transfers, a.transfersOnce)
 	a.every("peer-files", time.Minute, a.peerFilesOnce) // §21 #123 the listing from sites without the cloud
+	a.goLoop("port-tunnels", a.portTunnelLoop)          // §21 #125
 	a.every("pending", time.Minute, a.pushPendingParts)
 	a.every("housekeeping", time.Hour, a.housekeeping)
 	a.every("watchdog", time.Minute, a.watchdogOnce)            // §21 #110

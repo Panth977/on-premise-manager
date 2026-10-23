@@ -34,6 +34,7 @@
     "./staging": { "types": "./dist/staging.d.ts", "import": "./dist/staging.js" },
     "./remote-gui": { "types": "./dist/remote-gui.d.ts", "import": "./dist/remote-gui.js" },
     "./files": { "types": "./dist/files.d.ts", "import": "./dist/files.js" },
+    "./tunnels": { "types": "./dist/tunnels.d.ts", "import": "./dist/tunnels.js" },
     "./icons": { "types": "./dist/icons.d.ts", "import": "./dist/icons.js" },
     "./testdata/*": "./testdata/*"
   },

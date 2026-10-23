@@ -71,6 +71,13 @@ async function serve(cfg: CloudConfig) {
     stops.push(() => s.stop());
   }
   const server = createServer(cfg, local);
+  if (cfg.adapter === 'local') {
+    // §21 #125 port tunnels: listen on the public port of every stored tunnel
+    const { startPortTunnels, stopPortTunnels } = await import('./core/port-tunnels.js');
+    const { allPortTunnels } = await import('./routes/port-tunnels.js');
+    startPortTunnels(await allPortTunnels());
+    stops.push(async () => stopPortTunnels());
+  }
   server.requestTimeout = 15 * 60_000;
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;

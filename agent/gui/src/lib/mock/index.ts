@@ -12,6 +12,7 @@
  *   opm.mock.fail=apply  the next update fails in APPLY on site app → rollback
  *   opm.mock.otherTab=1  another tab holds the internet tunnel lease
  *   opm.mock.presetProposal=1  the open cloud proposal also adds a dev-tool preset on db (§21 #102 Diff dev tools tab)
+ *   opm.mock.tunnels=off|empty  the cloud does not carry port tunnels / none added (§21 #125); a session with `remote` works through the cloud
  */
 import { AGENT_API } from '@opm/shared/agent-api';
 import { toolsFetch } from './tools'; // round T: operator toolbox
@@ -68,6 +69,7 @@ import { configBlobs, type BlobNeed, type CreateStageRequest } from '@opm/shared
 import { sha256 as sha256Bytes, toHex } from '@opm/shared/hash';
 import { hostFsFile, hostFsList } from './hostfs';
 import { createFilesMock } from './files'; // §21 #123 shared files
+import { createTunnelsMock } from './tunnels'; // §21 #125 port tunnels
 
 type Json = Record<string, unknown>;
 class MockError extends Error {
@@ -755,6 +757,8 @@ interface MockSession {
   sessionId: string;
   expiresAt: string;
   keyVersion: number;
+  /** §21 #118 the session runs through the cloud (tests set it in opm.mock.session) */
+  remote?: { email: string; name: string | null; actorToken: string; expiresAt: string } | null;
 }
 function getSession(): MockSession | null {
   try {
@@ -1656,6 +1660,21 @@ Object.assign(
     sites: ALL_SITES,
     addActivity,
     fileResponse: (body, name) => fileResponse(body, name),
+  }),
+);
+
+// §21 #125 port tunnels of a site (lib/mock/tunnels.ts)
+Object.assign(
+  H,
+  createTunnelsMock({
+    fail: (code, message, details = {}) => {
+      throw new MockError(code, message, details);
+    },
+    needSite,
+    needReach,
+    addActivity,
+    isRemote: (s) => !!(s as MockSession | null)?.remote,
+    mode: () => ls('opm.mock.tunnels'),
   }),
 );
 

@@ -48,6 +48,7 @@ func (a *Agent) peerMux() http.Handler {
 	raw("GET /_opm/peer/blobs/{sha256}", a.servePeerBlob)
 	j("GET /_opm/peer/files", a.peerFiles, 200)                          // §21 #123
 	raw("GET /_opm/peer/files/{fileId}/content", a.servePeerFileContent) // §21 #123
+	raw("GET /_opm/peer/tunnel/{tunnelId}", a.servePeerTunnel)            // §21 #125
 	j("POST /_opm/peer/fetch-request", a.handleFetchRequest, 202)
 	j("GET /_opm/peer/revisions/{revId}", func(w http.ResponseWriter, r *http.Request) (any, *httpError) {
 		rev, ok := a.revision(r.PathValue("revId"))

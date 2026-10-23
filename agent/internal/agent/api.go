@@ -160,6 +160,8 @@ func (a *Agent) buildSiteMux() http.Handler {
 	h("POST /agent/move-home/delete-old", authActor, a.handleDeleteOldHome)
 	h("GET /agent/remote-gui", authSession, a.handleGetRemoteGui)
 	h("PUT /agent/remote-gui", authActor, a.handlePutRemoteGui)
+	h("GET /tunnels", authSession, a.handleSitePortTunnels)          // §21 #125
+	h("PUT /tunnels/{tunnelId}", authActor, a.handleSetPortTunnel) // §21 #125
 	h("GET /volume-copies", authSession, a.handleListVolumeCopies)
 	h("POST /volume-copies/{copyId}/delete", authActor, a.handleDeleteVolumeCopy)
 	h("GET /intents/{intentId}", authSession, a.handleGetIntent) // §21 #95 (intents held by this site, e.g. a forwarded volume reset)
@@ -245,6 +247,16 @@ func (a *Agent) handleSiteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// §21 #121 through the cloud no site's remote GUI is switched (the target cannot see that the person is remote)
+	// §21 #125 through the cloud a tunnel of another site is only switched off (switching on is the site's decision)
+	if r.Method == http.MethodPut && strings.HasPrefix(rest, "tunnels/") && remoteOf(r) != nil {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		var req model.SetPortTunnelRequest
+		if json.Unmarshal(b, &req) == nil && req.Enabled != nil && *req.Enabled {
+			writeErr(w, herr(model.ErrForbidden, "switch a tunnel on on the site itself, not through the cloud", nil))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(b))
+	}
 	if r.Method == http.MethodPut && strings.HasPrefix(rest, "agent/remote-gui") && remoteOf(r) != nil {
 		writeErr(w, herr(model.ErrForbidden, "switch the remote GUI on / off on a site itself, not through the cloud", nil))
 		return

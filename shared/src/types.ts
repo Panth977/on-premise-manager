@@ -1503,6 +1503,11 @@ export const ACTIVITY_TYPES = [
   'remote-gui.opened', //         cloud: data { siteSlug, sessionId } (a person opened the site's agent GUI through the cloud)
   'remote-gui.session', //        agent: data { sessionId, cloudSessionId, email } (the agent session made for that person)
   'agent.remote-gui-changed', //  agent: data { enabled }
+  // §21 #125 port tunnels
+  'tunnel.created', //   cloud: data { tunnelId, siteSlug, target, publicPort }
+  'tunnel.deleted', //   cloud: data { tunnelId, siteSlug, publicPort }
+  'tunnel.enabled', //   agent: data { tunnelId, target, publicPort }
+  'tunnel.disabled', //  agent: data { tunnelId, target, publicPort }
   // §21 #119 moving the agent home
   'agent.home-move-started', //   agent: data { from, to, mode, sizeBytes, stopped }
   'agent.home-moved', //          agent: data { from, to, mode, oldCopy, sizeBytes, files }
@@ -1669,6 +1674,8 @@ export interface CloudView {
   fileFetches?: import('./files.js').CloudViewFiles['fileFetches'];
   /** §21 #118 sites with an open remote GUI session (each agent long-polls agentRemoteGuiNext while its site is listed) */
   remoteGui?: import('./remote-gui.js').RemoteGuiCloudItem[];
+  /** §21 #125 the port tunnels of the deployment; present only on a cloud that carries tunnels (the agent then polls agentTunnelNext) */
+  tunnels?: import('./tunnels.js').PortTunnelCloudItem[];
   /** §21 #104 the deployment branch head (what the sites should run) + the newest commits; absent on old clouds */
   branch?: import('./branch.js').CloudBranchView;
 }

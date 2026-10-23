@@ -6620,6 +6620,38 @@ Pass = every check above green; results file lists timings and the activity coun
     always replaced by a newer request and its answer dropped, so a slow page never filled in. Test: the merged views
     step of `TestTwoSiteMesh`.
 
+125. **Port tunnels** (user: "being able to tunnel the port to cloud … by tunnelling a port I can see the website or api
+    or maybe connect to the database"). Contract `shared/src/tunnels.ts`. VM cloud only (§21 #108): on Firebase every
+    call answers unavailable.
+    (a) **Kinds.** The agent GUI tunnel of every site (= the remote GUI, §21 #118: on by default, switched on the site;
+        listed per site in the console, opens the agent GUI through the cloud, cannot be removed) and port tunnels added
+        in the console: a container port (by port name), the site's edge (http or https port) or a TCP port on the
+        site's server. A port tunnel carries raw TCP at `<cloud host>:<public port>` (HTTP, WebSockets, databases …).
+    (b) **Public ports** come from `TUNNEL_FREE_PORTS` (`2000-2100,2400-2500,3000`: ports or ranges, 1024–65535),
+        published from the cloud container to its VM; addresses name `TUNNEL_PUBLIC_HOST` (a name that reaches the VM
+        directly, when a proxy / CDN fronts the public URL), else the public URL's host. One tunnel per public port across every deployment
+        (`tunnelPorts/{port}`, made in the same transaction as `deployments/{d}/portTunnels/{id}`). The cloud listens on
+        every stored tunnel's port from start; removing a tunnel stops listening and closes its connections.
+        Activities `tunnel.created`, `tunnel.deleted` (deployment.config.publish); listing needs deployment.config.read.
+    (c) **Off until switched on on the site.** The cloud view lists the deployment's tunnels (`tunnels`, present only on a
+        cloud that carries them); each site keeps its own switches (kv `port-tunnels`, default off), switched in its
+        agent GUI (Agent › Tunnels, any site over the mesh; activities `tunnel.enabled` / `tunnel.disabled`). Switching ON
+        through the cloud (a remote GUI session) is refused: the site decides; switching off is allowed.
+    (d) **Transport** (outbound HTTPS only, the cloud never calls a site). An agent with a direct cloud link long-polls
+        `GET /v1/agent/tunnels/next` (25 s) reporting its switched-on tunnels, its remote GUI switch and the peers it
+        reaches; a new client connection is queued for the site's own agent (refused at once when the tunnel is off
+        there), else for a connected agent that reaches the site. The agent dials the target — or, for a peer's tunnel,
+        that peer's agent with a signed HTTP upgrade (`GET /_opm/peer/tunnel/{id}`, `Upgrade: opm-tunnel`; the peer checks
+        its own switch and dials) — and moves the bytes: client → target with `…/conn/{id}/recv` long-polls (≤ 1 MiB a
+        chunk), target → client with `…/conn/{id}/send` (answered once written: flow control). Half-closes pass through.
+        The cloud buffers ≤ 4 MiB from a client before it stops reading; a connection not taken within 20 s or whose
+        agent stopped polling for 75 s is closed. The live state (listening, switches, route, open connections, last
+        error) is in memory and shown in the console (Tunnels).
+    (e) Tests: `backend/test/44-port-tunnels.test.ts` (add / conflict / refuse while off / both ways / client close / via
+        a peer / remove), the port-tunnel step of `TestTwoSiteMesh` (off → refused with the reason, switched on → echo
+        both ways, db's tunnel carried by app over the mesh, half-close), `shared/src/tunnels.test.ts`, the console and
+        agent GUI specs `tunnels-125`.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

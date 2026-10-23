@@ -1035,6 +1035,7 @@ var ActivityTypes = []string{
 	"agent.upgrade-started", "agent.upgraded", "agent.upgrade-failed", "agent.rolled-back", "agent.restarted",
 	"agent.config-changed", "agent.support-bundle-downloaded", "agent.upgrade-requested", "agent.upgrade-cancelled",
 	"remote-gui.opened", "remote-gui.session", "agent.remote-gui-changed", // §21 #118
+	"tunnel.created", "tunnel.deleted", "tunnel.enabled", "tunnel.disabled", // §21 #125
 	"agent.home-move-started", "agent.home-moved", "agent.home-move-failed", "agent.home-old-deleted", // §21 #119
 	// §21 #94 Template sync (cloud-only types; mirrored for TestActivityTypesMirror)
 	"draft.template-synced", "deployment.template-unlinked",
@@ -1195,6 +1196,8 @@ type CloudView struct {
 	// §21 #123 shared files: the listing (+ tombstones) and the copies the cloud wants from a site; nil on old clouds
 	Files       []SharedFile    `json:"files,omitempty"`
 	FileFetches []FileFetchItem `json:"fileFetches,omitempty"`
+	// §21 #125 port tunnels of the deployment; nil = this cloud carries none (the agent does not poll)
+	Tunnels *[]PortTunnelCloudItem `json:"tunnels,omitempty"`
 	// to-site transfers deleted in the cloud (all sites; each agent drops its own copy; absent on old clouds)
 	DeletedTransfersToSite []DeletedTransfer `json:"deletedTransfersToSite,omitempty"`
 }

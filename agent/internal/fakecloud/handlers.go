@@ -219,6 +219,9 @@ func (c *Cloud) route(w http.ResponseWriter, r *http.Request, body []byte, rc re
 	case m == "POST" && match(reUploadComplete, p, &g):
 		c.completeUpload(w, g[1], rc)
 	default:
+		if c.routeTunnels(w, r, body, rc) { // §21 #125
+			return
+		}
 		if c.routeBranch(w, r, body, rc) { // §21 #104
 			return
 		}
@@ -326,6 +329,7 @@ func (c *Cloud) view() model.CloudView {
 	}
 	v.VolumeContent = c.viewVolumeContent() // §21 #101
 	c.viewFiles(&v)                         // §21 #123
+	c.viewTunnels(&v)                       // §21 #125
 	v.Branch = c.viewBranch()               // §21 #104
 	return v
 }

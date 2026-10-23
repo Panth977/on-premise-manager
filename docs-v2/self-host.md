@@ -77,6 +77,8 @@ Environment variables (or a JSON file via `--config` / `OPM_CONFIG` with the cam
 | `OPM_TRUST_PROXY` | `1` | take the client IP from `X-Forwarded-For` |
 | `OPM_SMTP_URL`, `OPM_SMTP_FROM` | – | e-mail for "Forgot password" and admin reset links (without SMTP the console hides "Forgot password"; admins copy reset links from the Accounts page) |
 | `OPM_OIDC_ISSUER`, `OPM_OIDC_CLIENT_ID`, `OPM_OIDC_CLIENT_SECRET`, `OPM_OIDC_LABEL`, `OPM_OIDC_ALLOWED_DOMAIN` | – | optional single sign-on (Google: issuer `https://accounts.google.com`, redirect URI `<public URL>/auth/oidc/callback`); a person still needs an OPM account with the same e-mail |
+| `TUNNEL_FREE_PORTS` | – | port tunnels (§21 #125): the public ports the cloud may listen on for tunnels, comma separated ports or ranges, e.g. `2000-2100,2400-2500,3000` (1024–65535). Publish the same ports from the container (`ports: ["2000-2100:2000-2100"]`) and open them in the VM firewall. Unset = no port tunnels (the agent GUI through the cloud still works) |
+| `TUNNEL_PUBLIC_HOST` | the public URL's host | the host name shown in tunnel addresses. Set it when a proxy / CDN sits in front of the public URL (it does not carry raw TCP on other ports): a DNS name or IP that reaches the VM directly |
 | `OPM_RELEASE_PUBLIC_KEY` | data dir key | the agent release key the install script verifies binaries with |
 | `OPM_AUTH_SECRET`, `OPM_BLOB_SECRET` | generated in `secrets/` | HS256 ID-token key, blob-URL HMAC key |
 

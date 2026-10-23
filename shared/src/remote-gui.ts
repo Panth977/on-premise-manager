@@ -7,7 +7,8 @@
  * email prompt) and posts the response with `agentRemoteGuiResult` — the same store-and-forward idea as the browser
  * internet tunnel (§9.10), the other way round. The cloud serves the answer with every `/_opm` path re-prefixed
  * (`rewriteRemoteText`), so the unchanged agent GUI build runs under the remote prefix.
- * WebSockets (terminal, MQTT client) are relayed frame by frame (§21 #118 g); event streams (log follow) are not — 501.
+ * WebSockets (terminal, MQTT client) are relayed frame by frame (§21 #118 g), event streams (log follow, MQTT live
+ * messages) chunk by chunk over the same long-polls (§21 #118 h).
  */
 import { ep } from './http.js';
 import type { Slug, Ts } from './types.js';
@@ -58,6 +59,11 @@ export interface RemoteGuiRequest {
   /** §21 #118 g: a WebSocket upgrade — the agent opens it against its own GUI port, answers 101 (or the refusal) as
    * the result, then relays frames through agentRemoteGuiWsRecv / agentRemoteGuiWsSend until either side closes */
   ws?: { streamId: string } | null;
+  /** §21 #118 h: an event stream (live log follow, MQTT live messages) — the agent answers status + headers as soon as
+   * the handler starts writing (result with header REMOTE_GUI_STREAM_HEADER: 1 and no body), then the body as binary
+   * frames through agentRemoteGuiWsSend (a close frame ends it); the browser leaving shows as closed on
+   * agentRemoteGuiWsRecv and ends the handler. An agent that does not know `stream` answers the whole body at once. */
+  stream?: { streamId: string } | null;
 }
 /** one WebSocket message relayed through the cloud (close: code + reason in dataB64 as UTF-8) */
 export interface RemoteGuiWsFrame {
@@ -78,6 +84,8 @@ export interface RemoteGuiNextResponse {
 }
 /** POST /v1/agent/remote-gui/{reqId}/result: raw body; status + headers in X-OPM-Remote-Status / X-OPM-Remote-Headers (base64 JSON) */
 export const REMOTE_GUI_STATUS_HEADER = 'x-opm-remote-status';
+/** §21 #118 h in the result's headers: the body follows as stream frames */
+export const REMOTE_GUI_STREAM_HEADER = 'x-opm-remote-stream';
 export const REMOTE_GUI_HEADERS_HEADER = 'x-opm-remote-headers';
 export interface OpenRemoteGuiResponse {
   url: string;

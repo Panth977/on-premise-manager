@@ -14,7 +14,7 @@ import { handleApi } from '../app.js';
 import { logger, adapterKind } from '../ports/index.js';
 import type { CloudConfig } from './config.js';
 import { serveStatic } from './static.js';
-import { handleRemoteUpgrade, readRemoteBody, serveRemoteGui } from './remote-gui.js';
+import { handleRemoteUpgrade, pipeRemoteStream, readRemoteBody, serveRemoteGui } from './remote-gui.js';
 
 export interface LocalHttpHandlers {
   blob(req: { method: string; url: string; headers: Record<string, string | undefined> }): Promise<{ status: number; headers: Record<string, string>; body: Buffer | string | Readable | null }>;
@@ -66,6 +66,7 @@ export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null):
       // §21 #118 before /v1/: an agent path may contain anything
       if (path.startsWith('/app/deployments/') && path.includes('/remote/')) {
         const r = await serveRemoteGui({ method: req.method ?? 'GET', rawUrl, path, headers, body: () => readRemoteBody(req) });
+        if (r?.stream) return pipeRemoteStream(res, r);
         if (r) return send(res, r.status, r.headers, r.body, path);
       }
       if (path.includes('/v1/')) {

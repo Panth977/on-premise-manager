@@ -206,6 +206,7 @@ func remoteGuiForbidden(method, path string) bool {
 func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 	w := &remoteWriter{h: http.Header{}}
 	var ws *remoteSess
+	streamed := false
 	func() {
 		u, err := url.Parse(it.Path)
 		if err != nil || !(u.Path == "/_opm" || strings.HasPrefix(u.Path, "/_opm/")) || strings.HasPrefix(u.Path, "/_opm/peer") {
@@ -233,7 +234,13 @@ func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 				return
 			}
 		}
-		rctx, cancel := context.WithTimeout(ctx, 55*time.Second)
+		var rctx context.Context
+		var cancel context.CancelFunc
+		if it.Stream != nil && it.Stream.StreamID != "" {
+			rctx, cancel = context.WithCancel(ctx) // an event stream lives until either side ends it
+		} else {
+			rctx, cancel = context.WithTimeout(ctx, 55*time.Second)
+		}
 		defer cancel()
 		rctx = context.WithValue(rctx, remoteKey{}, &remoteInfo{email: sess.email, name: sess.name, token: sess.token, exp: sess.exp})
 		r, err := http.NewRequestWithContext(rctx, it.Method, it.Path, bytes.NewReader(body))
@@ -253,8 +260,16 @@ func (a *Agent) serveRemoteGui(ctx context.Context, it model.RemoteGuiRequest) {
 		r.Header.Del("Accept-Encoding") // bodies travel whole; the cloud rewrites text
 		r.RemoteAddr = "cloud:0"
 		r.Host = "opm-remote"
+		if it.Stream != nil && it.Stream.StreamID != "" { // §21 #118 h (remotegui_stream.go)
+			streamed = true
+			a.serveRemoteStream(rctx, cancel, it, r)
+			return
+		}
 		a.handlerFor("agent").ServeHTTP(w, r)
 	}()
+	if streamed {
+		return
+	}
 	if ws != nil {
 		a.serveRemoteWS(ctx, it, ws)
 		return

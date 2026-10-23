@@ -102,6 +102,8 @@ export function publish(topic: string, bytes: Uint8Array, qos: number, retain: b
   return m;
 }
 export function openSession(site: string, connId: string, subs: MqttSubscription[]) {
+  // one live session per connection: a new Start replaces the earlier one (as the agent does)
+  for (const x of sessions.values()) if (!x.closed && x.site === site && x.connId === connId) closeSession(x.id, 'replaced by a new session');
   const live = [...sessions.values()].filter((s) => !s.closed);
   if (live.length >= 4) return null;
   const id = `ms_${(++seq).toString(36)}${Math.random().toString(36).slice(2, 8)}`;

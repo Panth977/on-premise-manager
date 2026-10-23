@@ -764,6 +764,10 @@ type RemoteGuiRequest struct {
 	WS *struct {
 		StreamID string `json:"streamId"`
 	} `json:"ws,omitempty"`
+	// Stream (§21 #118 h): an event stream; the body goes chunk by chunk as frames of this stream
+	Stream *struct {
+		StreamID string `json:"streamId"`
+	} `json:"stream,omitempty"`
 }
 
 // RemoteGuiWsFrame is TS RemoteGuiWsFrame.

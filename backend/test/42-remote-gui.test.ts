@@ -2,7 +2,7 @@
  * §21 #118 remote agent GUI on the single-process cloud (local adapter only): no cookie → 401 page; openRemoteGui sets
  * the cookie (Path = the remote prefix) and lists the site in the cloud view; a browser request waits until the site's
  * long-poll takes it (only that site's), the posted answer comes back with every /_opm path re-prefixed, redirects
- * rewritten, the agent's cookies dropped; a WebSocket is relayed over the site's long-polls; an event stream without follow is one answer, with follow 501.
+ * rewritten, the agent's cookies dropped; a WebSocket is relayed over the site's long-polls; an event stream is relayed chunk by chunk (an older site answering it whole still works).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,7 +26,7 @@ async function answer(key: SiteKey, dep: string, site: string, reqId: string, st
   return (await r.json()) as { accepted: boolean };
 }
 
-test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, SSE (follow 501)', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
+test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, event streams', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;
@@ -121,10 +121,29 @@ test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rew
   await closedP;
   const rc = (await agentCall('GET', `${sp}/recv?wait=5`, null)) as { closed: boolean };
   assert.equal(rc.closed, true, 'the browser closing ends the stream for the site');
-  // an event stream is not carried (v1)
-  const sse = await raw('GET', `${prefix}/_opm/api/sites/app/tools/logs/containers?follow=true`, { headers: { Cookie: cookie, Accept: 'text/event-stream' } });
-  assert.equal(sse.status, 501);
-  // without follow the stream ends by itself: carried as one answer
+  // §21 #118 h an event stream is carried chunk by chunk: headers at once, then the frames the site sends; the browser
+  // leaving shows as closed for the site
+  const ac = new AbortController();
+  const liveP = fetch(`${BASE}${prefix}/_opm/api/sites/app/tools/logs/containers?follow=true`, { headers: { Cookie: cookie, Accept: 'text/event-stream' }, signal: ac.signal });
+  const lv = (await next(app.key, id, 'app', 10)).items[0]!;
+  assert.ok(lv.stream?.streamId, 'the site is asked to stream');
+  await answer(app.key, id, 'app', lv.reqId, 200, { 'Content-Type': 'text/event-stream', 'X-OPM-Remote-Stream': '1' }, '');
+  const live = await liveP;
+  assert.equal(live.status, 200);
+  assert.match(live.headers.get('content-type') ?? '', /text\/event-stream/);
+  assert.equal(live.headers.get('x-opm-remote-stream'), null, 'the flag stays between cloud and site');
+  const reader = live.body!.getReader();
+  const lsp = `/v1/agent/remote-gui/ws/${lv.stream!.streamId}`;
+  await agentCall('POST', `${lsp}/send`, { frames: [{ op: 'binary', dataB64: Buffer.from('event: line\ndata: {"t":"first"}\n\n').toString('base64') }] });
+  assert.match(new TextDecoder().decode((await reader.read()).value), /first/);
+  await agentCall('POST', `${lsp}/send`, { frames: [{ op: 'binary', dataB64: Buffer.from('event: line\ndata: {"t":"second"}\n\n').toString('base64') }] });
+  assert.match(new TextDecoder().decode((await reader.read()).value), /second/);
+  ac.abort();
+  await reader.cancel().catch(() => undefined);
+  let lc = { closed: false };
+  for (let i = 0; i < 20 && !lc.closed; i++) lc = (await agentCall('GET', `${lsp}/recv?wait=1`, null)) as { closed: boolean };
+  assert.equal(lc.closed, true, 'the browser leaving ends the stream for the site');
+  // a site that does not stream answers the whole body at once: still carried
   const logsP = raw('GET', `${prefix}/_opm/api/sites/app/tools/logs/containers?tail=10&follow=false`, { headers: { Cookie: cookie, Accept: 'text/event-stream' } });
   const lg = (await next(app.key, id, 'app', 10)).items[0]!;
   assert.equal(lg.path, '/_opm/api/sites/app/tools/logs/containers?tail=10&follow=false');

@@ -9,10 +9,10 @@ import type http from 'node:http';
 import { createHash } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 import type { RemoteGuiWsFrame } from '@opm/shared';
-import { newStream, toSite } from '../core/remote-gui.js';
+import { attachBrowser, newStream, toSite } from '../core/remote-gui.js';
 
-import { REMOTE_GUI_LIMITS, isRewritableType, parseRemoteGuiPath, remoteGuiPrefix, rewriteRemoteLocation, rewriteRemoteText } from '@opm/shared';
-import { forward, page, touchSession, type RemoteResult } from '../core/remote-gui.js';
+import { REMOTE_GUI_LIMITS, REMOTE_GUI_STREAM_HEADER, isRewritableType, parseRemoteGuiPath, remoteGuiPrefix, rewriteRemoteLocation, rewriteRemoteText } from '@opm/shared';
+import { forward, page, touchSession, type RemoteResult, type WsStream } from '../core/remote-gui.js';
 import { remoteCookieName } from '../routes/remote-gui.js';
 
 /** request headers forwarded to the agent (no cookies / auth of the cloud, no hop-by-hop, no encodings) */
@@ -32,6 +32,8 @@ export interface RemoteHttpOut {
   status: number;
   headers: Record<string, string>;
   body: Buffer;
+  /** §21 #118 h an event stream: the body follows as frames of this stream (pipeRemoteStream) */
+  stream?: WsStream;
 }
 
 /** null = not a remote GUI path */
@@ -44,11 +46,8 @@ export async function serveRemoteGui(req: { method: string; rawUrl: string; path
   // the bare prefix → the site's status page
   if (req.path === prefix || req.path === `${prefix}/`) return { status: 302, headers: { Location: `${prefix}/_opm/app/${t.siteSlug}/status`, 'Cache-Control': 'no-store' }, body: Buffer.alloc(0) };
   if (!t.agentPath.startsWith('/_opm')) return out(page(404, 'Not found', 'Only the agent GUI (/_opm) is served through the cloud.'));
-  // an event stream WITHOUT follow ends by itself (the lines in the range, then `end`): carried as one answer. A follow
-  // stream never ends: not carried (yet).
-  const fol = /[?&]follow=(1|true)(&|$)/.test(req.rawUrl);
-  if ((req.headers.accept ?? '').includes('text/event-stream') && fol)
-    return out(page(501, 'Not available through the cloud yet', 'Live log follow works only when the agent GUI is opened on the site itself (turn follow off to read the logs here).'));
+  // §21 #118 h an event stream (log follow, MQTT live messages): the agent sends the body chunk by chunk
+  const sse = (req.headers.accept ?? '').includes('text/event-stream');
   let body: Buffer;
   try {
     body = req.method === 'GET' || req.method === 'HEAD' ? Buffer.alloc(0) : await req.body();
@@ -59,6 +58,7 @@ export async function serveRemoteGui(req: { method: string; rawUrl: string; path
   const qi = req.rawUrl.indexOf('?');
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) if (v !== undefined && FORWARD.has(k)) headers[k] = v;
+  const stream = sse ? newStream(t.deploymentId, t.siteSlug) : null;
   const r = await forward(t.deploymentId, t.siteSlug, {
     sessionId: s.sessionId,
     method: req.method,
@@ -66,8 +66,30 @@ export async function serveRemoteGui(req: { method: string; rawUrl: string; path
     headers,
     bodyB64: body.length ? body.toString('base64') : null,
     actor: s.actor,
+    ...(stream ? { stream: { streamId: stream.streamId } } : {}),
   });
+  const streamed = Object.keys(r.headers).some((k) => k.toLowerCase() === REMOTE_GUI_STREAM_HEADER);
+  if (stream && streamed) {
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r.headers)) if (!DROP.has(k.toLowerCase()) && k.toLowerCase() !== REMOTE_GUI_STREAM_HEADER) headers[k] = v;
+    return { status: r.status, headers, body: Buffer.alloc(0), stream };
+  }
+  if (stream) toSite(stream, null); // an older agent answered the whole body at once
   return out(r, prefix);
+}
+
+/** §21 #118 h write an event stream to the browser: headers now, then every frame the agent sends; the browser leaving
+ *  closes the stream (the agent's recv long-poll sees it and ends the handler) */
+export function pipeRemoteStream(res: http.ServerResponse, r: RemoteHttpOut) {
+  const s = r.stream!;
+  res.writeHead(r.status, { ...r.headers, 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders?.();
+  attachBrowser(s, (f: RemoteGuiWsFrame) => {
+    if (res.writableEnded) return;
+    if (f.op === 'close') res.end();
+    else res.write(Buffer.from(f.dataB64, 'base64'));
+  });
+  res.on('close', () => toSite(s, null));
 }
 
 function out(r: RemoteResult, prefix?: string): RemoteHttpOut {

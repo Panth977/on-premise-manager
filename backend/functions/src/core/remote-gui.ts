@@ -189,14 +189,16 @@ export interface WsStream {
   /** browser → site, waiting for the site's recv */
   toSite: RemoteGuiWsFrame[];
   recvWaiter: ((r: { frames: RemoteGuiWsFrame[]; closed: boolean }) => void) | null;
-  /** site → browser (set once the browser socket is upgraded) */
+  /** site → browser (set once the browser socket is upgraded / the stream response started) */
   toBrowser: ((f: RemoteGuiWsFrame) => void) | null;
+  /** §21 #118 h frames that arrived before toBrowser was set (an event stream's first chunks) */
+  early: RemoteGuiWsFrame[];
   closed: boolean;
   lastAt: number;
 }
 const streams = new Map<string, WsStream>();
 export function newStream(deploymentId: string, siteSlug: string): WsStream {
-  const s: WsStream = { streamId: id(), deploymentId, siteSlug, toSite: [], recvWaiter: null, toBrowser: null, closed: false, lastAt: Date.now() };
+  const s: WsStream = { streamId: id(), deploymentId, siteSlug, toSite: [], recvWaiter: null, toBrowser: null, early: [], closed: false, lastAt: Date.now() };
   streams.set(s.streamId, s);
   return s;
 }
@@ -241,11 +243,27 @@ export function recv(s: WsStream, waitMs: number, signal?: AbortSignal): Promise
 /** messages from the site to the browser; a close frame ends the stream */
 export function toBrowser(s: WsStream, frames: RemoteGuiWsFrame[]): boolean {
   s.lastAt = Date.now();
-  if (!s.toBrowser) return false;
+  if (!s.toBrowser) {
+    // an event stream: the browser response starts right after the result; keep what comes before (bounded)
+    if (s.closed || s.early.length > 256) return false;
+    s.early.push(...frames);
+    return true;
+  }
   for (const f of frames) s.toBrowser(f);
   if (frames.some((f) => f.op === 'close')) {
     s.closed = true;
     toSite(s, null);
   }
   return true;
+}
+
+/** §21 #118 h the browser side of an event stream is ready: hand it what already arrived */
+export function attachBrowser(s: WsStream, fn: (f: RemoteGuiWsFrame) => void) {
+  s.toBrowser = fn;
+  const early = s.early.splice(0);
+  for (const f of early) fn(f);
+  if (early.some((f) => f.op === 'close')) {
+    s.closed = true;
+    toSite(s, null);
+  }
 }

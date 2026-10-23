@@ -375,7 +375,15 @@ func TestDockerDevTools(t *testing.T) {
 		waitUntil(t, "unsubscribed", func() bool { return len(h.activities("devtools.mqtt-unsubscribed")) == 1 })
 		if len(h.activities("devtools.mqtt-subscribed")) != 1 || len(h.activities("devtools.mqtt-published")) != 1 {
 			t.Fatal("mqtt activities")
+		}		// a new Start on the same connection replaces the earlier session (a page left without closing it — e.g. a live
+		// view through the cloud — never piles up against the limit of 4)
+		var last MqttSessionResponse
+		for i := 0; i < 6; i++ {
+			if st, _, raw := c.do("POST", "/connections/p:mqtt/mqtt/sessions", MqttSessionRequest{Subscriptions: []MqttSubscription{{Filter: "plant/#", QoS: 0}}}, &last); st != 201 {
+				t.Fatalf("start %d: %d %s", i, st, raw)
+			}
 		}
+		waitUntil(t, "earlier sessions replaced", func() bool { return len(h.activities("devtools.mqtt-unsubscribed")) == 6 })
 	})
 
 	t.Run("http", func(t *testing.T) {

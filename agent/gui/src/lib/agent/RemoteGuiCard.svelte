@@ -46,7 +46,7 @@
 
 <section class="card card-pad c" data-testid="remote-gui-card">
   <h3><Icon name="globe" size={15} />Remote GUI through the cloud</h3>
-  <p class="small muted">People with access to this deployment in the cloud console can open this GUI from there (Status › Open agent GUI), working as their cloud account. The site asks the cloud for their requests — nothing connects to this server. The terminal works through the cloud too; live log follow only on the site itself.</p>
+  <p class="small muted">People with access to this deployment in the cloud console can open this GUI from there (Status › Open agent GUI), working as their cloud account. The site asks the cloud for their requests — nothing connects to this server. The terminal, live log follow and the MQTT live view work through the cloud too.</p>
   {#if err}<p class="small bad-text">{err}</p>{/if}
   {#if s}
     <p class="small" data-testid="remote-gui-state">Status: <b class={s.enabled ? 'ok-text' : 'warn-text'}>{s.enabled ? 'on' : 'off'}</b>{#if s.sessions?.length}<span> · working through the cloud now: {#each s.sessions as x, k (x.email)}{k ? ', ' : ''}<span class="mono">{x.email}</span> (since <Time ts={x.since} />){/each}</span>{/if}</p>

@@ -338,6 +338,21 @@ func (m *mqttManager) closeAll(reason string) {
 	}
 }
 
+// endOwnerConn ends the live sessions of one GUI session on one connection.
+func (m *mqttManager) endOwnerConn(owner, connID, reason string) {
+	m.mu.Lock()
+	var l []*mqttSession
+	for _, s := range m.sessions {
+		if s.owner == owner && s.connID == connID {
+			l = append(l, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range l {
+		m.end(s, reason)
+	}
+}
+
 // sweep ends sessions whose stream was never opened (2 min).
 func (m *mqttManager) sweep() {
 	m.mu.Lock()
@@ -414,8 +429,11 @@ func (s *Service) handleMQTTSession(w http.ResponseWriter, r *http.Request, c Ca
 	if e := s.allow("mqtt-session", c); e != nil {
 		return nil, 0, e
 	}
+	// one live session per connection per GUI session: a new Start replaces the earlier one (a page that was left
+	// without closing it — reload, another tab of the same GUI session — no longer counts against the limit)
+	s.mqtt.endOwnerConn(c.key(), d.ID, "replaced by a new session")
 	if s.mqtt.countOwner(c.key()) >= 4 {
-		return nil, 0, conflict("at most 4 live MQTT sessions per GUI session: close one first")
+		return nil, 0, conflict("at most 4 MQTT connections can be live at once in one GUI session: stop the live view of another connection first")
 	}
 	rc, e := s.resolve(r.Context(), d)
 	if e != nil {

@@ -817,7 +817,7 @@ export async function devtoolsFetch(url: URL, init: RequestInit, ctx: Ctx): Prom
         const subs = ((body as { subscriptions?: MqttSubscription[] }).subscriptions ?? []).filter((x2) => x2.filter);
         if (!subs.length) fail('invalid', 'add at least one topic filter');
         const ss = M.openSession(site, c.id, subs);
-        if (!ss) fail('conflict', 'at most 4 live MQTT sessions per GUI session: close one first');
+        if (!ss) fail('conflict', 'at most 4 MQTT connections can be live at once in one GUI session: stop the live view of another connection first');
         touch(site, x);
         ctx.addActivity(site, 'devtools.mqtt-subscribed', `MQTT session on "${c.name}" (${subs.map((y) => y.filter).join(', ')})`, a, { connectionId: c.id, connectionName: c.name, sessionId: ss!.id, filters: subs.map((y) => y.filter) });
         logQuery(ctx, site, x, a, 'mqtt-subscribe', subs.map((y) => `${y.filter} (qos ${y.qos})`).join(', '), true, 4, null, null, null, { queryId: mid('q_') });

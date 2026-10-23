@@ -6495,9 +6495,16 @@ Pass = every check above green; results file lists timings and the activity coun
         GUI through the cloud" (state, who works through the cloud now, Switch off / on), `GET / PUT
         /_opm/api/agent/remote-gui`; PUT through a remote session → 403 (switch it off on the site). Off: no polling,
         the open remote sessions end at once. Activity `agent.remote-gui-changed`.
-    (f) **Event streams**: one without `follow=1|true` ends by itself (the lines of the range, then `end`) and is carried
-        as one answer (the logs pages with follow off); a follow stream → 501 page. Another site through the mesh works
-        as usual (the remote agent relays, §21 #111).
+    (f) **Event streams** (log follow, the MQTT live view; agent 0.21.4) are carried chunk by chunk over the same polls as
+        the WebSockets: for an `Accept: text/event-stream` request the cloud makes a stream and hands the request out with
+        `stream { streamId }`; as soon as the handler writes, the agent answers the result with status + headers and
+        `X-OPM-Remote-Stream: 1` (no body; the cloud starts the browser response, the flag stays between them), then
+        sends what the handler writes as binary frames (`…/ws/{streamId}/send`, writes within ~100 ms together, ≤ 512 KiB
+        a frame) and a close frame at the end; the browser leaving shows as `closed` on `…/recv` and cancels the
+        handler (so an MQTT live session ends as on the site). An agent that does not know `stream` answers the whole
+        body at once (as before: a stream that ends by itself). Another site through the mesh works as usual (§21 #111).
+        Dev tools MQTT: a new live session on a connection replaces the GUI session's earlier one on it (a page left
+        without closing it never counts against the limit of 4 live connections per GUI session).
     (g) **WebSockets (terminal, MQTT client) are relayed over the site's HTTP polls** (agent 0.19.5; user: "some client
         might have refused the outbound socket connection only kept the default http connections"). The browser
         upgrades at the cloud; the cloud makes a stream and hands the request out with `ws { streamId }`; the agent
@@ -6508,7 +6515,8 @@ Pass = every check above green; results file lists timings and the activity coun
         ≤ 8 MiB). The site never opens a socket to the cloud. The terminal's `wsPath` (JSON, not rewritten) gets the
         page's base in the GUI.
     (h) Tests: `shared/src/remote-gui.test.ts`, `backend/test/42-remote-gui.test.ts` (local adapter: cookie, hand-off,
-        isolation, rewriting, the WebSocket relay, SSE without follow carried / with follow 501), `agent/internal/agent/remotegui_test.go`,
+        isolation, rewriting, the WebSocket relay, an event stream chunk by chunk + the browser leaving, a whole answer
+        from an older site), `agent/internal/agent/remotegui_test.go`, `remotegui_stream_test.go` (the agent log, follow),
         `remotegui_ws_test.go` (a host shell through a fake cloud); checked end to end with a real agent and a browser
         (navigation, deep-link reload, an actor POST, the 403 switch).
 

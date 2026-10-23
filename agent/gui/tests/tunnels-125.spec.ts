@@ -75,14 +75,12 @@ test('through the cloud: switching on is disabled, switching off works', async (
   await page.goto('/_opm/app/app/tunnels');
   await expect(page.getByTestId('remote-chip')).toBeVisible();
   const card = page.getByTestId('tunnels-card');
-  await expect(card.getByTestId('tunnels-remote-hint')).toContainText('switch tunnels on on the site itself');
+  // through the cloud a tunnel switches on and off like on the site itself
   const edge = card.locator('[data-tunnel="tun-edge"]');
-  await expect(edge.getByTestId('tunnel-on')).toBeDisabled();
-  await expect(edge.getByTestId('tunnel-on')).toHaveAttribute('title', 'switch tunnels on on the site itself');
-  const api = card.locator('[data-tunnel="tun-api"]');
-  await api.getByTestId('tunnel-off').click();
-  await expect(api.getByTestId('tunnel-state')).toHaveText('off');
-  await expect(api.getByTestId('tunnel-on')).toBeDisabled();
+  await edge.getByTestId('tunnel-on').click();
+  await expect(edge.getByTestId('tunnel-state')).toHaveText('on');
+  await edge.getByTestId('tunnel-off').click();
+  await expect(edge.getByTestId('tunnel-state')).toHaveText('off');
 });
 
 test.describe('390 px', () => {

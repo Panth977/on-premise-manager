@@ -6,7 +6,6 @@
  * port 5432 on 2003 (off); northwind — none.
  * Knobs (localStorage): opm.mock.tunnels=off → the cloud does not carry tunnels (cloudTunnels false, no rows);
  * opm.mock.tunnels=empty → the cloud carries tunnels but none was added;
- * a session with `remote` (opm.mock.session) works through the cloud → switching ON is refused (403 forbidden).
  */
 import type { SitePortTunnel, SitePortTunnelsResponse } from '@opm/shared/tunnels';
 import { portTunnelTargetText } from '@opm/shared/tunnels';
@@ -75,7 +74,6 @@ export function createTunnelsMock(d: TunnelsDeps): Record<'sitePortTunnels' | 's
       const enabled = b!.enabled as boolean;
       const t = d.mode() ? undefined : all.find((x) => x.siteSlug === site && x.tunnelId === c.params.tunnelId);
       if (!t) d.fail('not-found', `site ${site} has no tunnel ${c.params.tunnelId}`);
-      if (enabled && d.isRemote(s)) d.fail('forbidden', 'switch a tunnel on on the site itself, not through the cloud');
       if (t!.enabled !== enabled) {
         t!.enabled = enabled;
         if (!enabled) t!.openConnections = 0;

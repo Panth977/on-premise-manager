@@ -6635,8 +6635,8 @@ Pass = every check above green; results file lists timings and the activity coun
         Activities `tunnel.created`, `tunnel.deleted` (deployment.config.publish); listing needs deployment.config.read.
     (c) **Off until switched on on the site.** The cloud view lists the deployment's tunnels (`tunnels`, present only on a
         cloud that carries them); each site keeps its own switches (kv `port-tunnels`, default off), switched in its
-        agent GUI (Agent › Tunnels, any site over the mesh; activities `tunnel.enabled` / `tunnel.disabled`). Switching ON
-        through the cloud (a remote GUI session) is refused: the site decides; switching off is allowed.
+        agent GUI (Agent › Tunnels, any site over the mesh; activities `tunnel.enabled` / `tunnel.disabled`). It switches
+        the same from the site and from its agent GUI opened through the cloud (no extra rule for remote sessions).
     (d) **Transport** (outbound HTTPS only, the cloud never calls a site). An agent with a direct cloud link long-polls
         `GET /v1/agent/tunnels/next` (25 s) reporting its switched-on tunnels, its remote GUI switch and the peers it
         reaches; a new client connection is queued for the site's own agent (refused at once when the tunnel is off

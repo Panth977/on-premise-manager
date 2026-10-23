@@ -1,8 +1,7 @@
 <script lang="ts">
   /**
    * §21 #125 port tunnels of a site: ports reachable at `<cloud host>:<public port>` (raw TCP). Added and removed in
-   * the cloud console; each is off on its site until switched on here. Switching ON through the cloud (a remote GUI
-   * session) is refused — the site decides; switching off works from anywhere. The default "Agent GUI" tunnel is the
+   * the cloud console; each is off on its site until switched on here (also from the agent GUI opened through the cloud). The default "Agent GUI" tunnel is the
    * remote GUI switch (§21 #118): shown here as status, switched in the Remote GUI card.
    */
   import { onMount } from 'svelte';
@@ -21,7 +20,6 @@
   let v = $state<SitePortTunnelsResponse | null>(null);
   let err = $state<string | null>(null);
   let busy = $state<string | null>(null);
-  const remote = $derived(!!session.session?.remote);
   /** the cloud host the tunnels listen on (the console's host), when known */
   const host = $derived.by(() => {
     const o = consoleOrigin(session.info);
@@ -67,7 +65,6 @@
     {#if !v.cloudTunnels}
       <p class="small muted" data-testid="tunnels-none-cloud">This cloud does not carry port tunnels.</p>
     {:else}
-      {#if remote}<p class="small warn-text" data-testid="tunnels-remote-hint">You work through the cloud: switch tunnels on on the site itself. Switching off works here.</p>{/if}
       <ul class="rows">
         <li class="trow" data-testid="tunnel-agent-gui">
           <div class="main">
@@ -95,7 +92,7 @@
               {#if t.enabled}
                 <Btn size="sm" icon="x" busy={busy === t.tunnelId} disabled={!!busy && busy !== t.tunnelId} onclick={() => set(t, false)} data-testid="tunnel-off">Switch off</Btn>
               {:else}
-                <Btn size="sm" icon="check" busy={busy === t.tunnelId} disabled={remote || (!!busy && busy !== t.tunnelId)} title={remote ? 'switch tunnels on on the site itself' : ''} onclick={() => set(t, true)} data-testid="tunnel-on">Switch on</Btn>
+                <Btn size="sm" icon="check" busy={busy === t.tunnelId} disabled={!!busy && busy !== t.tunnelId} onclick={() => set(t, true)} data-testid="tunnel-on">Switch on</Btn>
               {/if}
             </div>
           </li>

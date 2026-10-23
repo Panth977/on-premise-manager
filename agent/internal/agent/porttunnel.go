@@ -460,9 +460,6 @@ func (a *Agent) handleSetPortTunnel(w http.ResponseWriter, r *http.Request) (any
 	if !ok {
 		return nil, 0, herr(model.ErrNotFound, "site "+a.site+" has no tunnel "+id, nil)
 	}
-	if *req.Enabled && remoteOf(r) != nil {
-		return nil, 0, herr(model.ErrForbidden, "switch a tunnel on on the site itself, not through the cloud", nil)
-	}
 	rc := getRC(r)
 	sw := a.portTunnelSwitches()
 	if sw[id] != *req.Enabled {

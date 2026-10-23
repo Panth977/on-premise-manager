@@ -9,7 +9,7 @@
  *
  * Targets: a container port (by port name), the site's edge (http or https port) or any port on the site's server.
  * Tunnels are added / removed in the cloud console; each one is OFF on its site until someone switches it on in that
- * site's agent GUI (switching on is refused through the cloud: the site decides). The agent GUI tunnel (the remote GUI)
+ * site's agent GUI (on the site or opened through the cloud). The agent GUI tunnel (the remote GUI)
  * is the default one per site, on by default, switched off / on on the site as before (§21 #118).
  *
  * A site that cannot reach the cloud is served through a site that can: the connected agent dials the target site's
@@ -213,5 +213,5 @@ export interface SetPortTunnelRequest {
 }
 export const PORT_TUNNELS_AGENT_API = {
   sitePortTunnels: ep<void, SitePortTunnelsResponse>()({ method: 'GET', path: '/_opm/api/sites/{siteSlug}/tunnels', auth: 'session', perm: null, body: 'none', res: 'json', errors: ['not-found', 'unavailable'], summary: '§21 #125: the tunnels of a site (from the cloud) with their switches.' }),
-  siteSetPortTunnel: ep<SetPortTunnelRequest, SitePortTunnel>()({ method: 'PUT', path: '/_opm/api/sites/{siteSlug}/tunnels/{tunnelId}', auth: 'session+actor', perm: null, body: 'json', res: 'json', errors: ['not-found', 'invalid', 'forbidden', 'unavailable'], activities: ['tunnel.enabled', 'tunnel.disabled'], summary: '§21 #125: switch a tunnel on / off on its site. Switching ON through the cloud (remote GUI) is refused: the site decides.' }),
+  siteSetPortTunnel: ep<SetPortTunnelRequest, SitePortTunnel>()({ method: 'PUT', path: '/_opm/api/sites/{siteSlug}/tunnels/{tunnelId}', auth: 'session+actor', perm: null, body: 'json', res: 'json', errors: ['not-found', 'invalid', 'unavailable'], activities: ['tunnel.enabled', 'tunnel.disabled'], summary: '§21 #125: switch a tunnel on / off on its site (from the site or from its agent GUI opened through the cloud).' }),
 } as const;

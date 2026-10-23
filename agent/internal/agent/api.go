@@ -247,16 +247,6 @@ func (a *Agent) handleSiteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// §21 #121 through the cloud no site's remote GUI is switched (the target cannot see that the person is remote)
-	// §21 #125 through the cloud a tunnel of another site is only switched off (switching on is the site's decision)
-	if r.Method == http.MethodPut && strings.HasPrefix(rest, "tunnels/") && remoteOf(r) != nil {
-		b, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
-		var req model.SetPortTunnelRequest
-		if json.Unmarshal(b, &req) == nil && req.Enabled != nil && *req.Enabled {
-			writeErr(w, herr(model.ErrForbidden, "switch a tunnel on on the site itself, not through the cloud", nil))
-			return
-		}
-		r.Body = io.NopCloser(bytes.NewReader(b))
-	}
 	if r.Method == http.MethodPut && strings.HasPrefix(rest, "agent/remote-gui") && remoteOf(r) != nil {
 		writeErr(w, herr(model.ErrForbidden, "switch the remote GUI on / off on a site itself, not through the cloud", nil))
 		return

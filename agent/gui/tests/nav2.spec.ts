@@ -17,7 +17,7 @@ test('Sites tree (same as the cloud sidebar): every site with its pages; nodes c
   // the site of the page is open, the others closed; the pages of a site in the cloud order
   for (const k of ['status', 'containers', 'edge', 'volumes', 'devtools', 'settings', 'transfers', 'branch', 'server']) await expect(page.getByTestId(`tree-app-${k}`)).toBeVisible();
   await expect(page.getByTestId('tree-db-containers')).toBeHidden();
-  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Edge/, /^Volumes/, /^Dev tools/, /^Settings/, /^Shared files/, /^Branch/, /^Server/]);
+  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Edge/, /^Volumes/, /^Dev tools/, /^Settings/, /^Shared files/, /^Tunnels/, /^Branch/, /^Server/]);
   // §21 #104 Branch: 3 uncommitted + 2 behind
   await expect(page.getByTestId('branch-badge')).toHaveText('5');
   // Containers open by default (one leaf per container), Volumes closed until opened — then remembered

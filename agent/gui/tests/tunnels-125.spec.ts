@@ -5,7 +5,7 @@ import { knobs, login, shot } from './helpers';
 const noOverflow = async (page: import('@playwright/test').Page) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
 
 test('this site: the tunnels card lists the agent GUI + its tunnels; switch one on and off', async ({ page }) => {
-  await login(page, '/_opm/app/app/agent');
+  await login(page, '/_opm/app/app/tunnels');
   const card = page.getByTestId('tunnels-card');
   await expect(card).toBeVisible();
   await expect(card.getByRole('heading', { name: 'Tunnels' })).toBeVisible();
@@ -36,7 +36,7 @@ test('this site: the tunnels card lists the agent GUI + its tunnels; switch one 
 });
 
 test("another site's tunnels on its Agent page (its agent GUI tunnel off)", async ({ page }) => {
-  await login(page, '/_opm/app/db/agent');
+  await login(page, '/_opm/app/db/tunnels');
   const card = page.getByTestId('tunnels-card');
   await expect(card.getByTestId('tunnel-row')).toHaveCount(1);
   await expect(card.getByTestId('tunnel-agent-gui-state')).toHaveText('off');
@@ -50,7 +50,7 @@ test("another site's tunnels on its Agent page (its agent GUI tunnel off)", asyn
 
 test('no tunnels added yet: the empty text', async ({ page }) => {
   await knobs(page, { 'opm.mock.tunnels': 'empty' });
-  await login(page, '/_opm/app/app/agent');
+  await login(page, '/_opm/app/app/tunnels');
   const card = page.getByTestId('tunnels-card');
   await expect(card.getByTestId('tunnels-empty')).toHaveText('No tunnels yet — add one in the cloud console (Tunnels).');
   await expect(card.getByTestId('tunnel-agent-gui-state')).toHaveText('on');
@@ -59,7 +59,7 @@ test('no tunnels added yet: the empty text', async ({ page }) => {
 
 test('a cloud without tunnels: no rows', async ({ page }) => {
   await knobs(page, { 'opm.mock.tunnels': 'off' });
-  await login(page, '/_opm/app/app/agent');
+  await login(page, '/_opm/app/app/tunnels');
   const card = page.getByTestId('tunnels-card');
   await expect(card.getByTestId('tunnels-none-cloud')).toHaveText('This cloud does not carry port tunnels.');
   await expect(card.getByTestId('tunnel-row')).toHaveCount(0);
@@ -72,7 +72,7 @@ test('through the cloud: switching on is disabled, switching off works', async (
   const actorToken = 'mock.' + Buffer.from(JSON.stringify({ email: 'cloud.person@acme.example', sid, exp })).toString('base64');
   const expiresAt = new Date(exp * 1000).toISOString();
   await knobs(page, { 'opm.mock.session': JSON.stringify({ sessionId: sid, expiresAt, keyVersion: 1, remote: { email: 'cloud.person@acme.example', name: null, actorToken, expiresAt } }) });
-  await page.goto('/_opm/app/app/agent');
+  await page.goto('/_opm/app/app/tunnels');
   await expect(page.getByTestId('remote-chip')).toBeVisible();
   const card = page.getByTestId('tunnels-card');
   await expect(card.getByTestId('tunnels-remote-hint')).toContainText('switch tunnels on on the site itself');
@@ -88,7 +88,7 @@ test('through the cloud: switching on is disabled, switching off works', async (
 test.describe('390 px', () => {
   test.use({ viewport: { width: 390, height: 844 } });
   test('the tunnels card fits without sideways scroll', async ({ page }) => {
-    await login(page, '/_opm/app/app/agent');
+    await login(page, '/_opm/app/app/tunnels');
     const card = page.getByTestId('tunnels-card');
     await card.scrollIntoViewIfNeeded();
     await expect(card.getByTestId('tunnel-row')).toHaveCount(2);
@@ -99,4 +99,12 @@ test.describe('390 px', () => {
     await noOverflow(page);
     await shot(page, 'tunnels-card-m', false);
   });
+});
+
+test('tunnels (§21 #125): own entry in every site tree; the Agent page no longer carries the card', async ({ page }) => {
+  await login(page, '/_opm/app/app/agent');
+  await expect(page.getByTestId('tunnels-card')).toHaveCount(0);
+  await page.getByTestId('tree-app-tunnels').click();
+  await expect(page).toHaveURL(/\/_opm\/app\/app\/tunnels$/);
+  await expect(page.getByTestId('tunnels-card')).toBeVisible();
 });

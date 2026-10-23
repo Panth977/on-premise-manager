@@ -61,7 +61,8 @@ export async function allPortTunnels(): Promise<StoredPortTunnel[]> {
 /** CloudView.tunnels (only on a cloud that carries tunnels: the agent then polls) */
 export async function portTunnelCloudItems(deploymentId: string): Promise<PortTunnelCloudItem[] | undefined> {
   if (unavailableReason()) return undefined;
-  return (await storedTunnels(deploymentId)).map(({ deploymentId: _d, ...t }) => t);
+  const host = cloudHost();
+  return (await storedTunnels(deploymentId)).map(({ deploymentId: _d, ...t }) => ({ ...t, address: `${host}:${t.publicPort}` }));
 }
 
 export const portTunnelHandlers: Pick<Handlers, 'listPortTunnels' | 'createPortTunnel' | 'deletePortTunnel' | 'agentPortTunnelNext' | 'agentPortTunnelRecv' | 'agentPortTunnelSend'> = {

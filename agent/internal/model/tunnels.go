@@ -24,6 +24,7 @@ type PortTunnelCloudItem struct {
 	Label      *string          `json:"label"`
 	CreatedAt  string           `json:"createdAt"`
 	CreatedBy  string           `json:"createdBy"`
+	Address    string           `json:"address,omitempty"`
 }
 
 // PortTunnelOpen is TS PortTunnelOpen.

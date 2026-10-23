@@ -84,7 +84,7 @@
                 <span class="mono small">{portTunnelTargetText(t.target)}</span>
               </div>
               <div class="tiny muted">
-                <span data-testid="tunnel-address">{#if host}<span class="mono">{host}:{t.publicPort}</span>{:else}cloud port <span class="mono">{t.publicPort}</span>{/if}</span>
+                <span data-testid="tunnel-address">{#if t.address}<span class="mono">{t.address}</span>{:else if host}<span class="mono">{host}:{t.publicPort}</span>{:else}cloud port <span class="mono">{t.publicPort}</span>{/if}</span>
                 · <span data-testid="tunnel-conns">{t.openConnections} open</span>
                 · last connection {#if t.lastConnectionAt}<Time ts={t.lastConnectionAt} />{:else}never{/if}
               </div>

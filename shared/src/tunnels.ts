@@ -92,6 +92,8 @@ export interface PortTunnelCloudItem {
   label: string | null;
   createdAt: Ts;
   createdBy: string;
+  /** `<tunnel host>:<publicPort>` as the cloud names it (absent on older clouds) */
+  address?: string;
 }
 /** a new connection for the polling agent: its own site's tunnel, or one of a peer it reaches (siteSlug) */
 export interface PortTunnelOpen {

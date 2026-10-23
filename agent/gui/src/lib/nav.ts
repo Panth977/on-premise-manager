@@ -41,6 +41,8 @@ export const MODULES: NavModule[] = [
   { k: 'debug', label: 'Debug', icon: 'bug', sec: 'agent' },
   // §21 #123: Files — the deployment's shared bucket as this site sees it (URL /transfers kept; replaced §21 #100 send/receive)
   { k: 'transfers', label: 'Shared files', icon: 'folder', sec: 'agent', one: true },
+  // §21 #125 port tunnels of the site (switches; added in the cloud console)
+  { k: 'tunnels', label: 'Tunnels', icon: 'network', sec: 'agent', one: true },
   { k: 'internet', label: 'Internet', icon: 'globe', sec: 'agent', wide: true },
   { k: 'sites', label: 'Sites', icon: 'grid', sec: 'deployment', wide: true },
   { k: 'variables', label: 'Variables', icon: 'variable', sec: 'deployment', wide: true },

@@ -42,7 +42,7 @@
     if (loc.mod === 'containers') return `${curSite}/containers`;
     if (loc.mod === 'volumes') return `${curSite}/volumes`;
     if (loc.mod === 'devtools') return `${curSite}/devtools`;
-    if (['docker', 'network', 'agent', 'debug'].includes(loc.mod)) return `${curSite}/server`;
+    if (['docker', 'network', 'agent', 'debug', 'tunnels'].includes(loc.mod)) return `${curSite}/server`;
     return null;
   });
   /** defaults: the site of this agent and Containers open; the rest closed */
@@ -85,6 +85,7 @@
     { k: 'network', label: 'Network', icon: 'network' },
     { k: 'agent', label: 'Agent', icon: 'server' },
     { k: 'debug', label: 'Debug', icon: 'bug' },
+    { k: 'tunnels', label: 'Tunnels', icon: 'link' }, // §21 #125
   ];
 </script>
 
@@ -164,7 +165,6 @@
             </li>
             <li><a href={appHref(s, 'config/settings')} class="nav-item sub" aria-current={on(s, 'config/settings') ? 'page' : undefined} data-testid="tree-{s}-settings"><Icon name="cog" size={14} /><span class="grow">Settings</span></a></li>
             <li><a href={appHref(s, 'transfers')} class="nav-item sub" aria-current={on(s, 'transfers') ? 'page' : undefined} data-testid="tree-{s}-transfers"><Icon name="folder" size={14} /><span class="grow">Shared files</span></a></li>
-            <li><a href={appHref(s, 'tunnels')} class="nav-item sub" aria-current={on(s, 'tunnels') ? 'page' : undefined} data-testid="tree-{s}-tunnels"><Icon name="network" size={14} /><span class="grow">Tunnels</span></a></li>
             <li><a href={appHref(s, 'branch')} class="nav-item sub" aria-current={on(s, 'branch') ? 'page' : undefined} data-testid="tree-{s}-branch"><Icon name="branch" size={14} /><span class="grow">Branch</span>{#if t.self && draft.dirty}<i class="edited" title="changes in this browser, not committed"></i>{/if}{#if br}<span class="nav-cnt {uncommittedTotal() ? 'amber' : 'accent'}" title="{uncommittedTotal()} not committed · {behindCount()} cloud commits to merge" data-testid="branch-badge">{br}</span>{/if}</a></li>
             <li role="treeitem" aria-expanded={isOpen(`${s}/server`)} aria-selected={curNode === `${s}/server`}>
               <div class="node sub">

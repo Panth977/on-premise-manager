@@ -4,6 +4,7 @@
  * EventSource on the ticketed streamPath; in VITE_MOCK mode lib/mock/devtools.ts installs a fake EventSource class
  * with setDevStreamImpl().
  */
+import { base } from '$app/paths';
 import { createDevToolsClient, DEVTOOLS_API, type DevToolBlockedDetails, type DevToolConfirmDetails, type DevToolsClient, type MqttMessage, type MqttSubscription } from '@opm/shared/devtools';
 import { ulid } from '@opm/shared/ulid';
 import { isApiError, onApiError, opmFetch } from '$lib/api';
@@ -79,7 +80,9 @@ export interface MqttStreamHandlers {
 }
 /** Open the MQTT session stream; messages are delivered in batches of one animation frame. */
 export function openMqttStream(url: string, h: MqttStreamHandlers): { close(): void } {
-  const es = new ES(url, { withCredentials: true });
+  // the agent answers /_opm/…; through the cloud (§21 #118) the page's base carries the remote prefix (JSON is not
+  // rewritten, so streamPath has none: without this the stream went to the cloud's own page and failed at once)
+  const es = new ES(url.replace(/^\/_opm(?=\/)/, base), { withCredentials: true });
   let closed = false;
   const parse = (d: unknown) => {
     try {

@@ -7,6 +7,7 @@
   import { onMount, untrack } from 'svelte';
   import { appHref } from '$lib/nav';
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
   import type { AgentConfigView, AgentSelfInfo, AgentSelfRelease, PatchAgentConfigResponse } from '@opm/shared/agent-self';
   import { SUPPORT_BUNDLE_SECTIONS } from '@opm/shared/agent-self';
   import type { AgentUpgradeProgress } from '@opm/shared/types';
@@ -27,9 +28,6 @@
   import Time from '$lib/ui/Time.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import CopyId from '$lib/ui/CopyId.svelte';
-  import PageTabs, { tabOf } from '$lib/ui/PageTabs.svelte';
-  import ChooseSite from '$lib/ui/ChooseSite.svelte';
-  import TerminalTool from '$lib/tools/TerminalTool.svelte';
   import { routeLabel } from '$lib/ui/tones';
   import { agentApi, agentSelfList, fetchHealth, isNetworkError } from '$lib/agent/api';
   import { agentAll } from '$lib/agent/state.svelte';
@@ -107,12 +105,10 @@
     return `${what} is running on ${slug} since ${fmtDateTime(b.since).slice(11, 16)}.`;
   });
 
-  // nav2 (§21 #97): the site comes from the global selector; tabs Agent | Host shell
-  const TABS = [
-    { k: 'agent', label: 'Agent', icon: 'server' },
-    { k: 'shell', label: 'Host shell', icon: 'terminal' },
-  ];
-  const tab = $derived(tabOf(page.url, ['agent', 'shell']));
+  // §21 #126 the host shell is its own page under Server (old links ?tab=shell go there)
+  $effect(() => {
+    if (page.url.searchParams.get('tab') === 'shell') void goto(appHref(slug, 'shell'), { replaceState: true });
+  });
 
   // ── live uptime
   const up = $derived.by(() => {
@@ -405,7 +401,7 @@
   const enrollTone = { enrolled: 'ok', 'not-enrolled': 'warn', revoked: 'bad' } as const;
 </script>
 
-<PageHead icon="server" eyebrow={all ? 'Agent · all sites' : `Agent · site ${slug}`} title={all ? 'Agent · all sites' : `Agent · ${slug}`} sub={all ? 'The opm-agent of every site: installed version, the pinned release, Upgrade all.' : 'Everything opm-agent does on the command line: version, status, release check, upgrade, restart, agent.json, support bundle.'}>
+<PageHead icon="server" eyebrow={all ? 'All sites' : `Server · site ${slug}`} title={all ? 'Agent · all sites' : `Agent · ${slug}`}>
   {#snippet meta()}
     {#if i}
       <span class="badge outline mono" data-testid="agent-version">{i.version}</span>
@@ -417,14 +413,7 @@
   {/snippet}
 </PageHead>
 
-<PageTabs tabs={TABS} label="Agent sections" testid="agent-tabs" />
-{#if tab === 'shell'}
-  {#if all}
-    <ChooseSite what="a host shell" text={'"All sites" is selected; a host shell runs on the server of one site.'} />
-  {:else}
-    <TerminalTool site={slug} mode="host" />
-  {/if}
-{:else if all}
+{#if all}
   <!-- ─────────────────────────── all sites -->
   <Load loading={agentAll.loading} loaded={agentAll.loaded} error={agentAll.error} retry={() => agentAll.load()} rows={5}>
     <section class="card" data-testid="agent-sites">
@@ -656,17 +645,14 @@
       <div class="ops">
         <section class="card card-pad c" data-testid="restart-card">
           <h3><Icon name="rotate" size={15} />Restart agent</h3>
-          <p class="small muted">Stops and starts <span class="mono">opm-agent</span> ({i.supervisor.kind === 'systemd' ? 'systemctl restart' : 're-exec'}). The containers keep running; you stay logged in. A save of agent.json below can restart it for you.</p>
+          <p class="small muted">The containers keep running.</p>
           {#if remoteRestart}<p class="small"><span class="spin" aria-hidden="true"></span> {slug} is restarting…</p>{/if}
           <div class="row"><Btn icon="rotate" disabled={!!blocked || remoteRestart} title={blocked ?? ''} onclick={openRestart} data-testid="restart-open">Restart agent…</Btn></div>
         </section>
         <RemoteGuiCard site={slug} /><!-- §21 #118, any site §21 #121 -->
         <section class="card card-pad c" data-testid="support-card">
           <h3><Icon name="archive" size={15} />Support bundle</h3>
-          <p class="small muted">One <span class="mono">.tar.gz</span> for the operations team. Secrets are masked; the download is logged.</p>
-          <ul class="secs small" data-testid="bundle-sections">
-            {#each SUPPORT_BUNDLE_SECTIONS as s (s)}<li><span class="mono">{s}</span> <span class="muted">— {SECTION_TEXT[s] ?? ''}</span></li>{/each}
-          </ul>
+          <p class="small muted" title={SUPPORT_BUNDLE_SECTIONS.map((s) => `${s} — ${SECTION_TEXT[s] ?? ''}`).join('\n')} data-testid="bundle-sections">One <span class="mono">.tar.gz</span>, secrets masked.</p>
           <div class="row"><Btn icon="download" busy={sbBusy} onclick={supportBundle} data-testid="support-bundle">Download support bundle</Btn></div>
         </section>
       </div>
@@ -685,26 +671,22 @@
       {/if}
 
       <div class="gap"></div>
-      <section class="card" data-testid="uninstall-card">
-        <div class="card-head"><h2 class="row tight"><Icon name="trash" size={15} />Uninstall</h2><Btn size="xs" icon="copy" onclick={() => copyText(i.uninstall.join('\n'), 'uninstall commands')} data-testid="uninstall-copy">Copy all</Btn></div>
+      <details class="card fold" data-testid="uninstall-card">
+        <summary class="card-head"><h2 class="row tight"><Icon name="trash" size={15} />Uninstall</h2><Btn size="xs" icon="copy" onclick={() => copyText(i.uninstall.join('\n'), 'uninstall commands')} data-testid="uninstall-copy">Copy all</Btn></summary>
         <div class="card-body stack">
-          <div class="banner warn small"><Icon name="alert" /><div class="grow">There is no uninstall button: run these on <strong>{slug}</strong>'s server. They stop and remove the agent; the OPM containers keep running until you remove them. The last line also deletes the site identity, snapshots and volumes — only when you are sure.</div></div>
+          <p class="small muted" style="margin:0">Run on {slug}'s server. The last line also deletes the site identity, snapshots and volumes.</p>
           <ol class="cmds" data-testid="uninstall-lines">
             {#each i.uninstall as l, k (k)}
               <li class:comment={l.startsWith('#')}><code>{l}</code>{#if !l.startsWith('#')}<button class="btn ghost icon xs" aria-label="Copy line {k + 1}" onclick={() => copyText(l, 'command')}><Icon name="copy" size={12} /></button>{/if}</li>
             {/each}
           </ol>
+          <p class="small muted" style="margin:0" data-testid="hard-fallback">Upgrade stuck? Rerun the site's install command on the server (<code>OPM_AGENT_VERSION=x</code> for a version).</p>
         </div>
-      </section>
+      </details>
 
       <div class="gap"></div>
-      <div class="banner info small" data-testid="hard-fallback">
-        <Icon name="info" />
-        <div class="grow"><strong>Hard fallback.</strong> If an upgrade cannot run from here or the terminal, rerun this site's original install command on the server: it detects the installed agent, asks upgrade / downgrade / reinstall, keeps everything, and rolls back if the new agent is not healthy in 60 s. <code>OPM_AGENT_VERSION=x</code> for a specific version.</div>
-      </div>
-      <div class="gap"></div>
-      <section class="card" data-testid="cli-map">
-        <div class="card-head"><h2 class="row tight"><Icon name="terminal" size={15} />opm-agent commands in this GUI</h2></div>
+      <details class="card fold" data-testid="cli-map">
+        <summary class="card-head"><h2 class="row tight"><Icon name="terminal" size={15} />opm-agent commands</h2></summary>
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Command</th><th>What</th><th>In the GUI</th></tr></thead>
@@ -719,7 +701,7 @@
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
     {/if}
   </Load>
 {/if}
@@ -786,6 +768,16 @@
 
 
 <style>
+  details.fold > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  details.fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.fold:not([open]) > summary {
+    border-bottom: 0;
+  }
   .mb {
     margin-bottom: 14px;
   }

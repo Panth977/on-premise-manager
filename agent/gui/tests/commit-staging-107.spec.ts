@@ -69,7 +69,7 @@ test('a File content edit is a pending change: no Save / upload button, nothing 
   await expect.poll(async () => (await idb(page)).length).toBe(0);
   await expect.poll(async () => (await idbDrafts(page)).length).toBe(0);
   // the agent now serves the new content
-  await page.getByTestId('side-files').click();
+  await page.getByTestId('tree-app-files').click();
   await page.getByTestId('edit-banner').click();
   await expect(page.getByTestId('file-drawer').getByTestId('code-editor')).toHaveValue(NEW_TEXT);
 });
@@ -93,7 +93,7 @@ test('a reload restores the change set INCLUDING the bytes; the commit then uplo
   await dlg.getByTestId('commit-message').fill('Restored banner');
   await dlg.getByTestId('commit-submit').click();
   await expect(page.getByTestId('update-result')).toContainText('Applied', { timeout: 40_000 });
-  await page.getByTestId('side-files').click();
+  await page.getByTestId('tree-app-files').click();
   await page.getByTestId('edit-banner').click();
   await expect(page.getByTestId('file-drawer').getByTestId('code-editor')).toHaveValue(NEW_TEXT);
 });

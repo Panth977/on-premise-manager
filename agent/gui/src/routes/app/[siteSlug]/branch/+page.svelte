@@ -240,20 +240,13 @@
   }
 </script>
 
-<PageHead icon="branch" eyebrow={remote ? `Site ${remote}` : 'Deployment'} title={remote ? `Branch · ${remote}` : 'Branch'} sub="{remote ? `Site ${remote}’s` : 'This site’s'} branch next to the cloud’s. The cloud’s newest commit is what the deployment wants; nothing changes on this server until a person here merges it. Changes made on the server outside the agent show as uncommitted and must be committed (or discarded) first. Your own edits stay in this browser until you commit them.">
+<PageHead icon="branch" eyebrow="Server · site {b?.siteSlug ?? site}" title="Branch">
   {#snippet actions()}
     <Btn icon="refresh" busy={rescanBusy} onclick={rescan} data-testid="rescan">Rescan server</Btn>
     {#if b?.cloud.head}<a class="btn primary" class:disabled={!!mergeBlocked} aria-disabled={!!mergeBlocked} title={mergeBlocked ?? undefined} href={mergeBlocked ? undefined : appHref(site, `branch/merge?source=${b.cloud.head.commitId}`)} data-testid="merge-from-cloud"><Icon name="branch" size={14} />Merge from cloud</a>{/if}
   {/snippet}
 </PageHead>
 
-{#if remote}
-  <div class="banner small" style="margin-bottom:14px" data-testid="branch-remote">
-    <Icon name="info" />
-    <div class="grow">You see <strong class="mono">{remote}</strong>’s branch through this agent (<span class="mono">{self}</span>). Commit, Merge, Revert and Reset here act on <strong class="mono">{remote}</strong> only; it records them with you as the person.</div>
-    {#if self}<a class="btn sm" href={appHref(self, 'branch')} data-testid="branch-self">Branch of {self}</a>{/if}
-  </div>
-{/if}
 
 {#if run}
   <div style="margin-bottom:18px" data-testid="branch-run">
@@ -330,11 +323,9 @@
           <div class="nums">
             <div><strong data-testid="n-drift">{u.drift}</strong><span class="muted small">changed outside the agent</span></div>
             <div><strong data-testid="n-notes">{u.notes}</strong><span class="muted small">notes</span></div>
-            {#if !remote}<div><strong data-testid="n-edits">{draft.pendingCount}</strong><span class="muted small">in this browser, not committed</span></div>{/if}
+            <div><strong data-testid="n-edits">{draft.pendingCount}</strong><span class="muted small">edits in this browser</span></div>
           </div>
-          <p class="muted tiny">last scan <Time ts={u.scannedAt} /> · the agent scans Docker and the files every 60 s</p>
-          {#if total}<p class="small" style="margin:6px 0">Commit (with a message) or discard them before merging from the cloud or committing your own changes.</p>{/if}
-          {#if draft.pendingCount && !remote}<p class="small" style="margin:6px 0" data-testid="browser-pending">{draft.pendingCount} {draft.pendingCount === 1 ? 'change' : 'changes'} in this browser {draft.pendingCount === 1 ? 'is' : 'are'} not committed — review and commit {draft.pendingCount === 1 ? 'it' : 'them'} with the change bar on <a href={appHref(site, 'config')}>Config</a>, Variables, Secrets or Files.</p>{/if}
+          <p class="muted tiny">last scan <Time ts={u.scannedAt} /></p>
           <div class="row" style="gap:6px;flex-wrap:wrap">
             <a class="btn sm" href={appHref(site, 'branch?tab=uncommitted')} data-testid="review-uncommitted"><Icon name="search" size={14} />Review</a>
             <Btn size="sm" variant="primary" icon="check" disabled={!total} onclick={openCommit} data-testid="commit-open">Commit…</Btn>
@@ -343,15 +334,12 @@
 
         <section class="card card-pad" data-testid="merge-card">
           <div class="section-title">Merge</div>
-          <p class="small" style="margin:6px 0 10px">Pick what to take from the cloud — everything or single changes. Things {siteName} has and the cloud does not are offered as <strong>remove locally</strong>. The agent applies the result (snapshot → apply → verify, rollback on failure) and commits it.</p>
           {#if mergeBlocked}<div class="banner small" data-testid="merge-blocked"><Icon name="info" /><div class="grow">{mergeBlocked}</div></div>{:else if updateRunning}<div class="banner warn small" data-testid="merge-update-running"><Icon name="alert" /><div class="grow">An update is running — starting a merge stops it.</div></div>{/if}
           <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">
             {#if b.cloud.head}<a class="btn sm primary" class:disabled={!!mergeBlocked} aria-disabled={!!mergeBlocked} href={mergeBlocked ? undefined : appHref(site, `branch/merge?source=${b.cloud.head.commitId}`)} data-testid="merge-open">Merge from cloud…</a>{/if}
             {#if behindSites.length > 1 && !remote}<Btn size="sm" icon="fastForward" disabled={!ffSites.length} title={ffSites.length ? undefined : 'No site can fast-forward now'} onclick={() => (ffOpen = true)} data-testid="ff-open">Fast-forward all sites…</Btn>{/if}
           </div>
-          {#if behindSites.length > 1 && remote}<p class="muted tiny" style="margin:6px 0 0" data-testid="ff-on-self">Fast-forward all sites runs from <a href={appHref(self, 'branch')}>{self}</a>’s Branch page.</p>{/if}
           {#if b.sites.length > 1}
-            <p class="muted tiny" style="margin:10px 0 4px">Every site merges on its own: open a site’s branch to merge it.</p>
             <table class="table ff" data-testid="ff-sites">
               <thead><tr><th></th><th>Site</th><th>Merged</th><th>State</th></tr></thead>
               <tbody>
@@ -380,7 +368,7 @@
           </div>
         </div>
         {#if !items.length && !notes.length}
-          <div class="card-body"><Empty compact icon="check" title="Nothing uncommitted" text="The server runs exactly {remote ? `${remote}’s` : 'this site’s'} branch. Your own edits are not listed here: they stay in this browser until you commit them (change bar)." /></div>
+          <div class="card-body"><Empty compact icon="check" title="Nothing uncommitted" text="The server runs exactly its branch." /></div>
         {:else}
           <div class="table-wrap">
             <table class="table">

@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import Select from '$lib/ui/Select.svelte';
-  import { apiPath, download, fetchText } from '$lib/api';
+  import { download, fetchText } from '$lib/api';
   import { headConfig } from '$lib/state/app.svelte';
   import { draft } from '$lib/state/draft.svelte';
   import { toasts } from '$lib/state/toast.svelte';
@@ -66,6 +67,7 @@
   let picker: HTMLInputElement | undefined = $state();
   let pickFor = $state<FileDef | null>(null);
 
+  const slug = $derived(page.params.siteSlug ?? '');
   const cfg = $derived(draft.asConfig('work'));
   const depId = $derived(overview.data?.deploymentId ?? draft.deploymentId);
   /** template files ({{ }} resolved per mounting container, SPEC §21 #54) */
@@ -100,7 +102,7 @@
     headText = null;
     loadingText = true;
     try {
-      if (head(f.fileSlug)?.content) headText = await fetchText('getFileContent', apiPath('getFileContent', { fileSlug: f.fileSlug }));
+      if (head(f.fileSlug)?.content) headText = await fetchText(...draft.fileContentPath(f.fileSlug));
     } catch (e) {
       loadErr = e instanceof Error ? e.message : String(e);
     }
@@ -195,14 +197,14 @@
   }
   async function dl(f: FileDef) {
     try {
-      await download('getFileContent', apiPath('getFileContent', { fileSlug: f.fileSlug }), f.fileSlug);
+      await download(...draft.fileContentPath(f.fileSlug), f.fileSlug);
     } catch (e) {
       toasts.err(e, 'Download failed');
     }
   }
 </script>
 
-<PageHead icon="file" title="Files" sub="Deployment files mounted into containers. Add, change (definition and content) and remove files here — kept in this browser, applied on this site when you commit.">
+<PageHead icon="file" eyebrow="Site {slug}" title="Files" sub="Files mounted into {slug}'s containers. Commit applies changes on {slug} only.">
   {#snippet actions()}
     <Btn icon="plus" variant="primary" disabled={!draft.work} onclick={() => openDetails(null)} data-testid="add-file">Add file</Btn>
   {/snippet}

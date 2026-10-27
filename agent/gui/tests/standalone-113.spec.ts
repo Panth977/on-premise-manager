@@ -2,7 +2,7 @@
 // catalog version), variables, secrets and files are added, changed and removed in the agent GUI and committed like any
 // other change; Docker changes made outside OPM follow the site's drift policy.
 import { test, expect } from './fixtures';
-import { knobs, login, nav } from './helpers';
+import { knobs, login, nav, treeLink } from './helpers';
 
 const bar = (page: import('@playwright/test').Page) => page.getByTestId('local-edit-bar');
 
@@ -20,7 +20,7 @@ test('add a container from a docker reference, remove another, change an image t
   await expect(page.getByTestId('container-image')).toContainText(/^nginx:local-[0-9a-f]{12}$/);
   await expect(bar(page)).toContainText('not committed');
   // remove hello-api-2 from the list (client-side navigation: the mock agent lives in the page; hello-web is an edge target)
-  await page.getByTestId('tree-app-settings').click();
+  await treeLink(page, 'app', 'config-settings');
   await page.getByTestId('nav-containers').click();
   await expect(page.getByTestId('container-row-nginx')).toBeVisible();
   await page.getByTestId('remove-hello-api-2').click();

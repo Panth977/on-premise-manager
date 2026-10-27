@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { expectOnTop, knobs, login, open, shot, pickOption, nav } from './helpers';
+import { expectOnTop, knobs, login, open, shot, pickOption, nav, treeLink } from './helpers';
 
 // Round D: declared site volumes, one grouped source dropdown, Backups per-site volumes, site sections in the sidebar.
 
@@ -173,8 +173,7 @@ test('config sections = tabs of one Config page (nav2); no top bar; breadcrumb; 
   await expect(page.locator('#sh-alias')).toHaveValue('8091');
 
   // per-site switch keeps the section
-  await page.getByTestId('tree-toggle-db').click();
-  await page.getByTestId('tree-db-settings').click();
+  await treeLink(page, 'db', 'config-settings');
   await page.waitForURL(/\/app\/db\/config\/settings$/);
 
   // old links

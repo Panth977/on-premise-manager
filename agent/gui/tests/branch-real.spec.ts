@@ -11,7 +11,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures';
-import { pickOption } from './helpers';
+import { nav, pickOption } from './helpers';
 
 const KEY = process.env.OPM_ACCESS_KEY ?? '';
 const NET = process.env.OPM_BR_NETWORK ?? '';
@@ -99,7 +99,7 @@ test('real agent: branch overview → drift → commit → cherry-pick merge wit
     await page.screenshot({ path: 'screenshots/br-real-history.png', fullPage: true });
 
     // §21 #105 a GUI edit → ONE commit (applied by the agent; the commit exists only when the apply succeeds)
-    await page.getByTestId('side-variables').click();
+    await nav(page, 'variables');
     await pickOption(page, 'var-theme', 'blue');
     await expect(page.getByTestId('local-edit-bar')).toContainText('1 change (not committed)');
     await expect(page.getByTestId('save-working')).toHaveCount(0);

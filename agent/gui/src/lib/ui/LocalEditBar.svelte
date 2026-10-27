@@ -21,8 +21,10 @@
   import { newConfigBlobs, totalBytes, type StageBlobResponse } from '@opm/shared/staging';
   import { viewToInput } from '../state/draft.svelte';
   import { draft } from '../state/draft.svelte';
-  import { overview } from '../state/app.svelte';
-  import { branch, uncommitted, refreshBranch } from '../state/branch.svelte';
+  import { overview, headConfigFor } from '../state/app.svelte';
+  import { branch as selfBranch, uncommitted as selfUncommitted, refreshBranch } from '../state/branch.svelte';
+  import { Resource } from '../state/resource.svelte';
+  import { siteBranchApi } from '../branch/siteBranch';
   import { toasts } from '../state/toast.svelte';
   import { session } from '../state/session.svelte';
   import Btn from './Btn.svelte';
@@ -61,13 +63,24 @@
     const b = totalBytes(pend);
     return `${pend.length} new file content${pend.length === 1 ? '' : 's'} (${b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`}) kept in this browser ${pend.length === 1 ? 'is' : 'are'} uploaded with this commit — nothing reaches the server before.`;
   });
+  /** §21 #126 the page's site when it is not this agent: its stage, its commit, its run, its drift (relayed over the mesh) */
+  const remote = $derived(draft.remote);
+  const remoteBranch = new Resource(() => siteBranchApi(remote).state());
+  const remoteUncommitted = new Resource(() => siteBranchApi(remote).uncommitted());
+  const branch = $derived(remote ? remoteBranch : selfBranch);
+  const uncommitted = $derived(remote ? remoteUncommitted : selfUncommitted);
+  function refreshAll() {
+    refreshBranch();
+    if (remote) (remoteBranch.load(), remoteUncommitted.load());
+  }
   const transport: StageTransport = {
-    createStage: (blobs) => api.createLocalStage({ body: { blobs } }),
+    createStage: (blobs) => (remote ? api.siteCreateStage({ siteSlug: remote, body: { blobs } }) : api.createLocalStage({ body: { blobs } })),
     putBlob: async (stageId, need, bytes, onBytes) => {
-      await uploadRaw<StageBlobResponse>('putLocalStageBlob', apiPath('putLocalStageBlob', { stageId, sha256: need.sha256 }), new Blob([bytes as BlobPart]), (f) => onBytes?.(Math.round(f * bytes.length)));
+      const [op, path] = remote ? (['sitePutStageBlob', apiPath('sitePutStageBlob', { siteSlug: remote, stageId, sha256: need.sha256 })] as const) : (['putLocalStageBlob', apiPath('putLocalStageBlob', { stageId, sha256: need.sha256 })] as const);
+      await uploadRaw<StageBlobResponse>(op, path, new Blob([bytes as BlobPart]), (f) => onBytes?.(Math.round(f * bytes.length)));
     },
     deleteStage: async (stageId) => {
-      await api.deleteLocalStage({ stageId });
+      await (remote ? api.siteDeleteStage({ siteSlug: remote, stageId }) : api.deleteLocalStage({ stageId }));
     },
   };
 
@@ -95,23 +108,29 @@
         bytesOf: (sha) => draft.bytesOf(sha),
         transport,
         onProgress: (_p, text) => (progress = text),
-        commit: (stageId) => api.commitLocal({ body: { message, baseCommitId: draft.headId, config, ...(stageId ? { stageId } : {}) } }),
+        commit: (stageId) => {
+          const body = { message, baseCommitId: draft.headId, config, ...(stageId ? { stageId } : {}) };
+          return remote ? api.siteCommitLocal({ siteSlug: remote, body }) : api.commitLocal({ body });
+        },
       });
       committing = false;
       const run = r.run;
+      // the run ends after this bar is gone (the Branch page): the callback uses only what is captured here
+      const where = remote ?? 'this site';
       if (run) {
         draft.followRun(run.updateId, message, (ok, msg) => {
           refreshBranch();
           overview.load();
-          if (ok) toasts.ok('Committed and applied', `“${message.split('\n')[0]}” runs on this site now.`);
+          if (ok) toasts.ok('Committed and applied', `“${message.split('\n')[0]}” runs on ${where} now.`);
           else toasts.err(`The apply failed and was rolled back${msg ? `: ${msg}` : ''}. Nothing was committed — your changes are still here.`, 'Not committed');
         });
         toasts.info('Applying your commit', 'Snapshot → apply → verify; the commit is written when it succeeds.');
-        refreshBranch();
+        refreshAll();
         await goto(siteHref('branch'));
       } else if (r.commit) {
         draft.discard();
-        toasts.ok(`Committed seq ${r.commit.seq}`);
+        void headConfigFor(draft.siteSlug).load();
+        toasts.ok(`Committed seq ${r.commit.seq}${remote ? ` on ${remote}` : ''}`);
       }
     } catch (e) {
       if (isApiError(e) && e.code === 'conflict' && e.details?.reason === 'uncommitted-drift') {
@@ -126,7 +145,7 @@
           throw new Error('The head moved and the rebase was cancelled.');
         }
         info = `Someone committed meanwhile: your changes were rebased onto commit ${seq} — review and commit again.`;
-        refreshBranch();
+        refreshAll();
         return; // the dialog stays open on the rebased set
       }
       throw new Error(errMessage(e));
@@ -145,9 +164,10 @@
     try {
       const items = (uncommitted.data?.items ?? []).filter((i) => i.origin !== 'edit');
       const notes = uncommitted.data?.notes ?? [];
-      const r = await api.commitLocal({ body: { message, keys: items.map((i) => i.key), ...(acceptNotes && notes.length ? { accept: notes.map((n) => n.fingerprint) } : {}) } });
+      const body = { message, keys: items.map((i) => i.key), ...(acceptNotes && notes.length ? { accept: notes.map((n) => n.fingerprint) } : {}) };
+      const r = await (remote ? api.siteCommitDrift({ siteSlug: remote, body }) : api.commitLocal({ body }));
       driftOpen = false;
-      refreshBranch();
+      refreshAll();
       if (r.run) {
         toasts.info('Applying', 'Wait until the update ends, then commit your changes.');
         return;

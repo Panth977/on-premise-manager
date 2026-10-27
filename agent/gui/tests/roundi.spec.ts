@@ -342,8 +342,8 @@ test('agent.json read-only: the editor is disabled with the reason', async ({ pa
 
 test('support bundle downloads; uninstall commands copy; CLI map; Backups parity link', async ({ page }) => {
   await agentPage(page);
-  await expect(page.getByTestId('bundle-sections')).toContainText('activities.jsonl');
-  await expect(page.getByTestId('bundle-sections')).toContainText('debug/');
+  await expect(page.getByTestId('bundle-sections')).toHaveAttribute('title', /activities\.jsonl/);
+  await expect(page.getByTestId('bundle-sections')).toHaveAttribute('title', /debug\//);
   const dl = page.waitForEvent('download');
   await page.getByTestId('support-bundle').click();
   const d = await dl;
@@ -360,6 +360,7 @@ test('support bundle downloads; uninstall commands copy; CLI map; Backups parity
   await nav(page, 'activities');
   await expect(page.getByTestId('act-type-agent.support-bundle-downloaded').first()).toBeVisible();
   await nav(page, 'agent');
+  await page.getByTestId('cli-map').locator('summary').click(); // §21 #126 folded
   await page.getByTestId('cli-map').getByTestId('cli-opm-agent-snapshot-export').getByRole('link').click();
   await expect(page).toHaveURL(/\/_opm\/app\/app\/backups$/);
   await expect(page.getByTestId('backups-cli')).toContainText('snapshot export');
@@ -416,7 +417,7 @@ test('§21 #91: health card (checks + socket activation), DB schema, hard fallba
   await expect(page.getByTestId('health-checks')).toContainText('store');
   await expect(page.getByTestId('socket-activated')).toContainText('edge sockets held by systemd — no refused connections during restarts');
   await expect(page.getByTestId('db-schema')).toContainText('2');
-  await expect(page.getByTestId('hard-fallback')).toContainText('rerun this site\'s original install command');
+  await expect(page.getByTestId('hard-fallback')).toContainText("Rerun the site's install command");
   await expect(page.getByTestId('hard-fallback')).toContainText('OPM_AGENT_VERSION=x');
   await shot(page, 'i-health-light', false);
   // upgrade: the overlay waits for /health ok with the new version; the schema follows the new build

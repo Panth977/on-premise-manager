@@ -47,10 +47,9 @@ test('edit → ONE commit from the change bar (no Save) → applied → history'
   // (the mock agent lives in the page: navigate inside the app) — nothing is on the agent yet
   await nav(page, 'branch');
   await expect(page.getByTestId('n-edits')).toHaveText('1');
-  await expect(page.getByTestId('browser-pending')).toBeVisible();
   await page.getByTestId('branch-tabs-uncommitted').click();
   await expect(page.getByTestId('uncommitted-list')).toContainText('Nothing uncommitted');
-  await page.getByTestId('side-variables').click();
+  await page.getByTestId('tree-app-variables').click();
   await page.getByTestId('change-bar-commit').click();
   const dlg = page.getByTestId('local-commit-dialog');
   await expect(dlg.getByTestId('commit-submit')).toBeDisabled();

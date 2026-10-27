@@ -6660,6 +6660,28 @@ Pass = every check above green; results file lists timings and the activity coun
         both ways, db's tunnel carried by app over the mesh, half-close), `shared/src/tunnels.test.ts`, the console and
         agent GUI specs `tunnels-125`.
 
+126. **Every site's config is its own in the agent GUI** (user: "the files, variables, secret tab seem to be outside the
+    site sub tree, this is wrong, each site has its own … when i commit, it currently only commits to the site's opm
+    that has been open instead of all"). An agent branch already holds the shared sections + its site (docs-v2
+    branches-commits D6); the GUI showed Variables / Secrets / Files once for the deployment and committed every edit —
+    another site's included — on the agent the person is logged in to, so another site's edits never ran there.
+    (a) **Per-site endpoints** (served by the site itself, another site relayed over the mesh with the person as actor,
+        `/_opm/api/sites/{site}/…`): `GET config` (head config of that site's branch), `GET config-files/{fileSlug}/content`,
+        `POST secrets/{secretSlug}/reveal` (no-store, rate-limited; the relay passes `Cache-Control`), `POST stages`,
+        `PUT stages/{id}/blobs/{sha256}`, `DELETE stages/{id}` and `POST branch/commit` (browser edits too; was only on
+        the logged-in agent). Shared tables `siteConfig`, `siteGetFileContent`, `siteRevealSecret`, `siteCreateStage`,
+        `sitePutStageBlob`, `siteDeleteStage`, `siteCommitLocal`. A site whose agent predates them answers not-found.
+    (b) **One change set per site** in the browser (`draftFor(site)`; drafts in IndexedDB were already keyed by the agent
+        branch): the pages of a site edit that site's set, load its head (another site's every 20 s while open) and
+        commit + follow the run on that site. The sidebar marks every site with edits that are not committed.
+    (c) **Tree.** Site › Status · Containers · Volumes · Dev tools · Variables · Secrets · Files · Server (› Docker ·
+        Network · Agent · Host shell · Debug · Tunnels · Shared files · Branch · Edge · Settings). Host shell is its own
+        page (`/shell`; the Agent page's `?tab=shell` redirects). The deployment-level Config group is gone.
+    (d) Shorter Branch and Agent pages: no page subtitles or explanation paragraphs; the uninstall commands and the
+        opm-agent command list are folded.
+    (e) Tests: `TestSiteAgentRoutesThroughMesh` (db's config, stage and commit through app; the stage lands on db),
+        `TestSiteBranchRoutes`, agent GUI spec `site-config-126`.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

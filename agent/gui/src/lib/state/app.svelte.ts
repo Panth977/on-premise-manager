@@ -1,27 +1,50 @@
 /** Deployment-wide data the shell needs everywhere (header, sidebar, stale markers). Polled by the app layout. */
-import type { OverviewResponse, SiteTile } from '@opm/shared/types';
+import type { AgentConfigResponse, OverviewResponse, SiteTile } from '@opm/shared/types';
 import { PROPOSAL_TERMINAL } from '@opm/shared/types';
 import { api } from '../api';
 import { Resource } from './resource.svelte';
 import { session } from './session.svelte';
-import { draft } from './draft.svelte';
+import { draft, draftFor, ensureDrafts, madeVersion, pageSite, setSelfSite, storeMade } from './draft.svelte';
 
 export const overview = new Resource(async () => {
   const o = await api.overview({});
   session.setServerTime(o.serverTime);
+  setSelfSite(o.self);
+  ensureDrafts([o.self, ...o.sites.map((t) => t.siteSlug)]); // after the await: made outside any effect
   const det: Record<string, string> = {};
   for (const t of o.sites) if (t.advertiseHost) det[t.siteSlug] = t.advertiseHost;
   if (JSON.stringify(det) !== JSON.stringify(draft.detectedHosts)) draft.detectedHosts = det;
   return o;
 });
 export const proposals = new Resource(() => api.listProposals({}));
-export const headConfig = new Resource(async () => {
-  const c0 = await api.config({});
-  // §21 #113: edits may use every image the site knows (head ∪ recent cloud commits ∪ drift-adopted ∪ site images)
-  const c = c0.knownCatalog && c0.catalog ? { ...c0, catalog: { services: { ...c0.knownCatalog.services, ...c0.catalog.services }, images: { ...c0.knownCatalog.images, ...c0.catalog.images }, notFoundPages: { ...c0.knownCatalog.notFoundPages, ...c0.catalog.notFoundPages } } } : c0;
-  // §21 #105: the edits live in this browser (draft store + localStorage); the agent keeps no working copy
-  draft.adopt(c, overview.data?.deploymentId ?? session.info?.deploymentId ?? '', session.info?.siteSlug ?? overview.data?.self ?? '');
-  return c;
+/**
+ * §21 #126 the head config of ONE site's branch, per site (the page's site: `headConfig`; another site's comes from that
+ * site over the mesh). Each load hands the head to that site's change set (the edits live in this browser).
+ */
+const heads = new Map<string, Resource<AgentConfigResponse>>();
+export function headConfigFor(site: string): Resource<AgentConfigResponse> {
+  let r = heads.get(site);
+  if (!r) {
+    // the site's store is looked up at load time (it may be made a moment after this resource)
+    r = new Resource(async () => {
+      const d = draftFor(site);
+      const c = await d.loadHead();
+      d.adopt(c, overview.data?.deploymentId ?? session.info?.deploymentId ?? '', site);
+      return c;
+    });
+    heads.set(site, r);
+    storeMade();
+  }
+  return r!;
+}
+/** the head config of the page's site (same API as one Resource) */
+export const headConfig: Resource<AgentConfigResponse> = new Proxy({} as Resource<AgentConfigResponse>, {
+  get(_, k) {
+    void madeVersion();
+    const r = headConfigFor(pageSite());
+    const v = Reflect.get(r, k, r);
+    return typeof v === 'function' ? v.bind(r) : v;
+  },
 });
 
 export const openProposalCount = () => (proposals.data?.items ?? []).filter((p) => !PROPOSAL_TERMINAL.includes(p.proposal.status)).length;

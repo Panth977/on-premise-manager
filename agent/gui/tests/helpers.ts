@@ -99,14 +99,25 @@ export async function nav(page: Page, k: string) {
     if (!(await page.getByTestId(probe).isVisible())) await page.getByTestId(`tree-toggle-${node}`).click();
   };
   await open(site, `tree-${site}-status`);
-  const server = ['docker', 'network', 'agent', 'debug'];
-  if (server.includes(k)) await open(`${site}-server`, `tree-${site}-${k}`);
+  // §21 #126 under Server: also Host shell, Shared files, Branch, Edge, Settings
+  const server = ['docker', 'network', 'agent', 'shell', 'debug', 'tunnels', 'transfers', 'branch', 'config/edge', 'config/settings', 'edge', 'settings'];
+  if (server.includes(k)) await open(`${site}-server`, `tree-${site}-${k === 'edge' || k === 'settings' ? `config-${k}` : k.replace('/', '-')}`);
   if (k.startsWith('devtools/')) await open(`${site}-devtools`, `tree-${site}-${k.replace('/', '-')}`);
   if (k === 'config') {
-    await page.getByTestId(`tree-${site}-settings`).click();
+    await open(`${site}-server`, `tree-${site}-config-settings`);
+    await page.getByTestId(`tree-${site}-config-settings`).click();
     return page.getByTestId('nav-containers').click();
   }
-  await page.getByTestId(`tree-${site}-${k.replace('/', '-')}`).click();
+  const id = k === 'edge' || k === 'settings' ? `config-${k}` : k.replace('/', '-');
+  await page.getByTestId(`tree-${site}-${id}`).click();
+}
+
+/** §21 #126 click a site's tree link (opens the site and, for its pages under Server, the Server node first) */
+const SERVER_ITEMS = ['docker', 'network', 'agent', 'shell', 'debug', 'tunnels', 'transfers', 'branch', 'config-edge', 'config-settings'];
+export async function treeLink(page: Page, site: string, id: string) {
+  if (!(await page.getByTestId(`tree-${site}-status`).isVisible())) await page.getByTestId(`tree-toggle-${site}`).click();
+  if (SERVER_ITEMS.includes(id) && !(await page.getByTestId(`tree-${site}-${id}`).isVisible())) await page.getByTestId(`tree-toggle-${site}-server`).click();
+  await page.getByTestId(`tree-${site}-${id}`).click();
 }
 
 /** §21 #97: replace the text of a CodeMirror editor (data-testid on the host) — select all + insertText (one input event) */

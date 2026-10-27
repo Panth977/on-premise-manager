@@ -6,7 +6,7 @@
 import { inferDepends, startOrder, type ContainerDepends, type StartOrder } from '@opm/shared/depends';
 import type { ValidationIssue } from '@opm/shared/types';
 import { draft } from './state/draft.svelte';
-import { apiPath, fetchText } from './api';
+import { fetchText } from './api';
 
 /** explicit / implicit / suggested depends of every enabled container + the start order of one site (working copy). */
 export function siteDepends(siteSlug: string): { deps: ContainerDepends[]; order: StartOrder } | null {
@@ -65,7 +65,7 @@ export async function loadSiteFileTexts(siteSlug: string): Promise<void> {
       if (draft.headFileText[slug]?.key === key || loading.has(key + slug)) return;
       loading.add(key + slug);
       try {
-        const text = await fetchText('getFileContent', apiPath('getFileContent', { fileSlug: slug }));
+        const text = await fetchText(...draft.fileContentPath(slug));
         draft.headFileText[slug] = { key, text };
       } catch {
         /* not fatal */

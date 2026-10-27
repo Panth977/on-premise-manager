@@ -1,8 +1,9 @@
 <script lang="ts">
   /**
-   * Sites tree of the agent sidebar — the cloud deployment sidebar's tree (frontend SitesTree.svelte), same names and
-   * order: Sites › site › Status · Containers (› containers) · Edge · Volumes (› volumes) · Dev tools (› tools) ·
-   * Settings · Transfers · Branch · Server (› Docker · Network · Agent · Debug). Every site of the deployment is in the
+   * Sites tree of the agent sidebar: Sites › site › Status · Containers (› containers) · Volumes (› volumes) · Dev tools
+   * (› tools) · Variables · Secrets · Files · Server (› Docker · Network · Agent · Host shell · Debug · Tunnels · Shared
+   * files · Branch · Edge · Settings). §21 #126 Variables, Secrets and Files are per site: each site's branch has its own
+   * and a page of a site edits + commits that site's branch. Every site of the deployment is in the
    * tree (pages of another site go over the mesh), so there is no site picker. Expanded state per node in localStorage
    * (opm.agent.tree); the site / node of the current page is always open.
    */
@@ -11,7 +12,7 @@
   import Icon from './Icon.svelte';
   import { appHref, parseAppPath } from '$lib/nav';
   import { overview } from '$lib/state/app.svelte';
-  import { draft } from '$lib/state/draft.svelte';
+  import { peekDraft } from '$lib/state/draft.svelte';
   import { uncommittedTotal, behindCount } from '$lib/state/branch.svelte';
   import { upgradableSites } from '$lib/agent/state.svelte';
 
@@ -42,7 +43,7 @@
     if (loc.mod === 'containers') return `${curSite}/containers`;
     if (loc.mod === 'volumes') return `${curSite}/volumes`;
     if (loc.mod === 'devtools') return `${curSite}/devtools`;
-    if (['docker', 'network', 'agent', 'debug', 'tunnels'].includes(loc.mod)) return `${curSite}/server`;
+    if (['docker', 'network', 'agent', 'shell', 'debug', 'tunnels', 'transfers', 'branch'].includes(loc.mod) || (loc.mod === 'config' && ['edge', 'settings'].includes(loc.rest[0] ?? ''))) return `${curSite}/server`;
     return null;
   });
   /** defaults: the site of this agent and Containers open; the rest closed */
@@ -64,13 +65,17 @@
   });
 
   const o = $derived(overview.data);
-  const configs = $derived(draft.work?.sites ?? draft.base?.config.sites ?? []);
-  const cfgOf = (s: string) => configs.find((x) => x.siteSlug === s)?.config;
+  /** a site's own set when it was opened, else this agent's copy of that site */
+  const selfSet = $derived(o?.self ? peekDraft(o.self) : undefined);
+  const cfgOf = (s: string) => {
+    const d = peekDraft(s);
+    return (d?.work?.sites ?? d?.base?.config.sites ?? selfSet?.work?.sites ?? selfSet?.base?.config.sites ?? []).find((x) => x.siteSlug === s)?.config;
+  };
   /** on = the current page is `href` (or below it); exact = only that page */
   const on = (site: string, p: string, exact = false) => curSite === site && (exact ? sub === p : sub === p || sub.startsWith(p + '/'));
   const volOn = (site: string, v: string) => curSite === site && loc?.mod === 'volumes' && page.url.searchParams.get('v') === v;
   const issuesOf = (s: string) => {
-    const l = draft.issuesAt(`sites[${s}].config`);
+    const l = peekDraft(s)?.issuesAt(`sites[${s}].config`) ?? [];
     return { e: l.filter((i) => i.severity === 'error').length, w: l.filter((i) => i.severity === 'warning').length };
   };
   const DEVTOOLS = [
@@ -80,12 +85,23 @@
     { k: 'devtools/http', label: 'HTTP client', icon: 'send' },
     { k: 'devtools/history', label: 'History', icon: 'history' },
   ];
+  // §21 #126 per site: each site's branch has its own
+  const CONFIG = [
+    { k: 'variables', label: 'Variables', icon: 'variable' },
+    { k: 'secrets', label: 'Secrets', icon: 'key' },
+    { k: 'files', label: 'Files', icon: 'file' },
+  ];
   const SERVER = [
     { k: 'docker', label: 'Docker', icon: 'layers' },
     { k: 'network', label: 'Network', icon: 'network' },
     { k: 'agent', label: 'Agent', icon: 'server' },
+    { k: 'shell', label: 'Host shell', icon: 'terminal' }, // §21 #126
     { k: 'debug', label: 'Debug', icon: 'bug' },
     { k: 'tunnels', label: 'Tunnels', icon: 'link' }, // §21 #125
+    { k: 'transfers', label: 'Shared files', icon: 'folder' },
+    { k: 'branch', label: 'Branch', icon: 'branch' },
+    { k: 'config/edge', label: 'Edge', icon: 'globe' },
+    { k: 'config/settings', label: 'Settings', icon: 'cog' },
   ];
 </script>
 
@@ -113,7 +129,7 @@
       <li role="treeitem" aria-expanded={open} aria-selected={curSite === s} data-testid="tree-site-{s}">
         <div class="node site" class:cur={curSite === s}>
           {@render twisty(s, s)}
-          <a href={appHref(s, 'status')} class="lbl" onclick={() => !open && toggle(s)} data-testid="tree-link-{s}"><span class="mono">{s}</span>{#if t.self}<span class="me">this site</span>{/if}</a>
+          <a href={appHref(s, 'status')} class="lbl" onclick={() => !open && toggle(s)} data-testid="tree-link-{s}"><span class="mono">{s}</span>{#if t.self}<span class="me">this site</span>{/if}{#if peekDraft(s)?.dirty}<i class="edited" title="changes in this browser, not committed on {s}" data-testid="tree-edited-{s}"></i>{/if}</a>
           {#if down}<span class="nav-cnt red" title="not reachable from this site">off</span>{:else if iss.e}<span class="nav-cnt red" title="{iss.e} errors in the local edits">{iss.e}</span>{:else if notReady}<span class="nav-cnt red" title="{notReady} containers not ready">{notReady}</span>{/if}
         </div>
         {#if open}
@@ -134,7 +150,6 @@
                 </ul>
               {/if}
             </li>
-            <li><a href={appHref(s, 'config/edge')} class="nav-item sub" aria-current={on(s, 'config/edge') ? 'page' : undefined} data-testid="tree-{s}-edge"><Icon name="globe" size={14} /><span class="grow">Edge</span></a></li>
             <li role="treeitem" aria-expanded={isOpen(`${s}/volumes`)} aria-selected={on(s, 'volumes')}>
               <div class="node sub">
                 {@render twisty(`${s}/volumes`, 'Volumes')}
@@ -163,9 +178,9 @@
                 </ul>
               {/if}
             </li>
-            <li><a href={appHref(s, 'config/settings')} class="nav-item sub" aria-current={on(s, 'config/settings') ? 'page' : undefined} data-testid="tree-{s}-settings"><Icon name="cog" size={14} /><span class="grow">Settings</span></a></li>
-            <li><a href={appHref(s, 'transfers')} class="nav-item sub" aria-current={on(s, 'transfers') ? 'page' : undefined} data-testid="tree-{s}-transfers"><Icon name="folder" size={14} /><span class="grow">Shared files</span></a></li>
-            <li><a href={appHref(s, 'branch')} class="nav-item sub" aria-current={on(s, 'branch') ? 'page' : undefined} data-testid="tree-{s}-branch"><Icon name="branch" size={14} /><span class="grow">Branch</span>{#if t.self && draft.dirty}<i class="edited" title="changes in this browser, not committed"></i>{/if}{#if br}<span class="nav-cnt {uncommittedTotal() ? 'amber' : 'accent'}" title="{uncommittedTotal()} not committed · {behindCount()} cloud commits to merge" data-testid="branch-badge">{br}</span>{/if}</a></li>
+            {#each CONFIG as m (m.k)}
+              <li><a href={appHref(s, m.k)} class="nav-item sub" aria-current={on(s, m.k) ? 'page' : undefined} data-testid="tree-{s}-{m.k}"><Icon name={m.icon} size={14} /><span class="grow">{m.label}</span></a></li>
+            {/each}
             <li role="treeitem" aria-expanded={isOpen(`${s}/server`)} aria-selected={curNode === `${s}/server`}>
               <div class="node sub">
                 {@render twisty(`${s}/server`, 'Server')}
@@ -174,7 +189,7 @@
               {#if isOpen(`${s}/server`)}
                 <ul class="lvl3" role="group">
                   {#each SERVER as m (m.k)}
-                    <li><a href={appHref(s, m.k)} class="nav-item leaf" aria-current={on(s, m.k) ? 'page' : undefined} data-testid="tree-{s}-{m.k}"><Icon name={m.icon} size={13} /><span class="grow">{m.label}</span>{#if m.k === 'agent' && upg}<span class="nav-cnt accent" data-testid="nav-agent-upgrade">up</span>{/if}</a></li>
+                    <li><a href={appHref(s, m.k)} class="nav-item leaf" aria-current={on(s, m.k) ? 'page' : undefined} data-testid="tree-{s}-{m.k.replace('/', '-')}"><Icon name={m.icon} size={13} /><span class="grow">{m.label}</span>{#if m.k === 'agent' && upg}<span class="nav-cnt accent" data-testid="nav-agent-upgrade">up</span>{/if}{#if m.k === 'branch' && br}<span class="nav-cnt {uncommittedTotal() ? 'amber' : 'accent'}" title="{uncommittedTotal()} not committed · {behindCount()} cloud commits to merge" data-testid="branch-badge">{br}</span>{/if}</a></li>
                   {/each}
                 </ul>
               {/if}

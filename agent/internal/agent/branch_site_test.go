@@ -10,7 +10,7 @@ import (
 )
 
 // §21 #111 the per-site branch: the read + merge endpoints are site endpoints (served locally or relayed to the peer);
-// the GUI working-copy commit and the coordinated fast-forward are not.
+// the coordinated fast-forward is not. §21 #126 the commit of browser edits is per site too (with its config + stages).
 func TestSiteBranchRoutes(t *testing.T) {
 	a := newTestAgent(t)
 	mux, ok := a.buildSiteMux().(*http.ServeMux)
@@ -25,13 +25,14 @@ func TestSiteBranchRoutes(t *testing.T) {
 		{"GET", "/branch"}, {"GET", "/branch/commits"}, {"GET", "/branch/commits/C1"}, {"GET", "/branch/cloud-commits/C1"},
 		{"GET", "/branch/uncommitted"}, {"POST", "/branch/compare"}, {"POST", "/branch/merge/preview"}, {"POST", "/branch/merge"},
 		{"POST", "/branch/discard"}, {"POST", "/branch/drift/rescan"}, {"POST", "/branch/revert"}, {"POST", "/branch/reset"},
-		{"GET", "/branch/blobs/sha256:ab"}, {"POST", "/branch/commit-drift"}, {"GET", "/branch/drift-policy"}, {"PUT", "/branch/drift-policy"}, {"GET", "/updates/current"}, {"GET", "/updates/U1"}, {"POST", "/updates/U1/abandon"},
+		{"GET", "/branch/blobs/sha256:ab"}, {"POST", "/branch/commit-drift"}, {"POST", "/branch/commit"},
+		{"GET", "/config"}, {"GET", "/config-files/f1/content"}, {"POST", "/secrets/s1/reveal"}, {"POST", "/stages"}, {"PUT", "/stages/S1/blobs/sha256:ab"}, {"DELETE", "/stages/S1"}, {"GET", "/branch/drift-policy"}, {"PUT", "/branch/drift-policy"}, {"GET", "/updates/current"}, {"GET", "/updates/U1"}, {"POST", "/updates/U1/abandon"},
 	} {
 		if p := pattern(c[0], c[1]); p == "/" || p == "" {
 			t.Errorf("%s %s is not a site endpoint (pattern %q)", c[0], c[1], p)
 		}
 	}
-	for _, c := range [][2]string{{"POST", "/branch/commit"}, {"PUT", "/branch/working"}, {"POST", "/branch/fast-forward"}} {
+	for _, c := range [][2]string{{"PUT", "/branch/working"}, {"POST", "/branch/fast-forward"}} {
 		if p := pattern(c[0], c[1]); p != "/" {
 			t.Errorf("%s %s must stay on the logged-in agent only (pattern %q)", c[0], c[1], p)
 		}

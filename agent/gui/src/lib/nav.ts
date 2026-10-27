@@ -38,6 +38,8 @@ export const MODULES: NavModule[] = [
   { k: 'devtools/http', label: 'HTTP client', icon: 'send', sec: 'devtools', one: true },
   { k: 'devtools/history', label: 'History', icon: 'history', sec: 'devtools', one: true },
   { k: 'agent', label: 'Agent', icon: 'server', sec: 'agent' },
+  // §21 #126 a shell on the site's server (was the Agent page's tab)
+  { k: 'shell', label: 'Host shell', icon: 'terminal', sec: 'agent', one: true },
   { k: 'debug', label: 'Debug', icon: 'bug', sec: 'agent' },
   // §21 #123: Files — the deployment's shared bucket as this site sees it (URL /transfers kept; replaced §21 #100 send/receive)
   { k: 'transfers', label: 'Shared files', icon: 'folder', sec: 'agent', one: true },
@@ -45,11 +47,12 @@ export const MODULES: NavModule[] = [
   { k: 'tunnels', label: 'Tunnels', icon: 'network', sec: 'agent', one: true },
   { k: 'internet', label: 'Internet', icon: 'globe', sec: 'agent', wide: true },
   { k: 'sites', label: 'Sites', icon: 'grid', sec: 'deployment', wide: true },
-  { k: 'variables', label: 'Variables', icon: 'variable', sec: 'deployment', wide: true },
-  { k: 'secrets', label: 'Secrets', icon: 'key', sec: 'deployment', wide: true },
-  { k: 'files', label: 'Files', icon: 'file', sec: 'deployment', wide: true },
+  // §21 #126 per site: each site's branch has its own variables, secrets and files (edited + committed on that site)
+  { k: 'variables', label: 'Variables', icon: 'variable', sec: 'site', one: true },
+  { k: 'secrets', label: 'Secrets', icon: 'key', sec: 'site', one: true },
+  { k: 'files', label: 'Files', icon: 'file', sec: 'site', one: true },
   // §21 #104: Branch replaces Diff (cloud head · this site · uncommitted · merge · history); /diff redirects here
-  { k: 'branch', label: 'Branch', icon: 'branch', sec: 'deployment', wide: true },
+  { k: 'branch', label: 'Branch', icon: 'branch', sec: 'agent', one: true },
   { k: 'backups', label: 'Backups', icon: 'archive', sec: 'deployment', wide: true },
   { k: 'status', label: 'Status', icon: 'gauge', sec: 'site' },
   { k: 'activities', label: 'Activities', icon: 'activity', sec: 'site' },

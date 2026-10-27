@@ -5,10 +5,10 @@
   import { page } from '$app/state';
   import { api, errMessage, isApiError } from '$lib/api';
   import { session } from '$lib/state/session.svelte';
-  import { overview, proposals, headConfig, unreachableCount, prefs } from '$lib/state/app.svelte';
+  import { overview, proposals, headConfigFor, unreachableCount, prefs } from '$lib/state/app.svelte';
   import { appHref, moduleOf, parseAppPath, storeSite, storedSite } from '$lib/nav';
   import { poll } from '$lib/state/resource.svelte';
-  import { draft } from '$lib/state/draft.svelte';
+  import { draft, allDrafts, anyDirty, endDraftSessions, pageSite, setDraftUser } from '$lib/state/draft.svelte';
   import { branch } from '$lib/state/branch.svelte';
   import { provideAgentConfigHost } from '$lib/configHost';
   import { tunnel } from '$lib/state/tunnel.svelte';
@@ -71,7 +71,7 @@
   // §21 #107 the drafts owner = the declared person: their drafts session (expiry + heartbeat) + stored draft offer
   $effect(() => {
     const email = session.actor?.email ?? null;
-    if (email) untrack(() => void draft.setUser(email));
+    if (email) untrack(() => void setDraftUser(email));
   });
   // §21 #107 the change set auto-saves as a local draft (IndexedDB, debounced; typed secret values never)
   $effect(() => {
@@ -94,15 +94,27 @@
       offerBusy = false;
     }
   }
-  // the head config follows the head revision
+  // the head config follows the head revision (this agent's set)
   let lastHead: string | null | undefined = undefined;
   $effect(() => {
     const h = overview.data?.head?.revId ?? null;
     if (!ready || overview.data === undefined) return;
     if (h !== lastHead) {
       lastHead = h;
-      untrack(() => headConfig.load());
+      untrack(() => headConfigFor(overview.data!.self).load());
     }
+  });
+  // §21 #126 another site's page edits THAT site's branch: its head loads when the page opens it and every 20 s
+  $effect(() => {
+    if (!ready || overview.data === undefined) return;
+    const s = pageSite();
+    if (!s || s === overview.data.self) return;
+    const hc = headConfigFor(s);
+    untrack(() => {
+      if (!hc.loaded && !hc.loading) void hc.load();
+    });
+    const t = setInterval(() => void hc.load(), 20_000);
+    return () => clearInterval(t);
   });
   // session end (6 h, no sliding): go to login
   $effect(() => {
@@ -126,7 +138,7 @@
 
   function onUnload(e: BeforeUnloadEvent) {
     // §21 #107 pending changes are auto-saved as a local draft (offered again after the reload): no prompt for them
-    draft.flush();
+    for (const d of allDrafts()) d.flush();
     if (tunnel.active) {
       e.preventDefault();
       e.returnValue = '';
@@ -140,8 +152,8 @@
       toasts.err(e, 'Logout failed');
     }
     if (tunnel.active) await tunnel.stop().catch(() => {});
-    draft.discard();
-    await draft.endSession(); // §21 #107 this person's local drafts are deleted at logout
+    for (const d of allDrafts()) d.discard();
+    await endDraftSessions(); // §21 #107 this person's local drafts are deleted at logout
     session.clear(null);
     await goto(`${base}/login`, { replaceState: true });
   }
@@ -189,11 +201,6 @@
     { k: 'backups', label: 'Backups', icon: 'archive' },
     { k: 'internet', label: 'Internet', icon: 'globe' },
   ]);
-  const cfgNav = [
-    { k: 'variables', label: 'Variables', icon: 'variable' },
-    { k: 'secrets', label: 'Secrets', icon: 'key' },
-    { k: 'files', label: 'Files', icon: 'file' },
-  ];
   const cloudTone = $derived(!o ? '' : o.cloud.route === 'none' ? 'red' : o.cloud.route === 'direct' ? 'green' : 'amber');
   const leftMs = $derived.by(() => {
     void session.tick;
@@ -259,8 +266,6 @@
           </a>
         {/snippet}
         {#each wideNav as m (m.k)}{@render item(m)}{/each}
-        <div class="grp">Config</div>
-        {#each cfgNav as m (m.k)}{@render item(m)}{/each}
         <SitesTree />
       </div>
 
@@ -278,7 +283,7 @@
             {#if !session.session?.remote}
               <div class="acts">
                 <button class="btn ghost sm" onclick={() => ((navOpen = false), (changing = true), (session.askActor = true))} data-testid="change-person"><Icon name="user" size={14} />Change person</button>
-                <button class="btn ghost sm" onclick={() => (draft.dirty || tunnel.active ? (confirmLogout = true) : logout())} data-testid="logout"><Icon name="logout" size={14} />Log out</button>
+                <button class="btn ghost sm" onclick={() => (anyDirty() || tunnel.active ? (confirmLogout = true) : logout())} data-testid="logout"><Icon name="logout" size={14} />Log out</button>
               </div>
             {/if}
           </div>
@@ -339,7 +344,7 @@
 />
 <Confirm bind:open={confirmLogout} title="Log out?" confirmLabel="Log out" danger onconfirm={logout}>
   {#if tunnel.active}<p>This tab gives internet to the deployment. Logging out stops the tunnel.</p>{/if}
-  {#if draft.dirty}<p>You have {draft.pendingCount} changes that are not committed. Logging out deletes them from this browser — commit them to apply.</p>{/if}
+  {#if anyDirty()}<p>You have {allDrafts().reduce((n, d) => n + d.pendingCount, 0)} changes that are not committed. Logging out deletes them from this browser — commit them to apply.</p>{/if}
 </Confirm>
 
 <!-- the agent restart overlay (Agent page restart / upgrade, and "Stop, restart agents" in the update bar) -->

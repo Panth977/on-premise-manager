@@ -133,6 +133,14 @@ func (a *Agent) buildSiteMux() http.Handler {
 	for _, part := range []string{"overview", "containers", "uptime", "edge"} {
 		h("GET /status/"+part, authSession, a.handleStatusPart(part))
 	}
+	// §21 #126 each site edits ITS branch from any site's GUI: its head config, the commit of browser edits and the
+	// staging of their new blobs (another site: forwarded over the mesh with the person as actor)
+	h("GET /config", authSession, a.handleConfig)
+	h("GET /config-files/{fileSlug}/content", authSession, a.handleFileContent)
+	mux.HandleFunc("POST /secrets/{secretSlug}/reveal", noStore(a.withAuth(authActor, a.handleRevealSecret)))
+	h("POST /stages", authActor, a.handleCreateStage)
+	h("PUT /stages/{stageId}/blobs/{sha256}", authActor, a.handlePutStageBlob)
+	h("DELETE /stages/{stageId}", authActor, a.handleDeleteStage)
 	h("GET /volumes", authSession, a.handleSiteVolumes)
 	h("POST /volumes/{volumeSlug}/reset/start", authActor, a.handleResetVolumeStart)
 	h("POST /volumes/{volumeSlug}/reset", authActor, a.handleResetVolume)
@@ -334,7 +342,7 @@ func (a *Agent) forwardSite(w http.ResponseWriter, r *http.Request, slug, rest s
 		return
 	}
 	defer done()
-	for _, k := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Content-Range", "Accept-Ranges", "X-OPM-Warning", "Retry-After"} {
+	for _, k := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Content-Range", "Accept-Ranges", "X-OPM-Warning", "Retry-After", "Cache-Control"} {
 		if v := resp.Header.Get(k); v != "" {
 			w.Header().Set(k, v)
 		}

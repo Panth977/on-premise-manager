@@ -5,7 +5,7 @@
    */
   import TextDiff from '$opm/branch/TextDiff.svelte';
   import { looksLikeText } from '@opm/shared/volume-content';
-  import { apiPath, fetchText } from '../api';
+  import { fetchText } from '../api';
   import { draft } from '../state/draft.svelte';
   import { bytes } from '../format';
 
@@ -29,7 +29,7 @@
     for (const r of rows) {
       if (!r.before || r.text === null || r.slug in heads) continue;
       heads[r.slug] = null;
-      fetchText('getFileContent', apiPath('getFileContent', { fileSlug: r.slug }))
+      fetchText(...draft.fileContentPath(r.slug))
         .then((t) => (heads[r.slug] = t))
         .catch(() => undefined);
     }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api } from '$lib/api';
+  import { page } from '$app/state';
   import { headConfig } from '$lib/state/app.svelte';
   import { draft } from '$lib/state/draft.svelte';
   import PageHead from '$lib/ui/PageHead.svelte';
@@ -52,6 +52,7 @@
     removeSlug = null;
   }
 
+  const slug = $derived(page.params.siteSlug ?? '');
   const head = (slug: string) => draft.base?.config.secrets.find((s) => s.secretSlug === slug);
   function setNew(slug: string, value: string) {
     const s = draft.secretInput(slug);
@@ -74,7 +75,7 @@
   }
 </script>
 
-<PageHead icon="key" title="Secrets" sub="Values are masked everywhere. View shows the head value for {REVEAL_SECONDS} s (any time, as often as needed) and writes it to the activity log. A new value stays in this browser (never stored there: memory only) until you commit. Add, change and remove secrets here — every change is a commit of this site's branch.">
+<PageHead icon="key" eyebrow="Site {slug}" title="Secrets" sub="Masked. View shows the value for {REVEAL_SECONDS} s (logged). Commit applies changes on {slug} only.">
   {#snippet actions()}
     <Btn icon="plus" variant="primary" disabled={!draft.work} onclick={openNew} data-testid="add-secret">Add secret</Btn>
   {/snippet}
@@ -102,7 +103,7 @@
                   {#if h?.rotatedAt}<div class="tiny muted">rotated <Time ts={h.rotatedAt} /></div>{/if}
                 </td>
                 <td>
-                  <RevealValue isSet={!!h?.isSet} label="secret {s.secretSlug}" testid="secret-{s.secretSlug}" reveal={() => api.revealSecret({ secretSlug: s.secretSlug })} />
+                  <RevealValue isSet={!!h?.isSet} label="secret {s.secretSlug}" testid="secret-{s.secretSlug}" reveal={() => draft.revealSecret(s.secretSlug)} />
                 </td>
                 <td>
                   <SecretValueInput value={s.plainValue ?? null} onchange={(v) => setNew(s.secretSlug, v ?? '')} secret={s} optional compact generated={!!s.generateNow} ongenerate={() => generate(s.secretSlug)} onundo={() => undo(s.secretSlug)} testid="new-{s.secretSlug}" />

@@ -6,7 +6,7 @@
 import type { Config, Container } from '@opm/shared/types';
 import type { ContainerResolution, EnvSource, ExprContext, MountSource } from '@opm/shared/expr';
 import { containerExprContext, containerMounts, fileRenderMode, imageKey, normalizeImageEnv, renderSiteFile, resolveContainerConfig, resolveSiteHosts, siteExprMap, siteFileExprContext, type CatalogImage, type RenderFileError, type RenderedFile } from '@opm/shared/validate';
-import { apiPath, fetchText } from './api';
+import { fetchText } from './api';
 import { draft } from './state/draft.svelte';
 
 export interface ContainerResolved {
@@ -71,7 +71,7 @@ export async function loadFileText(fileSlug: string): Promise<string> {
   const local = draft.fileText[fileSlug];
   if (local !== undefined && JSON.stringify(work?.content ?? null) !== JSON.stringify(head?.content ?? null)) return local;
   if (!head?.content) return '';
-  return fetchText('getFileContent', apiPath('getFileContent', { fileSlug }));
+  return fetchText(...draft.fileContentPath(fileSlug));
 }
 
 /** Render a template file for one site (round D: rendered once per site, shared by every container; secrets masked in `masked`). */

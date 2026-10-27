@@ -13,6 +13,9 @@
  * them (shared merge engine; conflicts → the Rebase dialog), and a 409 stale at Commit does the same.
  * Nothing is uploaded before Commit; Commit stages the new blobs (POST /_opm/api/stages → PUT …/blobs/{sha}) and sends
  * { message, baseCommitId, config, stageId } (commitWithStage).
+ * §21 #126 ONE change set PER SITE: every site of the sidebar tree edits its OWN branch (variables, secrets and files
+ * included — an agent branch holds the shared sections + its site). `draft` is the set of the page's site; another
+ * site's set loads that site's head and commits on that site (/_opm/api/sites/{site}/… relayed over the mesh).
  */
 import type { AgentConfigResponse, Config, ConfigInput, ConfigView, DiffChange, ImageSpec, SecretDefInput, ValidationIssue } from '@opm/shared/types';
 import { MASK } from '@opm/shared/types';
@@ -23,7 +26,10 @@ import { autosaver, clearDraft, endDrafts, initDrafts, readDraft, watchDraft, wr
 import { PendingBlobs } from '$opm/branch/pending-blobs';
 import { configBlobs } from '@opm/shared/staging';
 import { checkLocalEdit, normalizeEdge, validateConfig, type CatalogImage, type CatalogService } from '@opm/shared/validate';
-import { api } from '../api';
+import { api, apiPath } from '../api';
+import type { AGENT_API } from '@opm/shared/agent-api';
+import { page } from '$app/state';
+import { session } from './session.svelte';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
@@ -66,6 +72,28 @@ function configToInput(cfg: Config, ops: readonly SecretDefInput[]): ConfigInput
 }
 export const viewToConfig = (v: ConfigView): Config => inputToConfig(viewToInput(v), v);
 
+/** §21 #113: edits may use every image the site knows (head ∪ recent cloud commits ∪ drift-adopted ∪ site images) */
+export function withKnownCatalog(c0: AgentConfigResponse): AgentConfigResponse {
+  return c0.knownCatalog && c0.catalog ? { ...c0, catalog: { services: { ...c0.knownCatalog.services, ...c0.catalog.services }, images: { ...c0.knownCatalog.images, ...c0.catalog.images }, notFoundPages: { ...c0.knownCatalog.notFoundPages, ...c0.catalog.notFoundPages } } } : c0;
+}
+
+/** shared by every site's set: the agent the person is logged in to + the detected site addresses */
+const shared = $state<{ self: string; detectedHosts: Record<string, string>; made: number }>({ self: '', detectedHosts: {}, made: 0 });
+/**
+ * A per-site store is made on first use — often while a page renders. Svelte does not track state made inside the
+ * reaction that reads it, so that page would never see the store change: every proxy read also depends on `made`,
+ * bumped right after a store is made, and the page renders once more (now tracking the new store).
+ */
+export function storeMade() {
+  queueMicrotask(() => shared.made++);
+}
+export const madeVersion = () => shared.made;
+/** the agent the person is logged in to (its sets use the plain /_opm/api/… endpoints) */
+export const selfSlug = () => shared.self || session.info?.siteSlug || '';
+export function setSelfSite(s: string) {
+  if (s && shared.self !== s) shared.self = s;
+}
+
 export interface RebaseUi {
   conflicts: MergeItem[];
   clean: number;
@@ -75,6 +103,33 @@ export interface RebaseUi {
 }
 
 class DraftStore {
+  constructor(siteSlug: string) {
+    this.siteSlug = siteSlug;
+  }
+  /** §21 #126 the site this set edits when it is not the agent the person is logged in to (null = this agent) */
+  get remote(): string | null {
+    const self = selfSlug();
+    return this.siteSlug && self && this.siteSlug !== self ? this.siteSlug : null;
+  }
+  /** the head config of this set's site (+ the images it knows) */
+  async loadHead(): Promise<AgentConfigResponse> {
+    // this agent not known yet: ask by site name (this agent answers its own /sites/{self}/config too)
+    const r = this.remote ?? (selfSlug() ? null : this.siteSlug || null);
+    return withKnownCatalog(r ? await api.siteConfig({ siteSlug: r }) : await api.config({}));
+  }
+  /** [op, path] of a head file's content on this set's site (fetchText / download) */
+  fileContentPath(fileSlug: string): [keyof typeof AGENT_API, string] {
+    const r = this.remote;
+    return r ? ['siteGetFileContent', apiPath('siteGetFileContent', { siteSlug: r, fileSlug })] : ['getFileContent', apiPath('getFileContent', { fileSlug })];
+  }
+  revealSecret(secretSlug: string) {
+    const r = this.remote;
+    return r ? api.siteRevealSecret({ siteSlug: r, secretSlug }) : api.revealSecret({ secretSlug });
+  }
+  getUpdate(updateId: string) {
+    const r = this.remote;
+    return r ? api.siteGetUpdate({ siteSlug: r, updateId }) : api.getUpdate({ updateId });
+  }
   /** §21 #107 the draft owner = the declared actor email (null until declared: memory only) */
   user = $state<string | null>(null);
   #drafts: DraftsSession | null = null;
@@ -128,8 +183,14 @@ class DraftStore {
   /**
    * siteSlug → the agent's advertised / detected address (auto hosts, SPEC §21 #51): this agent + its peers, from
    * OverviewResponse.sites[].advertiseHost. Sites without a known address stay out (agent mode: E_NULL when used).
+   * Shared by every site's set.
    */
-  detectedHosts = $state<Record<string, string>>({});
+  get detectedHosts(): Record<string, string> {
+    return shared.detectedHosts;
+  }
+  set detectedHosts(v: Record<string, string>) {
+    shared.detectedHosts = v;
+  }
   /**
    * §21 #93: head text of files loaded on demand (container editor / containers list: implicit + suggested depends in
    * mounted files), keyed by fileSlug with the head content ref it belongs to (a new head invalidates it).
@@ -401,7 +462,7 @@ class DraftStore {
     try {
       const oldBase = this.base.config;
       const mine = $state.snapshot(this.work) as ConfigInput;
-      const cfg = await api.config({});
+      const cfg = await this.loadHead();
       const next = await this.rebaseInput(oldBase, mine, cfg, `commit ${cfg.head?.seq ?? '—'}`);
       if (!next) return null;
       this.base = cfg;
@@ -420,7 +481,7 @@ class DraftStore {
       if (this.applying?.updateId !== updateId) return;
       let run: Awaited<ReturnType<typeof api.getUpdate>> | null = null;
       try {
-        run = await api.getUpdate({ updateId });
+        run = await this.getUpdate(updateId);
       } catch {
         run = null;
       }
@@ -432,7 +493,7 @@ class DraftStore {
           void this.blobs.clear();
           this.offer = null;
           try {
-            const cfg = await api.config({});
+            const cfg = await this.loadHead();
             this.applying = null;
             this.adopt(cfg, this.deploymentId, this.siteSlug, true);
           } catch {
@@ -528,7 +589,72 @@ class DraftStore {
   }
 }
 
-export const draft = new DraftStore();
+/** §21 #126 one set per site, made on first use (the declared person carried over) */
+const stores = new Map<string, DraftStore>();
+let currentUser: string | null = null;
+/**
+ * A store must be made OUTSIDE any effect: its deriveds belong to the effect that is running when it is made and die
+ * with it (a page that is left). A missing store is made in a microtask and the placeholder answers meanwhile (empty:
+ * "loading"); the `made` bump renders the readers again.
+ * The overview load makes every site's store up front (after its await: no effect running).
+ */
+const placeholder = new DraftStore('');
+function makeStore(site: string): DraftStore {
+  let d = stores.get(site);
+  if (d) return d;
+  d = new DraftStore(site);
+  stores.set(site, d);
+  storeMade();
+  if (currentUser) void d.setUser(currentUser);
+  return d;
+}
+export function draftFor(site: string): DraftStore {
+  const d = stores.get(site);
+  if (d) return d;
+  // a component's setup is not "tracking" but still inside its effect: always make it in a microtask (no effect runs)
+  queueMicrotask(() => makeStore(site));
+  return placeholder;
+}
+/** make the stores of these sites now (call outside any effect) */
+export function ensureDrafts(sites: string[]) {
+  for (const s of sites) if (s) makeStore(s);
+}
+/** the set of a site if one was made (sidebar markers; never creates one) */
+export const peekDraft = (site: string): DraftStore | undefined => (void shared.made, stores.get(site));
+export const allDrafts = (): DraftStore[] => [...stores.values()];
+/** the person declared / changed / logged out: every set follows */
+export async function setDraftUser(email: string | null) {
+  currentUser = email;
+  await Promise.all(allDrafts().map((d) => d.setUser(email)));
+}
+export async function endDraftSessions() {
+  currentUser = null;
+  await Promise.all(allDrafts().map((d) => d.endSession()));
+}
+/** some site's set holds changes that are not committed */
+export const anyDirty = (): boolean => allDrafts().some((d) => d.dirty);
+/** the site of the page (a site of the tree), else the agent the person is logged in to */
+export function pageSite(): string {
+  const p = page.params.siteSlug;
+  return p && p !== '*' ? p : selfSlug();
+}
+
+/** the change set of the page's site (every config page edits through this) */
+export const draft: DraftStore = new Proxy({} as DraftStore, {
+  get(_, k) {
+    void shared.made;
+    const d = draftFor(pageSite());
+    const v = Reflect.get(d, k, d);
+    return typeof v === 'function' ? v.bind(d) : v;
+  },
+  set(_, k, v) {
+    const d = draftFor(pageSite());
+    return Reflect.set(d, k, v, d);
+  },
+  has(_, k) {
+    return k in draftFor(pageSite());
+  },
+});
 
 /** Summary prefill from changes, e.g. "theme green → yellow" */
 export function summarize(changes: DiffChange[]): string {

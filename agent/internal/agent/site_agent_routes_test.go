@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"os"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,5 +99,38 @@ func TestSiteAgentRoutesThroughMesh(t *testing.T) {
 	}
 	if !app.remoteGuiEnabled() {
 		t.Fatal("app's own setting must not change")
+	}
+
+	// §21 #126 db's branch is edited from app's GUI: its config, the stage of the commit and the commit itself go to db
+	var cfg model.AgentConfigResponse
+	if code := jsonOf(req("GET", "/_opm/api/sites/db/config", "", ck, ""), &cfg); code != 200 || cfg.Head != nil {
+		t.Fatalf("db config: %d %+v", code, cfg.Head)
+	}
+	content := "hello db"
+	sum := sha256.Sum256([]byte(content))
+	sha := hex.EncodeToString(sum[:])
+	var st model.Stage
+	if code := jsonOf(req("POST", "/_opm/api/sites/db/stages", `{"blobs":[{"sha256":"sha256:`+sha+`","sizeBytes":8}]}`, ck, auth), &st); code != 201 || st.StageID == "" {
+		t.Fatalf("db stage: %d %+v", code, st)
+	}
+	var put map[string]any
+	if code := jsonOf(req("PUT", "/_opm/api/sites/db/stages/"+st.StageID+"/blobs/sha256:"+sha, content, ck, auth), &put); code != 200 {
+		t.Fatalf("db stage blob: %d %+v", code, put)
+	}
+	if _, err := os.Stat(db.stageDir(st.StageID)); err != nil {
+		t.Fatalf("the stage must be on db: %v", err)
+	}
+	if _, err := os.Stat(app.stageDir(st.StageID)); err == nil {
+		t.Fatal("the stage must not be on app")
+	}
+	// db has no head yet: db's own answer comes back (stale, "this site has no head yet")
+	var ce struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if code := jsonOf(req("POST", "/_opm/api/sites/db/branch/commit", `{"message":"x","baseCommitId":null,"config":{"variables":[],"secrets":[],"files":[],"sites":[]},"stageId":"`+st.StageID+`"}`, ck, auth), &ce); code != 409 || ce.Error.Code != "stale" || !strings.Contains(ce.Error.Message, "no head") {
+		t.Fatalf("db commit: %d %+v", code, ce)
 	}
 }

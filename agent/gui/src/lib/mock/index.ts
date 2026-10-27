@@ -1784,6 +1784,60 @@ H.deleteLocalStage = (c) => {
   };
 }
 
+// §21 #126 every site's branch edits from any site's GUI: this site → its own handlers; another site → a small own
+// head per site (starts as a copy of this site's head; a commit of browser edits becomes its head at once, no run)
+{
+  const remoteHeads = new Map<string, { commitId: string; seq: number; config: Config }>();
+  const remoteHead = (site: string) => {
+    let h = remoteHeads.get(site);
+    if (!h) {
+      const b = head();
+      h = { commitId: D.mockUlid(), seq: b?.seq ?? 0, config: JSON.parse(JSON.stringify(b?.config ?? { variables: [], secrets: [], files: [], sites: [] })) as Config };
+      remoteHeads.set(site, h);
+    }
+    return h;
+  };
+  const self = (c: Ctx) => c.params.siteSlug === D.SELF;
+  const peer = (c: Ctx) => {
+    if (!reachable(c.params.siteSlug!)) throw new MockError('unavailable', `site ${c.params.siteSlug} is not reachable`);
+    return remoteHead(c.params.siteSlug!);
+  };
+  H.siteConfig = (c, s, actor) => {
+    if (self(c)) return H.config!(c, s, actor);
+    const h = peer(c);
+    return { head: { revId: h.commitId, seq: h.seq, hash: D.fakeSha(h.commitId) }, config: maskConfig(h.config), catalog: D.catalog, knownCatalog: D.catalog };
+  };
+  H.siteCreateStage = (c, s, actor) => H.createLocalStage!(c, s, actor);
+  H.sitePutStageBlob = (c, s, actor) => H.putLocalStageBlob!(c, s, actor);
+  H.siteDeleteStage = (c, s, actor) => H.deleteLocalStage!(c, s, actor);
+  H.siteGetFileContent = (c, s, actor) => {
+    if (self(c)) return H.getFileContent!(c, s, actor);
+    const f = peer(c).config.files.find((x) => x.fileSlug === c.params.fileSlug);
+    if (!f || !f.content) throw new MockError('not-found', 'this file has no content');
+    return fileResponse(D.fileBlobs[f.content.sha256] ?? '', f.fileSlug, f.mime);
+  };
+  H.siteRevealSecret = (c, s, actor) => {
+    if (self(c)) return H.revealSecret!(c, s, actor);
+    const v = peer(c).config.secrets.find((x) => x.secretSlug === c.params.secretSlug);
+    if (!v?.value) throw new MockError('not-found', 'this secret has no value');
+    return { value: v.value, hideAfterSec: REVEAL_SECONDS };
+  };
+  H.siteCommitLocal = (c, s, actor) => {
+    if (self(c)) return H.commitLocal!(c, s, actor);
+    const h = peer(c);
+    const b = (c.body ?? {}) as { message?: string; baseCommitId?: string | null; config?: ConfigInput; stageId?: string };
+    if (!b.config) throw new MockError('invalid', 'mock: only browser edits are committed on another site here');
+    if ((b.baseCommitId ?? null) !== h.commitId) throw new MockError('stale', `site ${c.params.siteSlug} moved on — rebase your changes`, { reason: 'head-moved' });
+    const st = b.stageId ? stages.get(b.stageId) : undefined;
+    for (const x of configBlobs(b.config)) if (D.fileBlobs[x.sha256] === undefined && st?.staged[x.sha256] !== undefined) D.fileBlobs[x.sha256] = st.staged[x.sha256]!;
+    if (b.stageId) stages.delete(b.stageId);
+    const next = { commitId: D.mockUlid(), seq: h.seq + 1, config: buildConfig(b.config, h.config).config };
+    remoteHeads.set(c.params.siteSlug!, next);
+    addActivity(c.params.siteSlug!, 'branch.committed', `Committed on ${c.params.siteSlug}: ${String(b.message ?? '').split('\n')[0]}`, actor, { siteSlug: c.params.siteSlug, seq: next.seq });
+    return { commit: { commitId: next.commitId, seq: next.seq }, run: null };
+  };
+}
+
 // ───────────────────────────────────────────── router
 const ROUTES = Object.entries(AGENT_API)
   .map(([op, def]) => ({ op: op as keyof typeof AGENT_API, def, n: (def.path.match(/\{/g) ?? []).length, re: new RegExp('^' + def.path.replace(/\./g, '\\.').replace(/\{(\w+)\}/g, '(?<$1>[^/]+)') + '$') }))

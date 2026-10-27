@@ -1,7 +1,7 @@
 /** §21 #123 Files: one shared bucket per deployment, as seen by a site (URL /transfers); publish (browser | server path),
  * download (a copy first when it is not here), save on server, get a copy here, drop this site's copy, unpublish. */
 import { test, expect } from './fixtures';
-import { login, nav, open, shot } from './helpers';
+import { login, nav, open, shot, treeLink } from './helpers';
 import type { Page } from '@playwright/test';
 
 const SCR = process.env.OPM_SCREENS_DIR;
@@ -53,8 +53,7 @@ test('one Files module (URL /transfers): the shared list with every badge, as se
   await snap(page, 'files-dark');
   await page.emulateMedia({ colorScheme: 'light' });
   // the same list on db, with db's copies
-  await page.getByTestId('tree-toggle-db').click();
-  await page.getByTestId('tree-db-transfers').click();
+  await treeLink(page, 'db', 'transfers');
   await page.waitForURL(/\/_opm\/app\/db\/transfers$/);
   await expect(row(page, 'redis-dump.rdb')).toHaveAttribute('data-badge', 'here');
   await expect(row(page, 'plant-layout.pdf')).toHaveAttribute('data-badge', 'available');
@@ -85,8 +84,7 @@ test('Publish → From this browser: upload with progress, then listed here', as
   await expect(r).toContainText(/by tester@acme\.example/);
   await expect(page.getByTestId('browser-upload')).toHaveCount(0);
   // every site sees it (db: on a peer)
-  await page.getByTestId('tree-toggle-db').click();
-  await page.getByTestId('tree-db-transfers').click();
+  await treeLink(page, 'db', 'transfers');
   await page.waitForURL(/\/_opm\/app\/db\/transfers$/);
   await expect(row(page, 'report.csv')).toHaveAttribute('data-badge', 'available');
   await expect(row(page, 'report.csv').getByTestId('hint')).toContainText('from app over the mesh');

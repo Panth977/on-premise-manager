@@ -30,7 +30,7 @@ test('several pages → ONE commit; a reload restores the set (secret values are
   await login(page, '/_opm/app/app/variables');
   await pickOption(page, 'var-theme', 'blue');
   await expect(bar(page)).toContainText('1 change (not committed)');
-  await page.getByTestId('side-files').click(); // §21 #123: the config Files link (the site tree also has "Shared files")
+  await page.getByTestId('tree-app-files').click(); // §21 #126: Files of site app (Shared files is under Server)
   await page.getByTestId('edit-banner').click();
   await page.getByTestId('file-drawer').getByTestId('code-editor').fill('Welcome to the plant, night shift\n');
   await page.getByTestId('file-done').click();
@@ -141,7 +141,7 @@ test('the head moves under pending changes in this tab → rebased onto it (a co
   await page.getByTestId('branch-tabs-overview').click();
   await expect(page.getByTestId('n-edits')).toHaveText('2');
   // the rebased set kept my cert and my theme on top of the new head
-  await page.getByTestId('side-variables').click();
+  await page.getByTestId('tree-app-variables').click();
   await expect(bar(page)).toContainText('2 changes (not committed)');
 });
 

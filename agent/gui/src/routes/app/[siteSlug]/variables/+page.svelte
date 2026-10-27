@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { headConfig } from '$lib/state/app.svelte';
   import { draft } from '$lib/state/draft.svelte';
   import { showValue } from '$lib/format';
@@ -15,6 +16,7 @@
   import Confirm from '$lib/ui/Confirm.svelte';
   import type { Variable, VariableValue } from '@opm/shared/types';
 
+  const slug = $derived(page.params.siteSlug ?? '');
   const headVars = $derived(draft.base?.config.variables ?? []);
   function setValue(slug: string, val: VariableValue) {
     const v = draft.work?.variables.find((x) => x.variableSlug === slug);
@@ -62,7 +64,7 @@
     [v.validation?.min !== null && v.validation?.min !== undefined ? `min ${v.validation.min}` : '', v.validation?.max !== null && v.validation?.max !== undefined ? `max ${v.validation.max}` : '', v.validation?.pattern ? `pattern ${v.validation.pattern}` : ''].filter(Boolean).join(' · ');
 </script>
 
-<PageHead icon="variable" title="Variables" sub="Deployment-wide values, the same on every site. Add, change and remove variables here — every change is a commit of this site's branch (merge it into the cloud from the Branch page).">
+<PageHead icon="variable" eyebrow="Site {slug}" title="Variables" sub="Values of {slug}'s branch. Commit applies them on {slug} only.">
   {#snippet actions()}
     <Btn icon="plus" variant="primary" disabled={!draft.work} onclick={openNew} data-testid="add-variable">Add variable</Btn>
   {/snippet}

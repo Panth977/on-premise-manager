@@ -15,11 +15,13 @@ test('Sites tree (same as the cloud sidebar): every site with its pages; nodes c
   for (const s of ['app', 'db', 'northwind']) await expect(page.getByTestId(`tree-site-${s}`)).toBeVisible();
   await expect(page.getByTestId('tree-app-status')).toHaveAttribute('aria-current', 'page');
   // the site of the page is open, the others closed; the pages of a site in the cloud order
-  for (const k of ['status', 'containers', 'edge', 'volumes', 'devtools', 'settings', 'transfers', 'branch', 'server']) await expect(page.getByTestId(`tree-app-${k}`)).toBeVisible();
+  for (const k of ['status', 'containers', 'volumes', 'devtools', 'variables', 'secrets', 'files', 'server']) await expect(page.getByTestId(`tree-app-${k}`)).toBeVisible();
   await expect(page.getByTestId('tree-db-containers')).toBeHidden();
-  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Edge/, /^Volumes/, /^Dev tools/, /^Settings/, /^Shared files/, /^Branch/, /^Server/]);
-  // §21 #104 Branch: 3 uncommitted + 2 behind
+  await expect(page.getByTestId('tree-site-app').locator(':scope > ul > li > a, :scope > ul > li > .node > a')).toHaveText([/^Status/, /^Containers/, /^Volumes/, /^Dev tools/, /^Variables/, /^Secrets/, /^Files/, /^Server/]);
+  // §21 #104 Branch (§21 #126: under Server): 3 uncommitted + 2 behind
+  await page.getByTestId('tree-toggle-app-server').click();
   await expect(page.getByTestId('branch-badge')).toHaveText('5');
+  await page.getByTestId('tree-toggle-app-server').click();
   // Containers open by default (one leaf per container), Volumes closed until opened — then remembered
   await expect(page.getByTestId('tree-app-c-hello-api')).toBeVisible();
   await expect(page.getByTestId('tree-app-v-api-env')).toBeHidden();
@@ -44,21 +46,24 @@ test('Sites tree (same as the cloud sidebar): every site with its pages; nodes c
   await expect(page.getByTestId('tools-containers')).toContainText('redis');
   await page.getByTestId('tree-db-status').click();
   await expect(page.getByTestId('page-title')).toHaveText('Status · db');
-  // Server › Docker · Network · Agent · Debug, Dev tools › tools
+  // Server › Docker · Network · Agent · Host shell · Debug · Tunnels · Shared files · Branch · Edge · Settings, Dev tools › tools
   await page.getByTestId('tree-toggle-db-server').click();
-  for (const k of ['docker', 'network', 'agent', 'debug']) await expect(page.getByTestId(`tree-db-${k}`)).toHaveAttribute('href', `/_opm/app/db/${k}`);
+  for (const k of ['docker', 'network', 'agent', 'shell', 'debug', 'tunnels', 'transfers', 'branch']) await expect(page.getByTestId(`tree-db-${k}`)).toHaveAttribute('href', `/_opm/app/db/${k}`);
+  for (const k of ['edge', 'settings']) await expect(page.getByTestId(`tree-db-config-${k}`)).toHaveAttribute('href', `/_opm/app/db/config/${k}`);
   await page.getByTestId('tree-toggle-db-devtools').click();
   await expect(page.getByTestId('tree-db-devtools-sql')).toHaveAttribute('href', '/_opm/app/db/devtools/sql');
   // a page inside a collapsed node opens it
   // only the site of the page opens by itself: on a db page, app is closed until one of its pages opens it
   await expect(page.getByTestId('tree-app-status')).toBeHidden();
   await open(page, '/_opm/app/app/config/edge');
-  await expect(page.getByTestId('tree-app-edge')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('tree-app-config-edge')).toHaveAttribute('aria-current', 'page');
 });
 
 test('deployment-wide pages follow the site of the URL; the site is remembered per tab', async ({ page }) => {
   await login(page, '/_opm/app/db/containers');
-  for (const k of ['variables', 'secrets', 'files', 'activities', 'backups', 'internet']) await expect(page.getByTestId(`side-${k}`)).toHaveAttribute('href', `/_opm/app/db/${k}`);
+  for (const k of ['activities', 'backups', 'internet']) await expect(page.getByTestId(`side-${k}`)).toHaveAttribute('href', `/_opm/app/db/${k}`);
+  // §21 #126 per site: Variables · Secrets · Files are in each site's tree
+  for (const k of ['variables', 'secrets', 'files']) await expect(page.getByTestId(`tree-db-${k}`)).toHaveAttribute('href', `/_opm/app/db/${k}`);
   await nav(page, 'sites');
   await page.waitForURL(/\/_opm\/app\/db\/sites$/);
   await expect(page.getByTestId('tile-db')).toHaveAttribute('aria-current', 'true');
@@ -115,7 +120,7 @@ test('Branch (§21 #104, replaces Diff): cloud vs this site; a local edit shows 
   await nav(page, 'variables');
   await pickOption(page, 'var-theme', 'blue');
   await expect(page.getByTestId('local-edit-bar')).toContainText('1 change (not committed)');
-  await expect(page.getByTestId('tree-app-branch').locator('.edited')).toBeVisible();
+  await expect(page.getByTestId('tree-edited-app')).toBeVisible();
   // §21 #105: the change stays in this browser (no Save); Branch counts it as "in this browser, not committed"
   await nav(page, 'branch');
   await expect(page.getByTestId('n-edits')).toHaveText('1');

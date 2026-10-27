@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { expectOnTop, login, open, shot } from './helpers';
+import { expectOnTop, login, open, shot, treeLink } from './helpers';
 
 const PAGES = ['/_opm/app', '/_opm/app/variables', '/_opm/app/secrets', '/_opm/app/updates', '/_opm/app/backups', '/_opm/app/app/status', '/_opm/app/app/activities', '/_opm/app/app/config', '/_opm/app/internet', '/_opm/app/app/transfers'];
 
@@ -61,7 +61,7 @@ test('390 px (round D): site scope without top bar, drawer toggle in the breadcr
   await page.getByTestId('actor-chip').scrollIntoViewIfNeeded();
   await expect(page.getByTestId('actor-chip')).toBeInViewport();
   await shot(page, 'd-nav-mobile-footer', false);
-  await page.getByTestId('tree-app-settings').click();
+  await treeLink(page, 'app', 'config-settings');
   await page.waitForURL(/config\/settings$/);
   await expect(page.getByRole('navigation', { name: 'Main' })).not.toBeInViewport();
   for (const p of ['/_opm/app/files', '/_opm/app/app/config/volumes', '/_opm/app/app/config/containers/hello-api', '/_opm/app/backups']) {

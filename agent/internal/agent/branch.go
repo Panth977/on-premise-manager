@@ -1978,7 +1978,8 @@ func (a *Agent) branchRoutes() []struct {
 		{"GET /branch/uncommitted", authSession, a.handleUncommitted, true},
 		{"PUT /branch/working", authActor, a.handlePutWorking, false},
 		{"POST /branch/drift/rescan", authActor, a.handleRescanDrift, true},
-		{"POST /branch/commit", authActor, a.handleCommitLocal, false},
+		// §21 #126 per site too: the browser edits of THAT site's pages (its stage holds their blobs)
+		{"POST /branch/commit", authActor, a.handleCommitLocal, true},
 		// the same commit, per site: only the changes made on that server (drift keys / notes), never browser edits
 		{"POST /branch/commit-drift", authActor, a.handleSiteCommitDrift, true},
 		{"POST /branch/discard", authActor, a.handleDiscardLocal, true},
@@ -2036,7 +2037,7 @@ func (a *Agent) handleSiteCommitDrift(w http.ResponseWriter, r *http.Request) (a
 		return nil, 0, herr(model.ErrInvalid, "body: "+err.Error(), nil)
 	}
 	if (len(peek.Config) > 0 && string(peek.Config) != "null") || peek.StageID != "" {
-		return nil, 0, herr(model.ErrInvalid, "a per-site commit records only the changes made on that server (keys / accept / takeBytes); commit browser edits on the agent you are logged in to", nil)
+		return nil, 0, herr(model.ErrInvalid, "commit-drift records only the changes made on that server (keys / accept / takeBytes); browser edits go to POST …/branch/commit of that site", nil)
 	}
 	return a.handleCommitLocal(w, r)
 }

@@ -109,6 +109,9 @@
         <tbody>
           {#each sites as site (site)}
             {@const st = run.sites[site]}
+            <!-- §21 #127 only changed containers are stopped / (re)created; the others keep running (only their readiness is checked) -->
+            {@const changed = st.containers.filter((c) => c.action !== 'keep' || c.state === 'failed')}
+            {@const kept = st.containers.filter((c) => c.action === 'keep' && c.state !== 'failed')}
             <tr>
               <th scope="row" class="mono">{site}</th>
               {#each STEPS as step (step)}
@@ -117,9 +120,10 @@
               {/each}
               <td>
                 <div class="acts">
-                  {#each st.containers as c (c.containerSlug)}
+                  {#each changed as c (c.containerSlug)}
                     <span class="badge {stepTone(c.state)}" title={c.error ?? `${c.serviceSlug} · ${c.action}: ${c.state}`} data-testid="progress-{c.containerSlug}">{c.containerSlug} · {c.action}</span>
-                  {:else}<span class="faint small">none</span>{/each}
+                  {:else}<span class="faint small">{kept.length ? 'no container changes' : 'none'}</span>{/each}
+                  {#if kept.length}<span class="badge outline" title={`kept running, not restarted: ${kept.map((c) => c.containerSlug).join(', ')}`} data-testid="progress-kept-{site}">{kept.length} unchanged · kept running</span>{/if}
                 </div>
                 {#if st.error}<div class="field-err">{st.error}</div>{/if}
               </td>

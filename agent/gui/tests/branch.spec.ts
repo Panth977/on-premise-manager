@@ -59,6 +59,8 @@ test('edit → ONE commit from the change bar (no Save) → applied → history'
   await expect(page).toHaveURL(/\/branch$/);
   await expect(page.getByTestId('branch-run')).toBeVisible();
   await expect(page.getByTestId('update-result')).toContainText('Applied', { timeout: 40_000 });
+  // §21 #127 only the containers that change are listed; the rest keep running (one badge)
+  await expect(page.getByTestId('progress-kept-app')).toContainText('unchanged · kept running');
   await page.getByTestId('branch-tabs-history').click();
   await expect(page.getByTestId('history-row-8')).toContainText('Theme blue for the control room', { timeout: 10_000 });
   await page.getByTestId('branch-tabs-overview').click();

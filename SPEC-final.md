@@ -6682,6 +6682,16 @@ Pass = every check above green; results file lists timings and the activity coun
     (e) Tests: `TestSiteAgentRoutesThroughMesh` (db's config, stage and commit through app; the stage lands on db),
         `TestSiteBranchRoutes`, agent GUI spec `site-config-126`.
 
+127. **A commit restarts only the containers it changes** (user: "only restart the containers that have changes … otherwise
+    a small one container env change will end up adding a downtime for all containers"). The apply engine already plans
+    per container (§14.5: create / recreate / remove / keep by spec hash; the pre-update snapshot stops only the changed
+    containers and those sharing a backed-up volume with them; the edge reloads in process). Checked on a live site: a
+    commit changing the image of 6 containers recreated exactly those 6; every other container kept running. What looked
+    like a full restart was the update progress: every container was listed, kept ones too, and turned "running" while
+    their readiness was checked. The progress now lists only the changed containers plus one badge
+    "N unchanged · kept running" (`progress-kept-<site>`, the names in its title). Note: the scheduled snapshot (§10)
+    still stops the containers whose volumes it archives.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |

@@ -1,0 +1,218 @@
+# Every test of backend/test (the TypeScript harness, last run on commit 694b0bc: 206 tests, 203 pass, 2 fail, 1 skip) as
+# <file><TAB><test path, " / " between nesting levels>. Frozen: read by TestMappingNoTestLost.
+01-auth.test.ts	signing vectors (shared/testdata/canonical-vectors.json) verify with the backend verifier
+01-auth.test.ts	router: every CLOUD_API route exists; unknown → 404; wrong method → 405
+01-auth.test.ts	human auth: missing / bad token → 401; no account → 403; disabled → 403
+01-auth.test.ts	GET /v1/me: isAdmin flag, lastLoginAt at most once per hour
+01-auth.test.ts	revoked refresh tokens (account disabled through Auth) are rejected
+01-auth.test.ts	CORS: agent/install paths are open; human paths only for OPM_FRONTEND_ORIGINS
+02-catalog.test.ts	registries: create (masked), get, patch resets lastCheck, reveal writes audit, delete conflict while used
+02-catalog.test.ts	registry test against an unreachable registry stores lastCheck ok=false
+02-catalog.test.ts	permissions: developer resources need scope all; catalog read is implicit
+02-catalog.test.ts	services: slug = id (unique, immutable), no repository; images: version = id, reference + registry match, source fix only while failed, env options
+02-catalog.test.ts	not-found pages: create-only (405), too-large, usage blocks delete
+02-catalog.test.ts	tags: create / conflict / patch / delete removes the slug from deployments and access scopes
+03-accounts.test.ts	accounts: create (generated password + audit), email conflict, validation
+03-accounts.test.ts	accounts: own profile always; access needs accounts.admin; get own always
+03-accounts.test.ts	accounts: disable / enable; self and last admin protected; disabled tokens rejected
+03-accounts.test.ts	audit log paging with cursor
+04-deployments.test.ts	templates (§21 #105): create v1, details PATCH (ifVersion), config only by a commit; save-level errors → 422 nothing saved
+04-deployments.test.ts	deployments: create from template generates secrets + access key; view masks secrets; delete is soft
+04-deployments.test.ts	deployment access: create needs deployments.write covering tags; list filtered; managers see their deployment
+04-deployments.test.ts	drafts are gone (§21 #105): section / site writes 410; a commit validates like the old save + publish
+04-deployments.test.ts	§21 #104 diff (working copy vs head commit) + commit + compat proposal + supersede + discard + revisions
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / install token + script + binary
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / enroll: consumes the token; reuse → gone; enrolled site → conflict
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / signed requests: clock, nonce replay, bad signature, unknown site, tampered body
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / poll: immediate answer, long-poll wakes on publish, holds when nothing changes
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / proposal fetch (plain secrets + secret.fetched), staging reports → derived status
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / reportHead: verify hashes, store, head moves, proposal applied, others stale, fork conflict
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / image manifest + blobs: only head / open proposal content; Range; file blobs
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / heartbeat: liveness, uptime beats, status online; advertise change bumps agentEpoch
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / activities pipe: contiguous, gap → invalid, skip existing, broken chain → 422
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / .opmlog manual upload: signature, chain, skip / insert / reject
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / relay: db relays app heartbeats; inner signature checked; relayVia set
+05-agent.test.ts	agent lifecycle: install → enroll → signed calls → poll → staging → head → activities → relay → revoke / access key rotate → cloud view version 2; revoke → key stops working; deleted → poll says deleted
+06-transfers.test.ts	blobs: small upload, sha header check, dedupe, download + Range, permissions
+06-transfers.test.ts	uploads: multi-part ≥ 24 MiB (8 MiB parts), resume state, exact part sizes, missing parts, sha mismatch
+06-transfers.test.ts	transfers: cloud → site (ready, cloud view, agent download, saved) and site → cloud (download → downloaded); delete; daily expiry
+06-transfers.test.ts	transfers §21 #100: fetched → fetchedAt (once, idempotent); to-cloud completes with nobody viewing; to-site waits in the cloud view
+07-import.test.ts	registry test + inspect + copy import + gateway import against Artifact Registry
+08-scripts.test.ts	scripts: upload-agent writes agent/<v>/<os>-<arch>/opm-agent + .sha256 + .sig + latest; create-admin is idempotent
+09-audit.test.ts	guarantee: every human non-GET op writes an audit entry (root) or a _cloud activity (deployment scope)
+09-audit.test.ts	§21 #105 a commit records secret value changes by slug (never values); deployment delete writes deployment.deleted + audit
+09-audit.test.ts	redaction: no secret value is ever stored in the audit log
+09-audit.test.ts	failure entries: 403 forbidden, 422 invalid, no account; 401 is not logged
+09-audit.test.ts	template patch: before → after diff; account actions refined; filters
+09-audit.test.ts	uploads: one entry at complete (part count), none per part; blobs audited
+09-audit.test.ts	system entries: image import failure (trigger) and the daily job
+10-phase-u.test.ts	icons: sniff + svg sanitizer (unit)
+10-phase-u.test.ts	icons: upload, dedupe, svg sanitizing, limits, list usedBy, delete 409, public content, audit
+10-phase-u.test.ts	revision catalogs embed uploaded service icons as data: URLs
+10-phase-u.test.ts	registries: anonymous (both empty) allowed, exactly one empty → invalid
+10-phase-u.test.ts	registry JWT access claim: token without pull access → clear error + accessible repositories hint
+10-phase-u.test.ts	Docker Hub browsing via the hub API (stub): account + org repos, search, tags, hint
+10-phase-u.test.ts	registry browse endpoints: perms, validation, supported:false fallback; test login with a repository body
+10-phase-u.test.ts	migrate-v2: old-shape data → dry run changes nothing → apply → verify-schema 0 → second run 0 changes
+11-round-c.test.ts	instances: two containers of the same image on one site → save, publish, catalog, usage, delete conflict
+11-round-c.test.ts	auto host: host null in a template + deployment publishes; {{ var.x }} with no value → V_HOST_AUTO warning, never an error
+11-round-c.test.ts	legacy shapes on write are normalized (template PATCH + draft PUT): containerSlug, ports, explicit image volumes, depends, proxy, host
+11-round-c.test.ts	files: render defaults (text → expressions, binary → none); binary + expressions → 422 invalid
+11-round-c.test.ts	blobs: human GET ≤ BLOB_STREAM_MAX → 200 body + ETag + private cache (304 on If-None-Match); larger → 302 (serveMode)
+11-round-c.test.ts	enroll + heartbeat store detectedAddresses (≤ 32 strings, each ≤ 255); status + setup expose them
+11-round-c.test.ts	migrate-c: legacy template / draft / snapshot / revision → dry run reports, apply converts, rerun 0, verify-schema 0
+12-round-d.test.ts	normalize on write: pre-D site (data source, read-only, implicit row) → declared volume, volume source, readOnly false (draft PUT + template PATCH)
+12-round-d.test.ts	normalize on read: a pre-D document written directly to Firestore is served declared + explicit (image volumes known)
+12-round-d.test.ts	validation: undeclared volume → 422 V_VOLUME_UNDECLARED; unused → V_VOLUME_UNUSED warning; not mounted → warning; file readOnly forced; diff section volumes
+12-round-d.test.ts	migrate-d: pre-D template / draft / snapshot / revision → dry run lists declared volumes + read-only resets, apply, rerun 0, verify-schema 0
+12-round-d.test.ts	locations: missing → auto on write + read; custom "./" + absolute kept; malformed / reserved / nested → 422 V_LOCATION
+12-round-d.test.ts	migrate-d part 2: files + volumes get location auto; a file using container.* is reported (not rewritten); rerun 0; verify-schema 0
+13-round-e.test.ts	new edge shape: regex / exact / rewrite / stop-regex routes, response headers, timeouts, body limits are saved as sent (draft PUT + template PATCH)
+13-round-e.test.ts	legacy edge shape from a client (pathPrefix / timeoutSec, no responseHeaders / maxBodyBytes) is normalized on write, not rejected; legacy stored data normalized on read
+13-round-e.test.ts	validation: V_EDGE_REGEX → 422 invalid on draft + template save; W_RESPONSE_HEADER_AS_REQUEST is a warning (saved, publishable)
+13-round-e.test.ts	migrate-e: legacy template / draft / snapshot / revision → dry run lines + notes, apply (headers untouched), rerun 0, verify-schema 0
+13-round-e.test.ts	required variables: template save (required null → nothing; optional null → INFO), draft V_VAR_REQUIRED warning, publish blocked, publish ok when set
+13-round-e.test.ts	seed archives: createUpload purpose seed-archive ≤ 200 MiB (gzip only), seed on a volume saved + published, agent may fetch it, daily keeps it
+13-round-e.test.ts	volumes kind + seed: missing → dir / null on write and read
+14-image-edit.test.ts	edit every editable field of an unused image (same validation as registration)
+14-image-edit.test.ts	identity fields are rejected; reference only while the import failed
+14-image-edit.test.ts	in-use rename → 409 in-use with the list; rename everywhere updates TEMPLATES only (§21 #94: drafts detached), never the head; Template sync takes the rename
+14-image-edit.test.ts	removal of an in-use name is blocked (also with renameEverywhere); unused removal, additions and port retargets are ok
+15-volume-kind.test.ts	register / patch / read: kind explicit (absent → inferred from the path), invalid kind → V_ENUM, inspect volumes = dir
+15-volume-kind.test.ts	container kind matrix through the draft API + migrate-f (legacy image: dry run → apply → rerun 0, verify-schema, audit)
+16-reveal.test.ts	access key: stored, revealed any time (activity + audit), rotate = regenerate, not-stored → 410; never in views
+16-reveal.test.ts	install commands: stored while active, revealed (activity + audit), replaceActive, gone reasons
+16-reveal.test.ts	secrets: reveal 60 s (activity + audit); §21 #105 regenerate = generateNow in a commit (slugs in data / activity / audit), the old route 410
+16-reveal.test.ts	registry password reveal: 60 s, value = password, audited
+16-reveal.test.ts	permissions: every reveal / regenerate needs its permission (403)
+16-reveal.test.ts	rate limit: 30 value-returning requests per uid per minute → 429 rate-limited + Retry-After (no-store)
+16-reveal.test.ts	accounts: generated password stored + revealed, set new password, cleared after the person changes it; reset links
+16-reveal.test.ts	migrate-g: pre-#84 docs get null fields (never rotates); verify-schema requires them; idempotent
+17-install-script.test.ts	install script: sh -n, shellcheck, pinned versions, docker auto-install branch + OPM_SKIP_DOCKER_INSTALL guard
+17-install-script.test.ts	install script docker API check: ver_ge accepts Docker 20.10 (1.41) and 29 (min 1.44 <= cap 1.47), rejects 1.40 / too new
+17-install-script.test.ts	install script runs: non-root fails at preflight with the manual hint (exit 1, log written)
+17-install-script.test.ts	GET /v1/install/deps/docker: pinned bundle (sha + version headers), token rules; getSetup.installDeps; script embeds the pins
+17-install-script.test.ts	install script final step: listen_ports (ss / netstat / /proc fallback) + gui_url (port 80 first, no :80 / :443)
+18-install-e2e.test.ts	installer e2e: ubuntu:24.04 container, DRY_RUN=1 → pinned Docker bundle + agent land in /usr/local/bin
+19-edge80-upgrade.test.ts	round H: used-token upgrade path, agent release/binary, heartbeat guiPorts → setup guiUrls / defaultEdge / portAlerts
+19-edge80-upgrade.test.ts	round H: used-token upgrade path, agent release/binary, heartbeat guiPorts → setup guiUrls / defaultEdge / portAlerts / used token of the current enrollment → upgrade-only script, binary allowed; enroll still gone
+19-edge80-upgrade.test.ts	round H: used-token upgrade path, agent release/binary, heartbeat guiPorts → setup guiUrls / defaultEdge / portAlerts / GET /v1/agent/release + /v1/agent/binary (signed)
+19-edge80-upgrade.test.ts	round H: used-token upgrade path, agent release/binary, heartbeat guiPorts → setup guiUrls / defaultEdge / portAlerts / heartbeat guiPorts + edge.defaultEdge / bindErrors owner → stored, setup guiUrls (port 80 first), defaultEdge, portAlerts; bad shapes 422
+19-edge80-upgrade.test.ts	round H: used-token upgrade path, agent release/binary, heartbeat guiPorts → setup guiUrls / defaultEdge / portAlerts / revokeAgent ends the upgrade rule; a re-enroll with a newer token does not revive the old one
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / release notes + sizeBytes: agentRelease, poll agentRelease, setup agentRelease
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / stale / invalid (+ hint) / not enrolled / bad confirm
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / queued request → poll agentUpgrades → progress download … done clears it (+ activities, audit)
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / cancel before start; conflict after start; failed clears it; agentVersion reaching the pin clears it
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / upgrade all: sequential in siteSlug order; A done → B queued; B rolled-back → run failed, C cancelled; old agent skipped
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / cancel a run: the queued, unstarted request is removed, remaining sites cancelled; audit
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / expiry: an expired request is absent on read; heartbeat / daily job fail the run with the expired error
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / status: SiteCloudStatus.upgrade (null when not enrolled)
+20-agent-upgrade.test.ts	round I: agent upgrades from the cloud console / used install token of the current enrollment → upgrade-only script with the boot guard + GUI upgrade line
+20-agent-upgrade.test.ts	upload-deps --agent-notes / --agent-notes-file: written, kept for the same version, cleared for a new one, > 8000 refused
+21-install-upgrade-e2e.test.ts	installer upgrade-only e2e: enrolled 0.7.2 site → pinned agent, no token, upgrade-guard --install
+22-install-fallback.test.ts	sh ver_cmp == compareAgentVersions; schema_ok == agentSchemaCompatible; install actions
+22-install-fallback.test.ts	script text: prompts via /dev/tty, env flags, rerun hint, backups, units, health + rollback; lint clean
+22-install-fallback.test.ts	tokens: unusable → 200 tiny script (exit 1); installRelease / ?version= / schema headers
+22-install-fallback.test.ts	upload-agent.ts stores <dir>/release.json as agent/<v>/release.json; upload-deps copies schema into the manifest
+23-install-fallback-e2e.test.ts	install command = hard fallback: prompts, flags, upgrade / same / rollback / downgrade, backups, no container touched
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules / enrolled site: the install token stays stored and is the site's upgrade command (view logged + audited)
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules / older token (plaintext not stored) → 410 not-stored; Regenerate mints a maintenance token and revokes the old command
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules / maintenance token: upgrade-only script + binary/deps/release accepted, never enrolls, never expires
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules / Regenerate again revokes the previous maintenance token
+24-upgrade-command.test.ts	§21 #92 upgrade / reinstall command: install token kept, reveal logged, regenerate = maintenance token, rules / permissions: setup.read cannot view or regenerate; tokens never leak into logs; schema clean
+24-upgrade-command.test.ts	§21 #92 heartbeat: lastSeenAt = server receive time; agentTime → clockSkew (agent − server); 422 on a bad agentTime
+26-devtools-presets.test.ts	draft PUT: presets validated (422 V_DEVTOOL_*), normalized, [] omitted; diff section; publish carries them + hash
+26-devtools-presets.test.ts	templates: presets saved + validated in template mode; [] omitted; Template sync plan / apply incl. a conflict
+26-devtools-presets.test.ts	agent activities: every devtools.* type is accepted by POST /v1/agent/activities (the pipe never breaks)
+26-devtools-presets.test.ts	§21 #99: presets may read another container env ({{ containers.<c>.env.<NAME> }}); unknown name → 422 V_DEVTOOL_ENV; plain env password → warning only
+26-devtools-presets.test.ts	§21 #103: a preset password may be a static Value (stored as a literal, warning only); the Diff never shows it; hash filters in files + presets
+27-volume-content.test.ts	§21 #117 persist content is committed: removed Send / edit endpoints 410, commit rules, agent blob upload for any site, old-agent snapshots readable
+27-volume-content.test.ts	starter content: tree seeds publish with blobContents render errors, diff per file, agent blob access, legacy File seeds refused
+27-volume-content.test.ts	daily job prunes AUTO snapshots beyond the newest 200 versions (pinned / referenced / manual kept)
+27-volume-content.test.ts	migrate-h: legacy File seeds + a File inside a writable volume → own content; revisions untouched; idempotent; verify-schema; audit
+28-branches.test.ts	create from: template ← template / deployment, deployment ← deployment (secret rules); origin + merge base; first compare is 3-way
+28-branches.test.ts	template commits (§21 #105 direct): message required, V_NO_CHANGE, stale base, history, commit detail; detachment proof
+28-branches.test.ts	compare + merge: conflict / theirs removal / target-only removal / skipped; 409 stale / source-changed; revert + reset
+28-branches.test.ts	agent branches: compat only for old sites; push verify + fork; views; cloud picks from the site; 0.14 cloud view; removed routes 410
+28-branches.test.ts	merge into a deployment: a new required secret gets its value in the merge (secretValues); never on a template
+29-migrate-i.test.ts	migrate-i: revisions → commits (same ids), open proposal → head, draft → working copy, srcTemplate → origin + merge base, agent mirrors; skip running; idempotent; verify-schema
+30-commit-direct.test.ts	deployment commit: { message, baseCommitId, config }; secrets set / clear / generate recorded by slug only; V_NO_CHANGE; permissions
+30-commit-direct.test.ts	409 stale { reason: head-moved, head } → rebaseChanges (clean, then a conflict) → commit; templates: no values
+30-commit-direct.test.ts	removed working-copy routes answer 410; at:"working" → 422; merges have no dirty check; patchTemplate keeps details
+31-migrate-j.test.ts	migrate-j: working copies → auto-commits, branch.uncommitted removed, concurrent change refused, idempotent, verify-schema
+32-github-mirror.test.ts	settings: validation, audit of every change, token masked everywhere, reveal 60 s (audited, no-store, rate-limited), test connection
+32-github-mirror.test.ts	enable: empty repo initialized, every OPM commit = one git commit (message + trailers, author, date), deterministic tree = git write-tree
+32-github-mirror.test.ts	order + idempotency: commits pushed in seq order; re-enqueue / crash between ref update and state write → no duplicate
+32-github-mirror.test.ts	retry / backoff on 5xx, pause on 401 and on rate limits, Sync now resumes
+32-github-mirror.test.ts	Resync everything: rebuilt from OPM history with the same shas
+32-github-mirror.test.ts	files above the size limit are skipped with .skipped.txt + a note
+32-github-mirror.test.ts	agent branch (commits + persist snapshots), drift → uncommitted branch reset + delete, heartbeat catch-up, all four branch kinds
+32-github-mirror.test.ts	queue listing + cleanup (disable)
+33-slugs.test.ts	template + deployment slugs: derived, unique, requested, immutable, listed
+33-slugs.test.ts	migrate-k: legacy documents get a slug (oldest keeps the plain one), idempotent, audited; verify-schema clean
+34-commit-staging.test.ts	deployment commit with a new blob: stage reports only missing blobs, commit promotes, stage gone, blob readable; no blob audit noise
+34-commit-staging.test.ts	template commit with staged blob; missing staged blob → 422 V_BLOB_MISSING (no commit, stage dropped); no stageId → 422
+34-commit-staging.test.ts	failure after staging (validation error, fault after-verify) deletes the staged blobs and writes no commit
+34-commit-staging.test.ts	crash after promotion: no commit visible, head unchanged; retry finds the blob present and commits
+34-commit-staging.test.ts	409 stale with staged blobs: stage deleted, retry with a new stage on the new head succeeds
+34-commit-staging.test.ts	another person's stage → 404; expired stage → 410; multi-part upload into a stage is not audited
+34-commit-staging.test.ts	the daily job removes expired stages (§21 #117: the persist "Save as new version" is gone — content is committed)
+35-commit-mask.test.ts	O1: commit / merge / revert / reset / template commit responses mask secret values
+36-site-head.test.ts	O2 + O3: agent-branch head → status inHead / headSeq, persist-to-cloud blob upload
+40-adapter-conformance.test.ts	adapter conformance: local
+40-adapter-conformance.test.ts	adapter conformance: local / documents
+40-adapter-conformance.test.ts	adapter conformance: local / documents / set / get / exists / delete, auto ids, refs
+40-adapter-conformance.test.ts	adapter conformance: local / documents / set merge deep-merges maps, arrays replaced
+40-adapter-conformance.test.ts	adapter conformance: local / documents / update with dotted field paths; a map value replaces the field
+40-adapter-conformance.test.ts	adapter conformance: local / documents / transforms: increment, arrayUnion, arrayRemove, delete, serverTimestamp
+40-adapter-conformance.test.ts	adapter conformance: local / documents / create conflicts with already-exists, update of a missing doc is not-found
+40-adapter-conformance.test.ts	adapter conformance: local / documents / Timestamp and Buffer round-trip
+40-adapter-conformance.test.ts	adapter conformance: local / documents / getAll keeps order and reports missing documents
+40-adapter-conformance.test.ts	adapter conformance: local / queries
+40-adapter-conformance.test.ts	adapter conformance: local / queries / == / in / array-contains / range
+40-adapter-conformance.test.ts	adapter conformance: local / queries / typed comparisons: a string filter never matches numbers and vice versa
+40-adapter-conformance.test.ts	adapter conformance: local / queries / orderBy (multi) + implicit document order in the direction of the last orderBy
+40-adapter-conformance.test.ts	adapter conformance: local / queries / startAfter(snapshot) and startAfter(values)
+40-adapter-conformance.test.ts	adapter conformance: local / queries / select(fields) projection; select() = existence only
+40-adapter-conformance.test.ts	adapter conformance: local / queries / collectionGroup across parents (and across files)
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches / N parallel read-modify-write increments end exactly at N
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches / reads after writes are an error
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches / tx.get(query) + getAll + a failing write aborts the whole transaction
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches / batch commits atomically
+40-adapter-conformance.test.ts	adapter conformance: local / transactions + batches / bulkWriter writes independently
+40-adapter-conformance.test.ts	adapter conformance: local / blobs
+40-adapter-conformance.test.ts	adapter conformance: local / blobs / put / get / head / meta / stream range / list / copy / delete / deletePrefix
+40-adapter-conformance.test.ts	adapter conformance: local / blobs / signedReadUrl is fetchable
+41-local-adapter.test.ts	local adapter: layout + concurrency
+41-local-adapter.test.ts	local adapter: layout + concurrency / one global file + one file per deployment; deployment doc in table "deployment"
+41-local-adapter.test.ts	local adapter: layout + concurrency / parallel transactions on 2 deployments + a cross-file one + a second OS process: no lost updates
+41-local-adapter.test.ts	local adapter: layout + concurrency / a transaction over the whole deployments collection is serializable (slug uniqueness)
+41-local-adapter.test.ts	local adapter: layout + concurrency / cross-file transaction: all-or-nothing on errors, traced with OPM_LOCAL_TRACE_XTX=1
+41-local-adapter.test.ts	local adapter: layout + concurrency / strict mode throws on an unindexed field; non-strict falls back to json_extract
+41-local-adapter.test.ts	local adapter: layout + concurrency / a grown registry adds + backfills the index column on the next open
+41-local-adapter.test.ts	local adapter: outbox
+41-local-adapter.test.ts	local adapter: outbox / created vs written rows, in the same file + transaction as the write
+41-local-adapter.test.ts	local adapter: outbox / the dispatcher delivers every row once (incl. rows written by another process); idle()
+41-local-adapter.test.ts	local adapter: outbox / an expired lease is re-run (at-least-once)
+41-local-adapter.test.ts	local adapter: blobs
+41-local-adapter.test.ts	local adapter: blobs / signed URLs: 200 / HEAD / Range 206 / 416 / tamper + expiry 403 / CORS
+41-local-adapter.test.ts	local adapter: blobs / paths are validated; list("") lists every object; lifecycle sweep; failed streams leave nothing
+41-local-adapter.test.ts	local adapter: TTL sweep + backups
+41-local-adapter.test.ts	local adapter: TTL sweep + backups / sweepDocTtl deletes expired agentNonces / rateLimits only
+41-local-adapter.test.ts	local adapter: TTL sweep + backups / backupSqlite copies every file consistently; enumeration helpers
+41-local-adapter.test.ts	local adapter: auth
+41-local-adapter.test.ts	local adapter: auth / createUser (unique e-mail, explicit uid, argon2id hash), getUser / getUserByEmail / getUsers / listAllUsers
+41-local-adapter.test.ts	local adapter: auth / login / verifyIdToken / limiter / disabled / revoke
+41-local-adapter.test.ts	local adapter: auth / refresh rotation; reuse of a rotated token revokes the family; logout
+41-local-adapter.test.ts	local adapter: auth / password reset: link, request mail, check, confirm (≥ 8 chars), one-time, revokes sessions
+41-local-adapter.test.ts	local adapter: auth / OIDC: start → callback (PKCE, nonce, RS256 id_token) → one-time code → exchange
+42-remote-gui.test.ts	§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, event streams
+43-files.test.ts	files: console publish → upload → ready; cloud view; download (Range); unpublish → tombstone + 410
+43-files.test.ts	files: a site registers (idempotent) + held; console fetch → fileFetches → the holder uploads → stored; site fetch request; agent unpublish
+43-files.test.ts	files: permissions + validation
+43-files.test.ts	files: migrate-m turns transfers into files (fileId = transferId, object kept, legacy transfer expired on unpublish)
+44-port-tunnels.test.ts	§21 #125 port tunnels: add, refuse while off, relay both ways, via a peer, remove

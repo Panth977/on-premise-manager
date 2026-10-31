@@ -1,0 +1,20 @@
+{
+  "templates/T1": {"slug": "t-one", "label": "One", "b": 1, "2": "two", "1": "one", "a": {"z": 1, "y": 2}},
+  "templates/T2": {"slug": "x", "n": [1e21, 1.5e-7, -0, 0.1, 9007199254740993, 1e300, -2.5, 100, 1E3], "s": "ü€😀    <>& \"q\" \\ \n\t\r\b\f \u0001 \u007f", "lone": "a\ud83dz", "low": "\udc00", "nul": null, "t": true, "f": false, "e": {}, "ea": []},
+  "accounts/U1": {"uid": "U1", "ts": {"$timestamp": {"seconds": 1700000000, "nanos": 123000000}}, "bytes": {"$bytes": "AAEC/w=="}, "list": [{"$timestamp": {"seconds": 5, "nanos": 0}}, {"$bytes": ""}, [1, [2, {"k": null}]]], "notTs": {"$timestamp": "x"}, "two": {"$bytes": "AA==", "other": 1}},
+  "uploads/U1": {"expiresAt": {"$timestamp": {"seconds": 1700000000, "nanos": 999999999}}},
+  "agentNonces/N1": {"expiresAt": {"$timestamp": {"seconds": 1800000000, "nanos": 1000000}}},
+  "auditLog/A1": {"ts": "2026-10-31T10:00:00.000Z", "target": "a/b", "actor": "U", "actorEmail": null, "targetType": "system", "outcome": "ok", "action": "x.y", "requestId": "r", "op": "getMe", "_actionKeys": ["x.", "x.y"]},
+  "services/s1/images/v1": {"registryId": "r1", "createdAt": "2026-01-01", "import": {"status": "pending"}},
+  "templates/T1/commits/c1": {"seq": 1},
+  "githubMirror/config/queue/q1": {"gitBranch": "b", "state": "pending", "createdAt": "2026-01-01", "op": "x", "reason": null},
+  "deployments/D1": {"deleted": false, "updatedAt": "2026-01-01", "slug": "d-one", "agentUpgradeRun": {"status": "running"}, "tagSlugs": ["a", "b"], "managerAccountUids": []},
+  "deployments/D1/commits/c1": {"seq": 7},
+  "deployments/D1/agentBranches/s1/commits/c2": {"seq": 2},
+  "deployments/D1/agents/s1": {"upgradeRequest": {"expiresAt": "2026-02-02"}},
+  "deployments/D1/activities/a1": {"_tsMs": 1700000000123, "seq": 3, "siteSlug": "s1", "actor": "u", "origin": "cloud", "uploadedVia": null, "type": "update.applied", "_typeKeys": ["update.", "update.applied"]},
+  "deployments/D1/volumeContent/k1": {"_open": true, "siteSlug": "s1", "versionCount": 2},
+  "deployments/D1/volumeContent/k1/versions/v1": {"origin": "x", "seq": 1, "agentSnapshotId": "y"},
+  "deployments/D2": {"deleted": true, "updatedAt": "2026-01-02", "slug": "d-two"},
+  "plain/doc": {"unregistered": 1}
+}

@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { AgentUpgradeProgress, AgentUpgradeRequest, DepsManifest, HeartbeatRequest } from '@opm/shared';
 import { abucket, adb, agentClient, enrollSite, helloDeployment, here, newSiteKey, person, PROJECT, raw, rejects, sha256Hex, signHeaders, type Person } from './helpers.ts';
-import { runDaily } from '../functions/src/jobs/daily.ts';
+import { runDaily } from '../src/jobs/daily.ts';
 
 const PIN = '0.10.3-20';
 const NOTES = 'Round I release\n- upgrade from the GUI\n- boot guard';

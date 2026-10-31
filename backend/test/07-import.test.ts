@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { abucket, here, person, rejects, sleep, uniq } from './helpers.ts';
-import { fetchLayer } from '../functions/src/core/importer.ts';
+import { fetchLayer } from '../src/core/importer.ts';
 
 const KEY = resolve(here, '../../.secrets/registry-reader-key.json');
 const REF = 'registry.example.com/opm-test/busybox:1.36';

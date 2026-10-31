@@ -22,9 +22,9 @@
  * Default is the dry run; only --apply writes.
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, canonicalize, checkFileContent, imageKey, locationLabel, normalizeFileDef, normalizeSiteConfig, type FileDef, type FileExprIssue, type SiteConfig } from '@opm/shared';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 import { buildConvertEnv, convertConfig, type BucketLike, type ConvertEnv as ConvertEnvC } from './migrate-c.ts';
 
 /** migrate-c's env + the expression issues of a file content (read from Storage files/<hex>, cached per sha256). */

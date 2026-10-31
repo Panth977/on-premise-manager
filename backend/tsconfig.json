@@ -13,5 +13,5 @@
     "types": ["node"],
     "paths": { "@opm/shared": ["../shared/src/index.ts"] }
   },
-  "include": ["functions/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
 }

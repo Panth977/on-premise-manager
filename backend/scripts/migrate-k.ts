@@ -13,7 +13,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, RE, slugifyLabel, uniqueSlug } from '@opm/shared';
 
 export interface EntityK {

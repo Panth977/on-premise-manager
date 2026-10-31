@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { agentInstallAction, agentSchemaCompatible, compareAgentVersions, type DepsManifest } from '@opm/shared';
 import { abucket, adb, enrollSite, helloDeployment, here, person, PROJECT, raw, sha256Hex } from './helpers.ts';
-import { installScript } from '../functions/src/routes/install.ts';
+import { installScript } from '../src/routes/install.ts';
 
 const SAMPLE = {
   apiBase: 'https://api.opm.example',

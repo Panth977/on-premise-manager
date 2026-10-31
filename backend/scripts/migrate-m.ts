@@ -23,7 +23,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import type { BlobStore, DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { BlobStore, DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, type SharedFile, type Transfer } from '@opm/shared';
 
 export type StoredFileM = SharedFile & { _storagePath: string; _uploadId: null; _legacyTransferId: string };

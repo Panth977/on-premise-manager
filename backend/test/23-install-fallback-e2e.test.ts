@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installScript } from '../functions/src/routes/install.ts';
+import { installScript } from '../src/routes/install.ts';
 import { signHex } from '../scripts/upload-agent.ts';
 
 const sh256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');

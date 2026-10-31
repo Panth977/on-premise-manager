@@ -15,8 +15,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { arg, flag, init } from './_admin.ts';
-import { uploadAgentDir } from '../functions/src/server/release.ts';
-export { signHex, readReleaseMeta, findBinaries, uploadAgentDir } from '../functions/src/server/release.ts';
+import { uploadAgentDir } from '../src/server/release.ts';
+export { signHex, readReleaseMeta, findBinaries, uploadAgentDir } from '../src/server/release.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 

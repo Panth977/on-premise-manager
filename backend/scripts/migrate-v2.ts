@@ -15,9 +15,9 @@
  *   npx tsx scripts/migrate-v2.ts --data-dir <dir> --dry-run | --apply
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, canonicalize, normalizeImageEnv, parseImageReference, registryHost, RE, type ImageEnv, type ImageRefParts } from '@opm/shared';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 
 // ═════════════════════════════════════════ USER-SPECIFIC FIXES (by document id — not generic rules)
 /**

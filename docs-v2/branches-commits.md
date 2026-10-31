@@ -198,7 +198,7 @@ export interface MergeBase {
 export interface MergeSkip { key: string; theirsHash: string; sourceSeq: number | null; skippedAt: Ts; skippedBy: string }
 ```
 
-### 2.2 Firestore (cloud)
+### 2.2 Documents (cloud)
 
 | path | type | doc id | notes |
 |---|---|---|---|

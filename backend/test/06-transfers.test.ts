@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { UPLOAD_PART_SIZE } from '@opm/shared';
 import { abucket, adb, enrollSite, helloDeployment, person, raw, rejects, sha256Hex } from './helpers.ts';
-import { runDaily } from '../functions/src/jobs/daily.ts';
+import { runDaily } from '../src/jobs/daily.ts';
 
 test('blobs: small upload, sha header check, dedupe, download + Range, permissions', async () => {
   const admin = await person('admin');

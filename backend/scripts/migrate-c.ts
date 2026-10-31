@@ -17,9 +17,9 @@
  * Default is the dry run; only --apply writes.
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, canonicalize, checkFileContent, imageKey, normalizeFileDef, normalizeSiteConfig, type CatalogImage, type FileDef, type SiteConfig } from '@opm/shared';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 
 type Doc = Record<string, unknown>;
 const isObj = (v: unknown): v is Doc => !!v && typeof v === 'object' && !Array.isArray(v);

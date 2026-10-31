@@ -32,9 +32,9 @@
  * mounted inside a writable volume / host mount (the validator's V_FILE_IN_WRITABLE_VOLUME, printed with the other errors).
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore, DocRef, CollectionRef } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore, DocRef, CollectionRef } from '../src/driver/index.js';
 import { isLegacyFileSeed, normalizeVolumeTree, normalizeEdge, checkIcon, checkLocation, checkPicture, Issues, normalizeImageEnv, parseImageReference, registryHost, RE, ICON_CONTENT_TYPES, ICON_MAX_BYTES, validateConfig, validateImageEnv, validateImageVolumes, canonicalize, imageKey, normalizeStoredDevToolPreset, type Config, type ImageEnv, type ValidationContext } from '@opm/shared';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 import { COMMIT_KINDS, parseBranchKey, configHash as cfgHash, uncommittedItems } from '@opm/shared';
 
 type Doc = Record<string, unknown>;

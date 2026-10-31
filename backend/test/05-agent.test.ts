@@ -7,7 +7,7 @@ import { activityHashInput, canonicalize, createCloudClient, ulid, type Activity
 import { abucket, adb, agentClient, BASE, helloDeployment, newSiteKey, person, raw, rejects, sha256Hex, signHeaders, sleep, enrollSite, here, type SiteKey, tinyScript, publish } from './helpers.ts';
 import { depInput } from './helpers.ts';
 import { signHex } from '../scripts/upload-agent.ts';
-import { writeTar } from '../functions/src/core/tar.ts';
+import { writeTar } from '../src/core/tar.ts';
 
 const releaseKey = JSON.parse(readFileSync(resolve(here, '../../.secrets/release-key.json'), 'utf8'));
 

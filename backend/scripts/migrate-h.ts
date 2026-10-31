@@ -24,9 +24,9 @@
  * Default is the dry run; only --apply writes.
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys, isLegacyFileSeed, migrateVolumeFileSeeds, normalizeVolumeTree, treeStats, volumeTreeHashInput, type Config, type FileDef, type VolumeSeed } from '@opm/shared';
-import { sha256Hex } from '../functions/src/core/util.ts';
+import { sha256Hex } from '../src/core/util.ts';
 
 type Doc = Record<string, unknown>;
 type MigCfg = Pick<Config, 'files' | 'sites'>;

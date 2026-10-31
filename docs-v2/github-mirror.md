@@ -166,7 +166,7 @@ recreates only the service that mounts it. 0 differences.
 
 ## 7. Push pipeline
 
-- Enqueue: Firestore triggers on new template / deployment / agent-branch commits and on persist snapshot versions
+- Enqueue: outbox triggers on new template / deployment / agent-branch commits and on persist snapshot versions
   (origin `snapshot`); the drift push (`POST /v1/agent/branch/drift`, agent ≥ 0.15.0) and heartbeats (agent head not
   mirrored yet → catch-up) enqueue directly. Only while mirroring is enabled.
 - Queue `githubMirror/config/queue/{itemId}` (idempotent ids), branch state `githubMirror/config/branches/{branch}`, blob

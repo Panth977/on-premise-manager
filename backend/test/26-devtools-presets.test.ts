@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { activityHashInput, canonicalize, newDevToolPreset, type Activity, type Config, type DevToolPreset, type Site } from '@opm/shared';
 import { adb, enrollSite, helloDeployment, person, rejects, sha256Hex, type Person, publish } from './helpers.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 
 type Doc = Record<string, any>;
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;

@@ -24,7 +24,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import {
   auditActionKeys,
   branchKey,
@@ -47,9 +47,9 @@ import {
   type Proposal,
   type Revision,
 } from '@opm/shared';
-import { decodeDeployment, decodeRevision, decodeTemplate } from '../functions/src/core/codec.ts';
-import { encodeCommit, encodeMergeBase, COMMIT_INLINE_MAX } from '../functions/src/core/branches.ts';
-import { normalizeStored } from '../functions/src/core/config.ts';
+import { decodeDeployment, decodeRevision, decodeTemplate } from '../src/core/codec.ts';
+import { encodeCommit, encodeMergeBase, COMMIT_INLINE_MAX } from '../src/core/branches.ts';
+import { normalizeStored } from '../src/core/config.ts';
 
 type Doc = Record<string, unknown>;
 export type OpI = { op: 'create' | 'set' | 'update'; path: string; data: Record<string, unknown>; why: string; bytes: number; storage?: { path: string; body: string } };

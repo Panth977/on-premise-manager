@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ulid, volumeTreeHash, type Site, type ValidationIssue, type VolumeContentVersion, type VolumeTree } from '@opm/shared';
 import { adb, enrollSite, helloDeployment, person, rejects, sha256Hex, uniq, type Person, publish } from './helpers.ts';
-import { runDaily } from '../functions/src/jobs/daily.ts';
+import { runDaily } from '../src/jobs/daily.ts';
 import { applyPlanH, planMigrationH, printPlan } from '../scripts/migrate-h.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 

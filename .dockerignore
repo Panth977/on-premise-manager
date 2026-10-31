@@ -9,7 +9,6 @@
 **/.tmp
 **/.tmp-local
 backend/dist
-backend/functions/lib
 frontend/build
 frontend/.svelte-kit
 agent/dist

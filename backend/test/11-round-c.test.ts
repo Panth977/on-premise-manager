@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCloudClient, duplicateContainer, newSiteVolume, undeclaredVolumes, type Config, type Container, type Site, type Variable } from '@opm/shared';
 import { abucket, adb, BASE, HELLO, helloDeployment, newSiteKey, person, raw, rejects, seedHelloCatalog, sha256Hex, uniq, agentClient, publish } from './helpers.ts';
-import { noRedirectFor, serveMode } from '../functions/src/core/storage.ts';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { noRedirectFor, serveMode } from '../src/core/storage.ts';
+import { jcsHash } from '../src/core/util.ts';
 import { applyPlanC, planMigrationC } from '../scripts/migrate-c.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 

@@ -24,7 +24,7 @@ networks. OPM works like Portainer, plus a git-style commit history for every se
 | `agent/` | the agent (Go): Docker driver, edge proxy (Caddy), branch/commit engine, snapshots, dev tools |
 | `agent/gui/` | the agent GUI (SvelteKit, embedded into the binary) |
 | `frontend/` | the cloud console (SvelteKit) |
-| `backend/` | the cloud API. It runs on a VM (`opm-cloud`: SQLite + local blobs) or on Firebase |
+| `backend/` | the cloud API (`opm-cloud`, one process on a VM: SQLite + local blobs) |
 | `shared/` | contracts shared by every part: types, validation, expressions, hashing, test vectors |
 | `ui/` | shared Svelte form components and design tokens of both GUIs |
 | `selfhost/` | Dockerfile, docker compose, Caddyfile and systemd unit of the cloud |

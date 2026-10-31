@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newSiteVolume, type Config, type Site } from '@opm/shared';
 import { abucket, adb, HELLO, helloDeployment, person, rejects, publish } from './helpers.ts';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 import { applyPlanD, planMigrationD } from '../scripts/migrate-d.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 

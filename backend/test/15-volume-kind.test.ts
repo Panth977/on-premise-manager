@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newSiteVolume, type Container, type Image, type Site } from '@opm/shared';
 import { adb, helloDeployment, person, rejects, sha256Hex, uniq } from './helpers.ts';
-import { prefillFromConfig } from '../functions/src/routes/catalog.ts';
+import { prefillFromConfig } from '../src/routes/catalog.ts';
 import { applyPlanF, planMigrationF } from '../scripts/migrate-f.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 

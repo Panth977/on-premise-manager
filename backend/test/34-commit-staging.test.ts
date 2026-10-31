@@ -230,7 +230,7 @@ test('the daily job removes expired stages (§21 #117: the persist "Save as new 
   const st3 = await api.createStage({ body: { blobs: [{ sha256: shaOf(bytes('x')), sizeBytes: 1 }] } });
   await abucket.file(`staging/${st3.stageId}/${'0'.repeat(64)}`).save(Buffer.from('x'));
   await adb.collection('stages').doc(st3.stageId).update({ expiresAt: new Date(Date.now() - 1000).toISOString() });
-  const { runDaily } = await import('../functions/src/jobs/daily.ts');
+  const { runDaily } = await import('../src/jobs/daily.ts');
   const res = await runDaily();
   assert.ok((res as { stagesExpired: number }).stagesExpired >= 1);
   assert.equal(await stageDoc(st3.stageId), false);

@@ -9,8 +9,8 @@ import { sign } from 'node:crypto';
 import { activityHashInput, AUDIT_DEPLOYMENT_OPS, AUDIT_EXEMPT_OPS, canonicalize, CLOUD_API, createCloudClient, type Activity, type AuditLogEntry, type EndpointDef } from '@opm/shared';
 import { abucket, adb, BASE, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, sleep, uniq, type Person, type SiteKey } from './helpers.ts';
 import { depInput } from './helpers.ts';
-import { writeTar } from '../functions/src/core/tar.ts';
-import { runDaily } from '../functions/src/jobs/daily.ts';
+import { writeTar } from '../src/core/tar.ts';
+import { runDaily } from '../src/jobs/daily.ts';
 
 const DEP_SCOPE = /^\/v1\/deployments\/\{deploymentId\}\/.+/;
 const ops = Object.entries(CLOUD_API as unknown as Record<string, EndpointDef>).filter(([, d]) => d.auth === 'human' && d.method !== 'GET');

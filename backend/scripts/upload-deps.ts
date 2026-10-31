@@ -16,8 +16,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { arg, init } from './_admin.ts';
-import { uploadDeps, DOCKER_VERSION } from '../functions/src/server/release.ts';
-export { DOCKER_VERSION, MIN_DOCKER_API, AGENT_NOTES_MAX, resolveAgentNotes, depsPath, uploadDeps } from '../functions/src/server/release.ts';
+import { uploadDeps, DOCKER_VERSION } from '../src/server/release.ts';
+export { DOCKER_VERSION, MIN_DOCKER_API, AGENT_NOTES_MAX, resolveAgentNotes, depsPath, uploadDeps } from '../src/server/release.ts';
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const projectId = arg('project', 'local')!;

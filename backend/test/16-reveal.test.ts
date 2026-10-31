@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCloudClient, type Activity, type AccessRule } from '@opm/shared';
-import { FieldValue } from '../functions/src/ports/index.js';
+import { FieldValue } from '../src/driver/index.js';
 import { applyPlanG, planMigrationG } from '../scripts/migrate-g.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 import { aauth, adb, BASE, helloDeployment, idToken, newSiteKey, person, raw, rejects, sleep, uniq, type Person } from './helpers.ts';
@@ -149,7 +149,7 @@ test('install commands: stored while active, revealed (activity + audit), replac
   await adb.collection('deployments').doc(id).collection('installTokens').doc(t4.tokenHash).update({ expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.deepEqual((await rejects(admin.api.revealInstallCommand({ deploymentId: id, tokenHash: t4.tokenHash }), 'gone', 410)).details, { reason: 'expired' });
   // the daily job nulls the plaintext of expired tokens
-  const { runDaily } = await import('../functions/src/jobs/daily.ts');
+  const { runDaily } = await import('../src/jobs/daily.ts');
   const d = await runDaily();
   assert.ok(d.tokensCleared >= 1);
   assert.equal((await adb.collection('deployments').doc(id).collection('installTokens').doc(t4.tokenHash).get()).data()!.token, null);

@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { newEdgeRoute, newProxyAction, SEED_ARCHIVE_MAX, type Config, type EdgeRoute, type Site, type ValidationIssue } from '@opm/shared';
 import { abucket, adb, enrollSite, HELLO, helloDeployment, load, person, rejects, sha256Hex, publish } from './helpers.ts';
-import { runDaily } from '../functions/src/jobs/daily.ts';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { runDaily } from '../src/jobs/daily.ts';
+import { jcsHash } from '../src/core/util.ts';
 import { applyPlanE, planMigrationE } from '../scripts/migrate-e.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MASK, type SecretDefInput } from '@opm/shared';
 import { depInput, adb, HELLO, helloDeployment, person, rejects, seedHelloCatalog, uniq, publish } from './helpers.ts';
-import { verifyAccessKey } from '../functions/src/core/accesskey.ts';
+import { verifyAccessKey } from '../src/core/accesskey.ts';
 
 test('templates (§21 #105): create v1, details PATCH (ifVersion), config only by a commit; save-level errors → 422 nothing saved', async () => {
   const admin = await person('admin');

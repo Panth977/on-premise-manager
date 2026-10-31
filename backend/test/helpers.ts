@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkCommitMessage, createCloudClient, validateConfig, type Config, fullAdminRules, OpmApiError, signedRequestString, type AccessRule, type Account, type CloudClient, type AuthProvider, type Commit, type CommitWorkingRequest, type ConfigInput, type FileDef, type SecretDefInput, type Site, type Template, type ValidationIssue, type Variable } from '@opm/shared';
-import { setPorts, type AuthAdmin, type DocStore, type Ports } from '../functions/src/ports/index.js';
+import { setPorts, type AuthAdmin, type DocStore, type Ports } from '../src/driver/index.js';
 import { bucketShim, type BucketShim } from '../scripts/_admin.ts';
 
 export const here = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +21,7 @@ process.env.GCLOUD_PROJECT ??= PROJECT;
 async function makePorts(): Promise<Ports> {
   const dataDir = process.env.OPM_DATA_DIR;
   if (!dataDir) throw new Error('tests need OPM_DATA_DIR (scripts/test-local.sh sets it)');
-  const { localPorts } = await import('../functions/src/adapters/local/index.js');
+  const { localPorts } = await import('../src/driver/local.js');
   return localPorts({ dataDir, publicUrl: SERVER, consoleUrl: process.env.OPM_CONSOLE_URL });
 }
 export const ports: Ports = await makePorts();
@@ -108,7 +108,7 @@ async function saveLevelErrors(config: Config, mode: 'draft' | 'template', deplo
   return (await saveLevelIssues(config, mode, deploymentId)).filter((i) => i.severity === 'error');
 }
 async function saveLevelIssues(config: Config, mode: 'draft' | 'template', deploymentId: string): Promise<ValidationIssue[]> {
-  const { catalogImage, imageView, serviceView } = await import('../functions/src/core/catalog.ts');
+  const { catalogImage, imageView, serviceView } = await import('../src/core/catalog.ts');
   const [svc, imgs, pages] = await Promise.all([adb.collection('services').get(), adb.collectionGroup('images').get(), adb.collection('notFoundPages').select().get()]);
   const services: Record<string, { label: string }> = {};
   for (const d of svc.docs) services[d.id] = { label: serviceView(d.data(), d.id).label };

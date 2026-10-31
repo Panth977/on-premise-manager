@@ -21,7 +21,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import {
   auditActionKeys,
   commitRef,
@@ -38,10 +38,10 @@ import {
   type Config,
   type RevisionCatalog,
 } from '@opm/shared';
-import { decodeDeployment, decodeTemplate } from '../functions/src/core/codec.ts';
-import { encodeCommit, COMMIT_INLINE_MAX } from '../functions/src/core/branches.ts';
-import { normalizeStored, setImageVolumes } from '../functions/src/core/config.ts';
-import { catalogImage, imageSpec, imageView, serviceView, type Catalog } from '../functions/src/core/catalog.ts';
+import { decodeDeployment, decodeTemplate } from '../src/core/codec.ts';
+import { encodeCommit, COMMIT_INLINE_MAX } from '../src/core/branches.ts';
+import { normalizeStored, setImageVolumes } from '../src/core/config.ts';
+import { catalogImage, imageSpec, imageView, serviceView, type Catalog } from '../src/core/catalog.ts';
 
 type Doc = Record<string, unknown>;
 export const MIGRATE_J_MESSAGE = 'Uncommitted changes from before 0.14.1 (auto-committed)';

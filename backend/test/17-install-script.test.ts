@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DepsManifest } from '@opm/shared';
 import { abucket, adb, helloDeployment, person, raw, sha256Hex } from './helpers.ts';
-import { installScript } from '../functions/src/routes/install.ts';
+import { installScript } from '../src/routes/install.ts';
 
 const SAMPLE = {
   apiBase: 'https://api.opm.example',

@@ -11,7 +11,7 @@
  * Default is the dry run; only --apply writes.
  */
 import { pathToFileURL } from 'node:url';
-import type { DocStore as Firestore } from '../functions/src/ports/index.js';
+import type { DocStore as Firestore } from '../src/driver/index.js';
 import { auditActionKeys } from '@opm/shared';
 
 export type Op = { op: 'update'; path: string; data: Record<string, null>; why: string };

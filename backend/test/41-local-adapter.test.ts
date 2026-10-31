@@ -12,12 +12,12 @@ import { join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
-import { FieldValue, Timestamp, storeErrorCode } from '../functions/src/ports/docstore.js';
-import type { DocEvent, DocTrigger } from '../functions/src/ports/events.js';
-import { backupSqlite, handleAuthHttp, handleBlobHttp, localPorts, startOutboxDispatcher, sweepDocTtl, type LocalConfig } from '../functions/src/adapters/local/index.js';
+import { FieldValue, Timestamp, storeErrorCode } from '../src/driver/types/docstore.js';
+import type { DocEvent, DocTrigger } from '../src/driver/events.js';
+import { backupSqlite, handleAuthHttp, handleBlobHttp, localPorts, startOutboxDispatcher, sweepDocTtl, type LocalConfig } from '../src/driver/local.js';
 
 const TMP = join(import.meta.dirname, '.tmp');
-const ADAPTER = resolve(import.meta.dirname, '../functions/src/adapters/local/index.ts');
+const ADAPTER = resolve(import.meta.dirname, '../src/driver/local.ts');
 mkdirSync(TMP, { recursive: true });
 const dirs: string[] = [];
 const fresh = () => {

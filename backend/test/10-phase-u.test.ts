@@ -8,16 +8,16 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { defaultContainer, defaultSiteConfig, type AuditLogEntry, type Config } from '@opm/shared';
 import { abucket, adb, helloDeployment, HELLO, person, raw, rejects, seedHelloCatalog, uniq } from './helpers.ts';
-import { RegistryAccessError, RegistryClient, tokenGrantsPull } from '../functions/src/core/registry.js';
-import { accessHint, listRepositories, listTags, withAccessHint } from '../functions/src/core/registry-browse.js';
-import { sanitizeSvg, sniffIcon } from '../functions/src/core/icons.ts';
-import { buildRevisionCatalog, loadCatalog } from '../functions/src/core/catalog.ts';
+import { RegistryAccessError, RegistryClient, tokenGrantsPull } from '../src/core/registry.js';
+import { accessHint, listRepositories, listTags, withAccessHint } from '../src/core/registry-browse.js';
+import { sanitizeSvg, sniffIcon } from '../src/core/icons.ts';
+import { buildRevisionCatalog, loadCatalog } from '../src/core/catalog.ts';
 import { applyPlan, planMigrationV2 } from '../scripts/migrate-v2.ts';
 import { applyPlanC, planMigrationC } from '../scripts/migrate-c.ts';
 import { applyPlanF, planMigrationF } from '../scripts/migrate-f.ts';
 import { applyPlanG, planMigrationG } from '../scripts/migrate-g.ts';
 import { verifySchema } from '../scripts/verify-schema.ts';
-import { jcsHash } from '../functions/src/core/util.ts';
+import { jcsHash } from '../src/core/util.ts';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const auditByRequest = async (requestId: string): Promise<AuditLogEntry[]> =>

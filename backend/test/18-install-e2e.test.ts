@@ -14,7 +14,7 @@ import { createServer, type Server } from 'node:http';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { here } from './helpers.ts';
-import { installScript } from '../functions/src/routes/install.ts';
+import { installScript } from '../src/routes/install.ts';
 import { signHex } from '../scripts/upload-agent.ts';
 import { DOCKER_VERSION, MIN_DOCKER_API } from '../scripts/upload-deps.ts';
 

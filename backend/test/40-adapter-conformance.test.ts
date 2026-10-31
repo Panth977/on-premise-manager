@@ -11,7 +11,7 @@ const TMP = join(import.meta.dirname, '.tmp');
 conformance('local', async () => {
   mkdirSync(TMP, { recursive: true });
   const dir = mkdtempSync(join(TMP, 'conf-'));
-  const { localPorts } = await import('../functions/src/adapters/local/index.js');
+  const { localPorts } = await import('../src/driver/local.js');
   const p = localPorts({ dataDir: dir, publicUrl: 'http://127.0.0.1:1', strict: true, indexes: CONFORMANCE_INDEXES });
   return {
     store: p.store,

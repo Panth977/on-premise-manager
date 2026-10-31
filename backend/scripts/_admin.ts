@@ -1,10 +1,10 @@
 /**
  * Shared bootstrap for scripts: `--data-dir <dir>` (or OPM_DATA_DIR) is the opm-cloud data dir (SQLite + filesystem +
  * built-in auth). init() returns the PORTS (DocStore / AuthAdmin) plus a Bucket-shaped shim over the BlobStore, and
- * installs the same ports for the backend modules the script imports (functions/src/core/*).
+ * installs the same ports for the backend modules the script imports (src/core/*).
  */
-import { setPorts, type AuthAdmin, type BlobStore, type DocStore, type Ports } from '../functions/src/ports/index.js';
-import { localPorts } from '../functions/src/adapters/local/index.js';
+import { setPorts, type AuthAdmin, type BlobStore, type DocStore, type Ports } from '../src/driver/index.js';
+import { localPorts } from '../src/driver/local.js';
 
 export function arg(name: string, def?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -15,8 +15,8 @@ export function arg(name: string, def?: string): string | undefined {
 }
 export const flag = (name: string) => process.argv.includes(`--${name}`);
 
-export { bucketShim, type BucketShim } from '../functions/src/ports/bucket-shim.js';
-import { bucketShim, type BucketShim } from '../functions/src/ports/bucket-shim.js';
+export { bucketShim, type BucketShim } from '../src/driver/bucket-shim.js';
+import { bucketShim, type BucketShim } from '../src/driver/bucket-shim.js';
 
 export interface ScriptClients {
   db: DocStore;

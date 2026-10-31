@@ -1,4 +1,4 @@
-// opm-cloud bundle (§21 #108): functions/src/server.ts → dist/opm-cloud.cjs (Node 22, CJS). @opm/shared + the business
+// opm-cloud bundle (§21 #108): src/server.ts → dist/opm-cloud.cjs (Node 22, CJS). @opm/shared + the business
 // code are inlined. The GitHub mirror's Go artefacts go next to the bundle.
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ const out = path.join(here, 'dist');
 mkdirSync(out, { recursive: true });
 const version = process.env.OPM_CLOUD_VERSION || JSON.parse(readFileSync(path.join(here, 'package.json'), 'utf8')).version || 'dev';
 await build({
-  entryPoints: [path.join(here, 'functions/src/server.ts')],
+  entryPoints: [path.join(here, 'src/server.ts')],
   outfile: path.join(out, 'opm-cloud.cjs'),
   bundle: true,
   platform: 'node',

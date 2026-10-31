@@ -380,7 +380,7 @@ test("§21 #92 upgrade / reinstall command: install token kept, reveal logged, r
         .update({
           createdAt: new Date(Date.now() - 30 * 86400_000).toISOString(),
         });
-      const { runDaily } = await import("../functions/src/jobs/daily.ts");
+      const { runDaily } = await import("../src/jobs/daily.ts");
       await runDaily();
       const after = (await toks.doc(m1.tokenHash).get()).data()!;
       assert.equal(after.token, m1.token);

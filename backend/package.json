@@ -2,7 +2,7 @@
   "name": "opm-backend",
   "private": true,
   "type": "module",
-  "description": "opm-cloud: TS sources in functions/src, bundled into dist/opm-cloud.cjs by build-server.mjs.",
+  "description": "opm-cloud: TS sources in src, bundled into dist/opm-cloud.cjs by build-server.mjs.",
   "scripts": {
     "build": "node build-server.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",

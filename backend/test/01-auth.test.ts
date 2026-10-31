@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createPublicKey, verify } from 'node:crypto';
 import { CLOUD_API, signedRequestString } from '@opm/shared';
 import { BASE, load, person, raw, rejects, aauth, adb } from './helpers.ts';
-import { verifyEd25519 } from '../functions/src/core/auth.ts';
+import { verifyEd25519 } from '../src/core/auth.ts';
 
 test('signing vectors (shared/testdata/canonical-vectors.json) verify with the backend verifier', () => {
   const v = load('canonical-vectors.json').signing;

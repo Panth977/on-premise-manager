@@ -8,8 +8,8 @@ import { randomBytes } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import type { Readable } from 'node:stream';
 // named runtime imports from the module itself: functions/ is CJS under tsx, `export *` re-exports are invisible to ESM
-import { FieldValue, Timestamp, storeErrorCode, type DocStore } from '../functions/src/ports/docstore.js';
-import type { BlobStore } from '../functions/src/ports/blobstore.js';
+import { FieldValue, Timestamp, storeErrorCode, type DocStore } from '../src/driver/types/docstore.js';
+import type { BlobStore } from '../src/driver/types/blobstore.js';
 
 /** index-registry entries of the conformance collections (local adapter, strict mode) */
 export const CONFORMANCE_INDEXES = {
@@ -355,15 +355,9 @@ export function conformance(name: string, mk: () => Promise<{ store: DocStore; b
       });
       it('signedReadUrl is fetchable', async (t) => {
         await blobs.put(`${P}/signed.txt`, Buffer.from('signed body'), { contentType: 'text/plain' });
-        let url: string;
-        try {
-          url = await blobs.signedReadUrl(`${P}/signed.txt`, { expiresMs: 60_000, disposition: 'attachment; filename="s.txt"' });
-        } catch (e) {
-          if (blobs.kind === 'firebase') return t.skip(`emulator cannot sign: ${String(e)}`);
-          throw e;
-        }
+        const url = await blobs.signedReadUrl(`${P}/signed.txt`, { expiresMs: 60_000, disposition: 'attachment; filename="s.txt"' });
         if (blobs.kind === 'local') {
-          const { handleBlobHttp, LocalBlobStore } = await import('../functions/src/adapters/local/index.js');
+          const { handleBlobHttp, LocalBlobStore } = await import('../src/driver/local.js');
           const r = await handleBlobHttp({ method: 'GET', url: new URL(url).pathname + new URL(url).search, headers: {} }, blobs as InstanceType<typeof LocalBlobStore>, { allowedOrigins: [] });
           assert.equal(r.status, 200);
           assert.equal(r.headers['Content-Disposition'], 'attachment; filename="s.txt"');

@@ -26,10 +26,10 @@ async function main() {
   }
   const cl = init(project); // installs the adapter's ports for the backend modules imported below
   process.env.OPM_EXPORT_DIR ??= path.resolve(path.dirname(new URL(import.meta.url).pathname), '../dist');
-  const { decodeCommit, commitsOf } = await import('../functions/src/core/branches.ts');
-  const { buildRequest, newExportCtx, runExporter, personOf } = await import('../functions/src/core/mirror-export.ts');
-  const { db } = await import('../functions/src/core/fire.ts');
-  const { slugOf } = await import('../functions/src/core/slugs.ts');
+  const { decodeCommit, commitsOf } = await import('../src/core/branches.ts');
+  const { buildRequest, newExportCtx, runExporter, personOf } = await import('../src/core/mirror-export.ts');
+  const { db } = await import('../src/core/fire.ts');
+  const { slugOf } = await import('../src/core/slugs.ts');
   const ref: BranchRef = tid ? { kind: 'template', templateId: tid } : site ? { kind: 'agent', deploymentId: did!, siteSlug: site } : { kind: 'deployment', deploymentId: did! };
   const ent = await db().collection(tid ? 'templates' : 'deployments').doc((tid ?? did)!).get();
   if (!ent.exists) throw new Error(`${tid ? 'template' : 'deployment'} not found`);

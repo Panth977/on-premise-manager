@@ -16,13 +16,13 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 async function toLegacy(id: string) {
   const ref = adb.collection('deployments').doc(id);
   for (const sub of ['commits', 'mergeBases', 'agentBranches']) for (const d of (await ref.collection(sub).get()).docs) await d.ref.delete();
-  const { FieldValue } = await import('../functions/src/ports/index.js');
+  const { FieldValue } = await import('../src/driver/index.js');
   await ref.update({ branch: FieldValue.delete() });
 }
 async function legacyTemplate(templateId: string) {
   const ref = adb.collection('templates').doc(templateId);
   for (const d of (await ref.collection('commits').get()).docs) await d.ref.delete();
-  const { FieldValue } = await import('../functions/src/ports/index.js');
+  const { FieldValue } = await import('../src/driver/index.js');
   await ref.update({ branch: FieldValue.delete() });
 }
 async function commitVar(admin: Person, id: string, value: string, message: string) {

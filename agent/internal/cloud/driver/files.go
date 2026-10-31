@@ -459,6 +459,7 @@ func (f *Files) ensure(h *handle, table string, create bool, tx *txState) (bool,
 		return false, err
 	}
 	if _, err := own.ExecContext(bg, "COMMIT"); err != nil {
+		_, _ = own.ExecContext(bg, "ROLLBACK")
 		return false, err
 	}
 	h.setEnsured(table)

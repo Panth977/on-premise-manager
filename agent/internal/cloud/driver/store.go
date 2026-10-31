@@ -1253,6 +1253,8 @@ func (s *Store) commit(reads []readRec, writes []writeOp) (bool, error) {
 		begun = nil
 	}
 	defer func() {
+		// a conn goes back to the pool: never with a transaction open (ROLLBACK after a COMMIT is a harmless error)
+		rollback()
 		for _, c := range tx.conns {
 			_ = c.Close()
 		}

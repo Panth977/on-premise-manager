@@ -39,4 +39,4 @@ jobs:
           (cd shared && npm ci && npm run build)
           (cd ui && npm ci)
           (cd frontend && npm ci && npm run check)
-          (cd backend && npm ci && npm run typecheck && npm run test:adapters)
+          (cd backend && npm ci && npm run typecheck)

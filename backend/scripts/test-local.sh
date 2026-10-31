@@ -1,8 +1,8 @@
 #!/bin/sh
-# Run the backend suite against the LOCAL adapter (§21 #108): opm-cloud (dist/opm-cloud.cjs, npm run build)
-# on a fresh temp data dir + port, the tests open the same data dir (OPM_TEST_ADAPTER=local).
+# Run the API suite against the Go opm-cloud (built into dist/) on a fresh temp data dir + port; the tests open the
+# same data dir through the TypeScript driver in src/driver.
 #   scripts/test-local.sh [test files…]     default: test/*.test.ts
-#   OPM_TEST_SERVER_BIN=path/to/opm-cloud   run that binary (the Go server) instead of dist/opm-cloud.cjs
+#   OPM_TEST_SERVER_BIN=path/to/opm-cloud   run that binary instead of building one
 set -eu
 cd "$(dirname "$0")/.."
 PORT="${OPM_TEST_PORT:-8791}"
@@ -16,11 +16,14 @@ export OPM_FRONTEND_ORIGINS="http://localhost:5173,http://localhost:4173,http://
 # §21 #125 port tunnels listen on these (test/44)
 export TUNNEL_FREE_PORTS="${TUNNEL_FREE_PORTS:-28700-28703}"
 export OPM_OUTBOX_MIN_AGE_MS="${OPM_OUTBOX_MIN_AGE_MS:-1000}" OPM_BLOB_REDIRECT="${OPM_BLOB_REDIRECT:-0}" OPM_RELEASE_PUBLIC_KEY="$PUB" GCLOUD_PROJECT=local
-if [ -n "${OPM_TEST_SERVER_BIN:-}" ]; then
-  OPM_PORT="$PORT" OPM_HOST=127.0.0.1 "$OPM_TEST_SERVER_BIN" serve >"$LOG" 2>&1 &
-else
-  OPM_PORT="$PORT" OPM_HOST=127.0.0.1 node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve >"$LOG" 2>&1 &
+mkdir -p dist
+if [ -z "${OPM_TEST_SERVER_BIN:-}" ]; then
+  (cd ../agent && go build -o ../backend/dist/opm-cloud ./cmd/opm-cloud)
+  OPM_TEST_SERVER_BIN=dist/opm-cloud
 fi
+# the exporter as wasm: only scripts and test/32 on the TypeScript side still use it
+(cd ../agent && GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o ../backend/dist/opm-export.wasm ./cmd/opm-export)
+OPM_PORT="$PORT" OPM_HOST=127.0.0.1 "$OPM_TEST_SERVER_BIN" serve >"$LOG" 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null || true; wait $SRV 2>/dev/null || true; [ "${OPM_KEEP_DATA:-0}" = 1 ] && echo "data kept: $DATA" || rm -rf "$DATA"' EXIT INT TERM
 for i in $(seq 1 100); do
@@ -28,7 +31,7 @@ for i in $(seq 1 100); do
   if ! kill -0 $SRV 2>/dev/null; then cat "$LOG"; echo "opm-cloud did not start"; exit 1; fi
   sleep 0.2
 done
-echo "opm-cloud (local adapter) on :$PORT, data $DATA, log $LOG"
+echo "opm-cloud on :$PORT, data $DATA, log $LOG"
 if [ $# -gt 0 ]; then FILES="$*"; else FILES="test/*.test.ts"; fi
 set +e
 # shellcheck disable=SC2086

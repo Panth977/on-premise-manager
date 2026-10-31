@@ -25,7 +25,8 @@ RUN cd frontend && npm run build
 
 # Stage 3: runtime.
 FROM debian:bookworm-slim
-ENV OPM_DATA_DIR=/data \
+ENV OPM_CLOUD_VERSION=0.17.0 \
+    OPM_DATA_DIR=/data \
     OPM_PORT=8790 \
     OPM_STATIC_DIR=/opt/opm-cloud/www
 WORKDIR /opt/opm-cloud

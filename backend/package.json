@@ -2,13 +2,10 @@
   "name": "opm-backend",
   "private": true,
   "type": "module",
-  "description": "opm-cloud: TS sources in src, bundled into dist/opm-cloud.cjs by build-server.mjs.",
+  "description": "Test harness of the Go opm-cloud: the API suite, with the TypeScript driver reading the same data dir.",
   "scripts": {
-    "build": "node build-server.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && scripts/test-local.sh",
-    "create-admin": "tsx scripts/create-admin.ts",
-    "upload-agent": "tsx scripts/upload-agent.ts",
+    "test": "scripts/test-local.sh",
     "migrate-c": "tsx scripts/migrate-c.ts",
     "migrate-d": "tsx scripts/migrate-d.ts",
     "migrate-e": "tsx scripts/migrate-e.ts",
@@ -17,7 +14,6 @@
     "migrate-k": "tsx scripts/migrate-k.ts",
     "migrate-m": "tsx scripts/migrate-m.ts",
     "export-branch": "tsx scripts/export-branch.ts",
-    "start:local": "node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve",
     "test:adapters": "node --import tsx --test --test-concurrency=1 test/40-adapter-conformance.test.ts test/41-local-adapter.test.ts"
   },
   "devDependencies": {

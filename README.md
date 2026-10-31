@@ -24,7 +24,8 @@ networks. OPM works like Portainer, plus a git-style commit history for every se
 | `agent/` | the agent (Go): Docker driver, edge proxy (Caddy), branch/commit engine, snapshots, dev tools |
 | `agent/gui/` | the agent GUI (SvelteKit, embedded into the binary) |
 | `frontend/` | the cloud console (SvelteKit) |
-| `backend/` | the cloud API (`opm-cloud`, one process on a VM: SQLite + local blobs) |
+| `agent/cmd/opm-cloud`, `agent/internal/cloud/` | the cloud API (Go, one process on a VM: SQLite + local blobs) |
+| `backend/` | test harness of the cloud API (TypeScript); not part of the product |
 | `shared/` | contracts shared by every part: types, validation, expressions, hashing, test vectors |
 | `ui/` | shared Svelte form components and design tokens of both GUIs |
 | `selfhost/` | Dockerfile, docker compose, Caddyfile and systemd unit of the cloud |
@@ -58,7 +59,7 @@ Requirements: Node 22, Go ≥ 1.26 (`GOTOOLCHAIN=auto` downloads it), and Docker
 (cd agent/gui && npm ci && npm run build)          # builds into agent/internal/webui/dist
 (cd agent && go test -short ./...)                  # drop -short to run the Docker tests too
 (cd frontend && npm ci && npm run check)
-(cd backend && npm ci && npm run typecheck && npm run test:adapters)
+(cd backend && npm ci && npm test)                  # API suite against the Go opm-cloud
 ```
 
 `cd agent && go run ./cmd/opm-devmesh` starts an in-memory fake cloud with two agents, which is useful for GUI work.

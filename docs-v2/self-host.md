@@ -46,19 +46,19 @@ The named volume `opm-data` (mounted at `/data`) **is** the whole cloud; `OPM_DA
 binds a host directory instead (it must be writable by uid 10001: `sudo install -d -o 10001 /srv/opm-data`). Stop:
 `docker compose down` (data stays; `down -v` deletes it). Logs: `docker compose logs -f opm-cloud` (one JSON line per entry).
 
-### Plain Node + systemd (no Docker)
+### Plain binary + systemd (no Docker)
 
 ```sh
-cd backend && npm ci && npm run build:server          # → backend/dist/opm-cloud.cjs (+ GitHub-mirror artefacts)
-cd ../frontend && npm ci && npm run build             # → frontend/build
-sudo install -d /opt/opm-cloud && sudo cp -r ../backend/dist /opt/opm-cloud/dist && sudo cp -r build /opt/opm-cloud/www
-sudo useradd --system --home /var/lib/opm-cloud opm
+(cd agent && CGO_ENABLED=0 go build -o ../opm-cloud ./cmd/opm-cloud)
+(cd frontend && npm ci && npm run build)                 # → frontend/build
+sudo install -d /opt/opm-cloud && sudo cp opm-cloud /opt/opm-cloud/ && sudo cp -r frontend/build /opt/opm-cloud/www
+sudo useradd --system --home /var/lib/opm-cloud opm && sudo install -d -o opm /var/lib/opm-cloud
 sudo install -D -m 0640 /dev/null /etc/opm-cloud/env   # OPM_PUBLIC_URL=… OPM_SMTP_URL=… (see §2)
-sudo cp ../selfhost/opm-cloud.service /etc/systemd/system/ && sudo systemctl enable --now opm-cloud
-sudo -u opm env OPM_DATA_DIR=/var/lib/opm-cloud node /opt/opm-cloud/dist/opm-cloud.cjs create-admin --email you@example.com
+sudo cp selfhost/opm-cloud.service /etc/systemd/system/ && sudo systemctl enable --now opm-cloud
+sudo -u opm env OPM_DATA_DIR=/var/lib/opm-cloud /opt/opm-cloud/opm-cloud create-admin --email you@example.com
 ```
 
-Node 22.13+ (built-in `node:sqlite`); no native modules.
+One static Go binary, no runtime dependencies.
 
 ## 2. Configuration
 

@@ -165,6 +165,21 @@ test('internet tunnel: start in this tab → real worker carries requests (inlin
   await expect(page.getByTestId('tunnel-free')).toBeVisible();
 });
 
+test('internet tunnel in clear (tunnelPlaintext): the page warns', async ({ page }) => {
+  await knobs(page, { 'opm.mock.tunnelPlain': '1' });
+  await login(page, '/_opm/app/internet');
+  await expect(page.getByTestId('tunnel-security')).toContainText('not encrypted');
+  await page.getByTestId('tunnel-start').click();
+  await expect(page.getByTestId('tunnel-encrypted')).toHaveText('None');
+});
+
+test('internet tunnel: a call the agent refuses shows the reason of the lease', async ({ page }) => {
+  await knobs(page, { 'opm.mock.tunnelRefused': '1' });
+  await login(page, '/_opm/app/internet');
+  await page.getByTestId('tunnel-start').click();
+  await expect(page.getByTestId('tunnel-last-error')).toContainText('does not verify with releasePublicKey', { timeout: 10_000 });
+});
+
 test('internet tunnel held by another tab → revoke → start', async ({ page }) => {
   await knobs(page, { 'opm.mock.otherTab': '1' });
   await login(page, '/_opm/app/internet');

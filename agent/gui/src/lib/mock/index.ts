@@ -11,6 +11,8 @@
  *   opm.mock.noKey=1   the site has no access-key hash yet (login → unavailable)
  *   opm.mock.fail=apply  the next update fails in APPLY on site app → rollback
  *   opm.mock.otherTab=1  another tab holds the internet tunnel lease
+ *   opm.mock.tunnelPlain=1  the tunnel carries cloud calls in clear (tunnelPlaintext)
+ *   opm.mock.tunnelRefused=1  the agent refuses every tunnel call (lease lastError)
  *   opm.mock.presetProposal=1  the open cloud proposal also adds a dev-tool preset on db (§21 #102 Diff dev tools tab)
  *   opm.mock.tunnels=off|empty  the cloud does not carry port tunnels / none added (§21 #125); a session with `remote` works through the cloud
  */
@@ -1576,11 +1578,11 @@ const H: Partial<Record<keyof typeof AGENT_API, Handler>> = {
   tunnelState: () => {
     if (lease && lease.status === 'active' && nowMs() - Date.parse(lease.lastPollAt) > 30_000 && leaseSession) lease.status = 'expired';
     const active = lease?.status === 'active' ? lease : null;
-    return { lease: active, holderSite: active?.siteSlug ?? null, pending: active ? 1 + (tunnelSeq % 3) : 0, encrypted: active?.encrypted ?? true };
+    return { lease: active, holderSite: active?.siteSlug ?? null, pending: active ? 1 + (tunnelSeq % 3) : 0, encrypted: active?.encrypted ?? ls('opm.mock.tunnelPlain') !== '1' };
   },
   tunnelStart: (c, s, actor) => {
     if (lease?.status === 'active' && !(leaseSession === null && nowMs() - Date.parse(lease.lastPollAt) > 30_000)) throw new MockError('conflict', 'Another tab gives internet already.', { active: lease });
-    lease = { leaseId: D.mockUlid(), actor: actor!, siteSlug: D.SELF, userAgent: String((c.body as { userAgent?: string })?.userAgent ?? ''), startedAt: D.iso(nowMs()), lastPollAt: D.iso(nowMs()), status: 'active', encrypted: true, reqs: 0, bytes: 0, lastError: null };
+    lease = { leaseId: D.mockUlid(), actor: actor!, siteSlug: D.SELF, userAgent: String((c.body as { userAgent?: string })?.userAgent ?? ''), startedAt: D.iso(nowMs()), lastPollAt: D.iso(nowMs()), status: 'active', encrypted: ls('opm.mock.tunnelPlain') !== '1', reqs: 0, bytes: 0, lastError: null };
     leaseSession = s!.sessionId;
     addActivity(D.SELF, 'internet.tunnel.started', 'Browser internet tunnel started', actor, { leaseId: lease.leaseId });
     return { lease };
@@ -1608,6 +1610,7 @@ const H: Partial<Record<keyof typeof AGENT_API, Handler>> = {
     const id = c.query.get('leaseId') ?? '';
     checkLease(id);
     lease!.lastPollAt = D.iso(nowMs());
+    if (ls('opm.mock.tunnelRefused') === '1') lease!.lastError = "tunnel refused: the cloud's tunnel key is refused: the signature does not verify with releasePublicKey";
     await sleep(900 + Math.random() * 700);
     checkLease(id);
     const max = Math.min(4, Number(c.query.get('max') ?? 4));

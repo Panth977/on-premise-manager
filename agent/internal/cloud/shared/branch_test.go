@@ -40,14 +40,14 @@ func tsx(t testing.TB, script string, args ...string) []byte {
 	return out.Bytes()
 }
 
-func mapOf(v any) *doc.Map { m, _ := v.(*doc.Map); return m }
+func brMapOf(v any) *doc.Map { m, _ := v.(*doc.Map); return m }
 func arrOf(v any) []any    { a, _ := v.([]any); return a }
 func strOf(v any) string   { s, _ := v.(string); return s }
 func slotOf(v any) Slot {
-	m := mapOf(v)
+	m := brMapOf(v)
 	return Slot{Has: doc.Truthy(m.Val("has")), V: m.Val("v")}
 }
-func strsOf(v any) []string {
+func brStrsOf(v any) []string {
 	out := []string{}
 	for _, x := range arrOf(v) {
 		out = append(out, x.(string))
@@ -57,7 +57,7 @@ func strsOf(v any) []string {
 
 // runCall dispatches one vector to the Go function.
 func runCall(fn string, a []any) (any, error) {
-	m := func(i int) *doc.Map { return mapOf(a[i]) }
+	m := func(i int) *doc.Map { return brMapOf(a[i]) }
 	switch fn {
 	case "planMerge":
 		return PlanMerge(m(0), m(1), m(2), m(3)), nil
@@ -92,13 +92,13 @@ func runCall(fn string, a []any) (any, error) {
 	case "mergeMissing":
 		return MergeMissing(m(0)), nil
 	case "secretValueChanges":
-		return SecretValueChanges(arrOf(a[0]), arrOf(a[1]), strsOf(a[2])), nil
+		return SecretValueChanges(arrOf(a[0]), arrOf(a[1]), brStrsOf(a[2])), nil
 	case "withReferenceSites":
 		return WithReferenceSites(m(0), m(1), strOf(a[2])), nil
 	case "diffConfigs":
 		return DiffConfigs(m(0), m(1), nil, nil), nil
 	case "diffConfigsFns":
-		l := strsOf(a[2])
+		l := brStrsOf(a[2])
 		return DiffConfigs(m(0), m(1), func(s string) string { return "svc-" + s }, func(s string) bool { return brContains(l, s) }), nil
 	case "planTemplateSync":
 		return PlanTemplateSync(m(0), m(1), m(2), arrOf(a[3])), nil
@@ -178,7 +178,7 @@ func runCall(fn string, a []any) (any, error) {
 	case "verifyCommitLink":
 		return VerifyCommitLink(m(0), m(1))
 	case "sourcePicks":
-		return SourcePicks(strsOf(a[0]), strOf(a[1])), nil
+		return SourcePicks(brStrsOf(a[0]), strOf(a[1])), nil
 	case "hasSecretValueChanges":
 		return HasSecretValueChanges(m(0)), nil
 	case "maskDevToolLiterals":
@@ -206,7 +206,7 @@ func TestBranchVectors(t *testing.T) {
 	}
 	configs := v.Arr("configs")
 	resolve := func(x any) any {
-		if m := mapOf(x); m != nil {
+		if m := brMapOf(x); m != nil {
 			if m.Has("$u") {
 				return doc.Undefined
 			}

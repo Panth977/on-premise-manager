@@ -690,6 +690,7 @@ type TunnelStateResponse struct {
 	Lease      *TunnelLease `json:"lease"`
 	HolderSite *Slug        `json:"holderSite"`
 	Pending    int          `json:"pending"`
+	Encrypted  bool         `json:"encrypted"`
 }
 
 // TunnelNextResponse is TS TunnelNextResponse.

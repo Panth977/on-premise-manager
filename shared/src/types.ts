@@ -68,6 +68,9 @@ export type ErrorCode =
   | 'method-not-allowed' // 405
   | 'conflict' // 409
   | 'stale' // 409
+  | 'not-available' // 404 §9.10 this cloud has no tunnel key (no release private key)
+  | 'tunnel-key-changed' // 409 §9.10 a sealed request names another key: fetch the key again
+  | 'undecryptable' // 400 §9.10 a sealed request cannot be decrypted
   | 'gone' // 410
   | 'too-large' // 413
   | 'invalid' // 422
@@ -86,6 +89,9 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   forbidden: 403,
   'not-found': 404,
   'method-not-allowed': 405,
+  'not-available': 404,
+  'tunnel-key-changed': 409,
+  undecryptable: 400,
   conflict: 409,
   stale: 409,
   gone: 410,
@@ -1455,6 +1461,7 @@ export const ACTIVITY_TYPES = [
   'secret.regenerated', //   §21 #84 (cloud: regenerateSecret; data { secretSlug, draftVersion })
   'secret.fetched',
   'internet.tunnel.started',
+  'internet.tunnel.plaintext',
   'internet.tunnel.stopped',
   'internet.tunnel.revoked',
   'internet.tunnel.expired',
@@ -1960,6 +1967,24 @@ export interface TunnelLease {
   reqs: number;
   bytes: number;
   lastError: string | null;
+  /** §9.10 every cloud call of this lease is sealed end to end, the tab sees ciphertext. false: an agent without the
+   *  feature, or `tunnelPlaintext` on an agent without a pinned release key */
+  encrypted: boolean;
+}
+/** §9.10 GET /v1/agent/tunnel-key: the cloud's X25519 key, certified by the release key */
+export interface TunnelKeyResponse {
+  v: 1;
+  kid: string; //       first 16 hex of the sha256 of the public key
+  publicKey: string; // base64 X25519
+  origin: string; //    origin of the cloud's public URL, part of the signed string
+  sig: string; //       base64url Ed25519 by the release key over `opm-tunnel-key-v1\n<publicKey>\n<origin>\n`
+}
+/** §9.10 POST /v1/agent/sealed: `ct` = AES-256-GCM of the JSON of a RelayInner. The answer is a framed AEAD stream. */
+export interface SealedRequest {
+  v: 1;
+  kid: string;
+  epk: string; // base64 ephemeral X25519 public key, one per request
+  ct: string; //  base64
 }
 export interface TunnelRequest {
   reqId: Ulid;
@@ -2080,6 +2105,9 @@ export interface AgentConfigFile {
   edgeHttpPort?: number | null;
   /** release signing public key (base64), written by the install script; `opm-agent upgrade` verifies with it */
   releasePublicKey?: string;
+  /** §9.10 only without releasePublicKey: let the browser tunnel carry cloud calls in clear (an activity on every lease
+   *  start). Without it such an agent's tunnel calls fail; with a releasePublicKey it has no effect. */
+  tunnelPlaintext?: boolean;
   /** cloud console origin for the agent GUI links (fallback when the cloud does not send consoleUrl) */
   consoleUrl?: string;
   /** §21 #88 docker container names: "plain" (default; the docker name = the containerSlug) | "prefixed"
@@ -3469,6 +3497,7 @@ export interface TunnelStateResponse {
   lease: TunnelLease | null; // the active lease of the deployment (any site), if any
   holderSite: Slug | null;
   pending: number; //          queued requests on this site
+  encrypted: boolean; //       §9.10 the lease (without a lease: this agent's setting) carries ciphertext only
 }
 export interface TunnelNextResponse {
   requests: TunnelRequest[];

@@ -47,6 +47,9 @@ const (
 	ErrForbidden        = "forbidden"
 	ErrNotFound         = "not-found"
 	ErrMethodNotAllowed = "method-not-allowed"
+	ErrNotAvailable     = "not-available"
+	ErrTunnelKeyChanged = "tunnel-key-changed"
+	ErrUndecryptable    = "undecryptable"
 	ErrConflict         = "conflict"
 	ErrStale            = "stale"
 	ErrGone             = "gone"
@@ -64,6 +67,7 @@ const (
 var ErrorHTTPStatus = map[string]int{
 	ErrUnauthenticated: 401, ErrSessionExpired: 401, ErrInvalidKey: 401, ErrActorRequired: 401,
 	ErrForbidden: 403, ErrNotFound: 404, ErrMethodNotAllowed: 405, ErrConflict: 409, ErrStale: 409,
+	ErrNotAvailable: 404, ErrTunnelKeyChanged: 409, ErrUndecryptable: 400,
 	ErrGone: 410, ErrTooLarge: 413, ErrInvalid: 422, ErrGateClosed: 409, ErrLocked: 409,
 	ErrNoInternet: 503, ErrUnavailable: 503, ErrRateLimited: 429, ErrInternal: 500,
 }
@@ -1022,7 +1026,7 @@ var ActivityTypes = []string{
 	"snapshot.rolled-back", "volume.seeded", "volume.reset-to-seed", "transfer.sent", "transfer.received", "transfer.saved",
 	"file.published", "file.fetched", "file.downloaded", "file.saved", "file.copy-dropped", "file.unpublished", // §21 #123
 	"secret.revealed",
-	"secret.regenerated", "secret.fetched", "internet.tunnel.started", "internet.tunnel.stopped", "internet.tunnel.revoked",
+	"secret.regenerated", "secret.fetched", "internet.tunnel.started", "internet.tunnel.plaintext", "internet.tunnel.stopped", "internet.tunnel.revoked",
 	"internet.tunnel.expired", "debug.downloaded", "edge.reloaded", "edge.reload-failed", "cert.issued",
 	"cert.renewed", "cert.failed", "cert.local-ca-downloaded", "site.unreachable", "site.reachable",
 	"deployment.created", "deployment.updated", "install-token.created", "install-token.revoked",
@@ -1625,6 +1629,7 @@ type TunnelLease struct {
 	Reqs       int     `json:"reqs"`
 	Bytes      int64   `json:"bytes"`
 	LastError  *string `json:"lastError"`
+	Encrypted  bool    `json:"encrypted"`
 }
 
 // TunnelRequest is TS TunnelRequest.
@@ -1778,6 +1783,8 @@ type AgentConfigFile struct {
 	EdgeHTTPPort Optional[int] `json:"edgeHttpPort"`
 	// release signing public key (base64), written by the install script (opm-agent upgrade)
 	ReleasePublicKey string `json:"releasePublicKey,omitempty"`
+	// §9.10 only without ReleasePublicKey: the browser tunnel may carry cloud calls in clear
+	TunnelPlaintext bool `json:"tunnelPlaintext,omitempty"`
 	// cloud console origin (fallback when the cloud does not send consoleUrl)
 	ConsoleURL string `json:"consoleUrl,omitempty"`
 	// §21 #88 docker container names: "plain" (default; the name = the containerSlug) | "prefixed"

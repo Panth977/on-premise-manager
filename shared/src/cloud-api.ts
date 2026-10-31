@@ -172,6 +172,9 @@ export const CLOUD_API = {
   putAgentUploadPart: ep<void, T.UploadPartResponse>()({ method: 'PUT', path: '/v1/agent/uploads/{uploadId}/parts/{index}', auth: 'agent', perm: 'site key (creator)', body: 'raw', res: 'json', errors: ['not-found', 'gone', 'invalid'], summary: 'Upload one part.' }),
   completeAgentUpload: ep<void, T.CompleteUploadResponse>()({ method: 'POST', path: '/v1/agent/uploads/{uploadId}/complete', auth: 'agent', perm: 'site key (creator)', body: 'none', res: 'json', errors: ['not-found', 'gone', 'invalid'], activities: ['transfer.sent'], summary: 'Join + verify; the to-cloud transfer becomes ready.' }),
   relay: ep<T.RelayRequest, T.RelayResponse>()({ method: 'POST', path: '/v1/agent/relay', auth: 'agent', perm: 'site key of the relaying site + valid inner signature of forSite', body: 'json', res: 'json', errors: ['invalid'], summary: 'Run the inner signed request as forSite; sets agents/{forSite}.relayVia.' }),
+  // §9.10 the browser tunnel carries sealed requests only (the inner request has the normal agent signature)
+  agentTunnelKey: ep<void, T.TunnelKeyResponse>()({ method: 'GET', path: '/v1/agent/tunnel-key', auth: 'public', perm: null, body: 'none', res: 'json', errors: ['not-available'], summary: "The cloud's X25519 tunnel key, signed by the release key; not-available without a release private key." }),
+  agentSealed: ep<T.SealedRequest, Response>()({ method: 'POST', path: '/v1/agent/sealed', auth: 'public', perm: null, body: 'raw', res: 'raw', errors: ['not-available', 'tunnel-key-changed', 'undecryptable'], summary: 'Run a sealed agent request (signed inside; only agent routes) and stream the sealed answer.' }),
   // ── §21 #101 volume content + persist-to-cloud (table in volume-content.ts)
   ...VOLUME_CONTENT_CLOUD_API,
   // §21 #104 branches + commits

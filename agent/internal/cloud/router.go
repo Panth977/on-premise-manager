@@ -292,6 +292,9 @@ func ErrorReply(err error, requestID string) *Reply {
 type DispatchOpts struct {
 	// PreAgent: relay: the inner request was verified by the relay handler
 	PreAgent *AgentAuth
+	// SealedInner: the inner request of POST /v1/agent/sealed (§9.10): only the signed agent routes exist for it. Anybody
+	// can seal a request to the public key, so everything else answers like an unknown route.
+	SealedInner bool
 }
 
 // RandomUUID is randomUUID.
@@ -365,6 +368,10 @@ func jsonReply(def *Endpoint, out any) (*Reply, error) {
 func run(req ReqLike, requestID string, opts DispatchOpts, opOut *string) (*Reply, error) {
 	path, rawQ, _ := strings.Cut(req.URL, "?")
 	method := strings.ToUpper(req.Method)
+	noRoute := E.NotFound("no route " + method + " " + path)
+	if opts.SealedInner && !strings.HasPrefix(path, "/v1/agent/") {
+		return nil, noRoute
+	}
 	var found *route
 	var m []string
 	pathMatched := false
@@ -385,7 +392,10 @@ func run(req ReqLike, requestID string, opts DispatchOpts, opOut *string) (*Repl
 		if pathMatched {
 			return nil, E.New("method-not-allowed", method+" is not allowed on "+path, nil, nil)
 		}
-		return nil, E.NotFound("no route " + method + " " + path)
+		return nil, noRoute
+	}
+	if opts.SealedInner && (found.def.Auth != "agent" || found.def.Op == "relay") {
+		return nil, noRoute
 	}
 	params := map[string]string{}
 	for i, k := range found.keys {

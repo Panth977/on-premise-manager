@@ -20,8 +20,7 @@ const HELP = `usage: opm-cloud <command> [options]   (config: env OPM_* or --con
   upload-agent --dir D --version V [--latest]
                                           upload agent binaries (signed with the data dir's release key or OPM_RELEASE_PRIVATE_KEY)
   upload-deps [--docker-version 28.5.2] [--agent-version V] [--agent-notes T] [--from-dir D]
-  backup --out DIR                        consistent online backup (SQLite VACUUM INTO + blobs + secrets)
-  (migrate: from the repo checkout — cd backend && npx tsx scripts/migrate-cloud.ts --from firebase --to local …)`;
+  backup --out DIR                        consistent online backup (SQLite VACUUM INTO + blobs + secrets)`;
 
 export async function createAdminWith(email0: string, password: string, name: string) {
   const email = email0.trim().toLowerCase();
@@ -95,7 +94,6 @@ export async function run(cmd: string, cfg: CloudConfig, arg: Arg, flag: Flag): 
       return 0;
     }
     case 'release-key': {
-      if (cfg.adapter !== 'local') return usage('release-key manages the local data dir key (adapter local)');
       const k = ensureReleaseKey(cfg);
       console.log(JSON.stringify({ ok: true, created: k.created, file: releaseKeyFile(cfg), publicKeyB64: k.publicKeyB64 }));
       return 0;
@@ -104,7 +102,7 @@ export async function run(cmd: string, cfg: CloudConfig, arg: Arg, flag: Flag): 
       const dir = arg('dir');
       const version = arg('version');
       if (!dir || !version || !/^[0-9A-Za-z._+-]{1,64}$/.test(version)) return usage('upload-agent needs --dir and --version');
-      const seedB64 = process.env.OPM_RELEASE_PRIVATE_KEY || (cfg.adapter === 'local' ? ensureReleaseKey(cfg).privateKeySeedB64 : '');
+      const seedB64 = process.env.OPM_RELEASE_PRIVATE_KEY || ensureReleaseKey(cfg).privateKeySeedB64;
       if (!seedB64) return usage('no release key: set OPM_RELEASE_PRIVATE_KEY');
       await uploadAgentDir({ bucket: bucketShim(blobs()), dir: path.resolve(dir), version, latest: flag('latest'), seedB64 });
       // --latest also moves the PIN (deps/manifest.json agent): sites are offered it and install scripts pin it — the
@@ -133,7 +131,6 @@ export async function run(cmd: string, cfg: CloudConfig, arg: Arg, flag: Flag): 
       return 0;
     }
     case 'backup': {
-      if (cfg.adapter !== 'local') return usage('backup copies the local data dir (adapter local); Firebase has its own backups');
       const out = arg('out');
       if (!out) return usage('backup needs --out <dir>');
       const dst = path.resolve(out);
@@ -145,10 +142,6 @@ export async function run(cmd: string, cfg: CloudConfig, arg: Arg, flag: Flag): 
       console.log(JSON.stringify({ ok: true, out: dst }));
       return 0;
     }
-    case 'migrate':
-      // needs the Firebase Admin SDK + credentials helpers: run from the repo checkout (docs-v2/self-host.md)
-      console.error('migrate runs from the repository checkout (needs the Firebase Admin SDK):\n  cd backend && npx tsx scripts/migrate-cloud.ts --from firebase --to local --project <id> --data-dir <opm-cloud data dir> [--dry-run]');
-      return 2;
     default:
       return usage(`unknown command ${cmd}`);
   }

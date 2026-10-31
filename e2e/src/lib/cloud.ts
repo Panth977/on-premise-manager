@@ -6,18 +6,14 @@ import { log } from './report.js';
 interface Tok { idToken: string; refreshToken: string; at: number }
 let tok: Tok | null = null;
 
-function authUrl(path: string, host = 'identitytoolkit.googleapis.com'): string {
-  return CFG.authEmulator ? `http://${CFG.authEmulator}/${host}${path}?key=${CFG.firebaseApiKey}` : `https://${host}${path}?key=${CFG.firebaseApiKey}`;
-}
-
 export async function signIn(email = CFG.adminEmail, password = CFG.adminPassword): Promise<Tok> {
-  const r = await fetch(authUrl('/v1/accounts:signInWithPassword'), {
+  const r = await fetch(`${CFG.apiBase}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, returnSecureToken: true }),
+    body: JSON.stringify({ email, password }),
   });
   const j = (await r.json()) as { idToken?: string; refreshToken?: string; error?: { message: string } };
-  if (!r.ok || !j.idToken) throw new Error(`signInWithPassword ${email}: ${r.status} ${j.error?.message ?? ''}`);
+  if (!r.ok || !j.idToken) throw new Error(`/auth/login ${email}: ${r.status} ${j.error?.message ?? ''}`);
   tok = { idToken: j.idToken, refreshToken: j.refreshToken!, at: Date.now() };
   log(`signed in as ${email}`);
   return tok;
@@ -26,13 +22,13 @@ export async function signIn(email = CFG.adminEmail, password = CFG.adminPasswor
 async function idToken(): Promise<string> {
   if (!tok) await signIn();
   if (Date.now() - tok!.at > 45 * 60 * 1000) {
-    const r = await fetch(authUrl('/v1/token', 'securetoken.googleapis.com'), {
+    const r = await fetch(`${CFG.apiBase}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(tok!.refreshToken)}`,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: tok!.refreshToken }),
     });
-    const j = (await r.json()) as { id_token?: string; refresh_token?: string };
-    if (j.id_token) tok = { idToken: j.id_token, refreshToken: j.refresh_token ?? tok!.refreshToken, at: Date.now() };
+    const j = (await r.json()) as { idToken?: string; refreshToken?: string };
+    if (j.idToken) tok = { idToken: j.idToken, refreshToken: j.refreshToken ?? tok!.refreshToken, at: Date.now() };
     else await signIn();
   }
   return tok!.idToken;

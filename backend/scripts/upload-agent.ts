@@ -2,7 +2,7 @@
  * Upload built agent binaries to Storage (SPEC-final §2.3): agent/<version>/<os>-<arch>/opm-agent + .sha256 (hex) + .sig
  * (base64url Ed25519 signature of the lowercase sha256 hex string by the release key) and optionally agent/latest.
  *
- *   npx tsx scripts/upload-agent.ts --dir ../agent/dist --version 0.1.0 [--latest] [--project your-firebase-project] [--bucket b]
+ *   npx tsx scripts/upload-agent.ts --dir ../agent/dist --version 0.1.0 [--latest] [--bucket b]
  *
  * --dir holds either files named opm-agent-<os>-<arch> (e.g. opm-agent-linux-arm64) or <os>-<arch>/opm-agent.
  * §21 #91: <dir>/release.json (make dist: {version, schema, minSchema, commit, builtAt}) → agent/<version>/release.json
@@ -33,7 +33,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('usage: upload-agent --dir <dir> --version <v> [--latest] [--project <id>] [--bucket <name>] [--adapter local --data-dir <dir>]');
     process.exit(2);
   }
-  const projectId = arg('project', process.env.GCLOUD_PROJECT ?? 'your-firebase-project')!;
+  const projectId = arg('project', 'local')!;
   const { bucket } = init(projectId, arg('bucket'));
   let seedB64: string;
   try {

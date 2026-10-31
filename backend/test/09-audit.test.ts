@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sign } from 'node:crypto';
 import { activityHashInput, AUDIT_DEPLOYMENT_OPS, AUDIT_EXEMPT_OPS, canonicalize, CLOUD_API, createCloudClient, type Activity, type AuditLogEntry, type EndpointDef } from '@opm/shared';
-import { abucket, adb, ADAPTER, BASE, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, sleep, uniq, type Person, type SiteKey } from './helpers.ts';
+import { abucket, adb, BASE, enrollSite, helloDeployment, person, raw, rejects, sha256Hex, sleep, uniq, type Person, type SiteKey } from './helpers.ts';
 import { depInput } from './helpers.ts';
 import { writeTar } from '../functions/src/core/tar.ts';
 import { runDaily } from '../functions/src/jobs/daily.ts';
@@ -65,7 +65,7 @@ function opmlog(deploymentId: string, signer: { siteSlug: string; key: SiteKey }
 // §21 #104 + #105: removed routes answer 410 gone (kept in the contract for old clients)
 // §21 #117: the cloud-copy writes of persist volumes are gone too (content is committed)
 // §21 #118 openRemoteGui and §21 #125 port tunnels need the single-process cloud (503 elsewhere)
-const NO_ACTIVITY = new Set(['fetchFileToCloud', ...(ADAPTER === 'local' ? [] : ['openRemoteGui', 'createPortTunnel', 'deletePortTunnel'])]);
+const NO_ACTIVITY = new Set(['fetchFileToCloud']);
 const GONE = new Set(['publish', 'resetDraftToHead', 'applyTemplateSync', 'unlinkTemplate', 'putDraftSection', 'putDraftSite', 'regenerateSecret', 'discardDeploymentWorking', 'createVolumeContentVersion', 'restoreVolumeContentVersion', 'requestVolumeSnapshot', 'sendVolumeContent', 'cancelVolumeContentPush']);
 test('guarantee: every human non-GET op writes an audit entry (root) or a _cloud activity (deployment scope)', async () => {
   const admin = await person('admin');

@@ -8,12 +8,12 @@
  *   node dist/opm-cloud.cjs upload-agent --dir D --version V [--latest]
  *   node dist/opm-cloud.cjs upload-deps [--docker-version 28.5.2] [--agent-version V] [--agent-notes T] [--from-dir D]
  *   node dist/opm-cloud.cjs backup --out DIR    consistent online copy (SQLite VACUUM INTO + blobs + secrets)
- *   node dist/opm-cloud.cjs migrate --from firebase --to local --project P [--dry-run]   (and --from local --to firebase)
  *
- * Config: env (OPM_ADAPTER, OPM_DATA_DIR, OPM_PUBLIC_URL, OPM_PORT, OPM_STATIC_DIR, OPM_OIDC_*, OPM_SMTP_URL …) or a JSON
- * file (--config / OPM_CONFIG), see docs-v2/self-host.md. The same business code as the Cloud Functions (app.ts).
+ * Config: env (OPM_DATA_DIR, OPM_PUBLIC_URL, OPM_PORT, OPM_STATIC_DIR, OPM_OIDC_*, OPM_SMTP_URL …) or a JSON
+ * file (--config / OPM_CONFIG), see docs-v2/self-host.md.
  */
-import { setPorts, logger, type Ports } from './ports/index.js';
+import { setPorts, logger } from './ports/index.js';
+import { handleAuthHttp, handleBlobHttp, localPorts, startOutboxDispatcher, sweepDocTtl } from './adapters/local/index.js';
 import { applyEnv, loadConfig, type CloudConfig } from './server/config.js';
 
 export const LIFECYCLE_RULES = [{ prefixes: ['staging/'], ageDays: 1 }]; // = backend/storage.lifecycle.json
@@ -25,64 +25,46 @@ function argOf(name: string, argv = process.argv): string | undefined {
   return eq ? eq.slice(name.length + 3) : undefined;
 }
 
-export async function installPorts(cfg: CloudConfig): Promise<Ports & { close(): Promise<void> }> {
-  if (cfg.adapter === 'local') {
-    const { localPorts } = await import('./adapters/local/index.js');
-    const p = localPorts({ dataDir: cfg.dataDir, publicUrl: cfg.publicUrl, consoleUrl: cfg.consoleUrl });
-    setPorts(p);
-    return p;
-  }
-  const { firebasePorts } = await import('./adapters/firebase/index.js');
-  const p = firebasePorts();
+export function installPorts(cfg: CloudConfig) {
+  const p = localPorts({ dataDir: cfg.dataDir, publicUrl: cfg.publicUrl, consoleUrl: cfg.consoleUrl });
   setPorts(p);
-  return { ...p, close: async () => undefined };
+  return p;
 }
 
 async function serve(cfg: CloudConfig) {
-  const ports = await installPorts(cfg);
+  const lp = installPorts(cfg);
   const { createServer, VERSION } = await import('./server/http.js');
   const { TRIGGERS, JOBS } = await import('./app.js');
-  let local: import('./server/http.js').LocalHttpHandlers | null = null;
+  const { sendMail } = await import('./routes/accounts.js');
+  const { env } = await import('./core/env.js');
   const stops: (() => Promise<void>)[] = [];
-  if (cfg.adapter === 'local') {
-    const L = await import('./adapters/local/index.js');
-    const { sendMail } = await import('./routes/accounts.js');
-    const { env } = await import('./core/env.js');
-    const lp = ports as ReturnType<typeof L.localPorts>;
-    local = {
-      blob: (r) => L.handleBlobHttp(r, lp.blobs, { allowedOrigins: cfg.frontendOrigins }),
-      auth: (r) => L.handleAuthHttp(r, lp.auth, { sendMail: env.smtpUrl ? sendMail : undefined, oidc: cfg.oidc, consoleUrl: cfg.consoleUrl }),
-      authConfig: () => ({ provider: 'local', passwordReset: !!env.smtpUrl, oidc: cfg.oidc ? { label: cfg.oidc.label } : null }),
-    };
-  }
+  const local: import('./server/http.js').LocalHttpHandlers = {
+    blob: (r) => handleBlobHttp(r, lp.blobs, { allowedOrigins: cfg.frontendOrigins }),
+    auth: (r) => handleAuthHttp(r, lp.auth, { sendMail: env.smtpUrl ? sendMail : undefined, oidc: cfg.oidc, consoleUrl: cfg.consoleUrl }),
+    authConfig: () => ({ provider: 'local', passwordReset: !!env.smtpUrl, oidc: cfg.oidc ? { label: cfg.oidc.label } : null }),
+  };
   if (cfg.runJobs) {
     const { startScheduler } = await import('./server/scheduler.js');
-    const jobs = [...JOBS];
-    if (cfg.adapter === 'local') {
-      const L = await import('./adapters/local/index.js');
-      const lp = ports as ReturnType<typeof L.localPorts>;
-      const d = L.startOutboxDispatcher(lp.store, TRIGGERS, { concurrency: 4 });
-      stops.push(() => d.stop());
-      // Firestore TTL policies + the bucket lifecycle rule, done by the server on a VM
-      jobs.push({ name: 'docTtl', schedule: 'every 10 minutes', timeoutSeconds: 300, memory: '256MiB', run: async () => void (await L.sweepDocTtl(lp.store, Date.now())) });
-      jobs.push({ name: 'blobLifecycle', schedule: 'every 60 minutes', timeoutSeconds: 900, memory: '256MiB', run: async () => void (await lp.blobs.sweep(LIFECYCLE_RULES)) });
-    }
-    const s = startScheduler(jobs);
+    const d = startOutboxDispatcher(lp.store, TRIGGERS, { concurrency: 4 });
+    stops.push(() => d.stop());
+    const s = startScheduler([
+      ...JOBS,
+      { name: 'docTtl', schedule: 'every 10 minutes', timeoutSeconds: 300, memory: '256MiB', run: async () => void (await sweepDocTtl(lp.store, Date.now())) },
+      { name: 'blobLifecycle', schedule: 'every 60 minutes', timeoutSeconds: 900, memory: '256MiB', run: async () => void (await lp.blobs.sweep(LIFECYCLE_RULES)) },
+    ]);
     stops.push(() => s.stop());
   }
   const server = createServer(cfg, local);
-  if (cfg.adapter === 'local') {
-    // §21 #125 port tunnels: listen on the public port of every stored tunnel
-    const { startPortTunnels, stopPortTunnels } = await import('./core/port-tunnels.js');
-    const { allPortTunnels } = await import('./routes/port-tunnels.js');
-    startPortTunnels(await allPortTunnels());
-    stops.push(async () => stopPortTunnels());
-  }
+  // §21 #125 port tunnels: listen on the public port of every stored tunnel
+  const { startPortTunnels, stopPortTunnels } = await import('./core/port-tunnels.js');
+  const { allPortTunnels } = await import('./routes/port-tunnels.js');
+  startPortTunnels(await allPortTunnels());
+  stops.push(async () => stopPortTunnels());
   server.requestTimeout = 15 * 60_000;
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;
   await new Promise<void>((resolve) => server.listen(cfg.port, cfg.host, resolve));
-  logger.info('opm-cloud listening', { version: VERSION, adapter: cfg.adapter, url: cfg.publicUrl, port: cfg.port, dataDir: cfg.adapter === 'local' ? cfg.dataDir : null, staticDir: cfg.staticDir, jobs: cfg.runJobs });
+  logger.info('opm-cloud listening', { version: VERSION, url: cfg.publicUrl, port: cfg.port, dataDir: cfg.dataDir });
   let closing = false;
   const shutdown = async (sig: string) => {
     if (closing) return;
@@ -93,7 +75,7 @@ async function serve(cfg: CloudConfig) {
     const hard = setTimeout(() => process.exit(0), 20_000);
     hard.unref();
     for (const s of stops) await s().catch(() => undefined);
-    await ports.close().catch(() => undefined);
+    await lp.close().catch(() => undefined);
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
@@ -107,7 +89,7 @@ async function main() {
   applyEnv(cfg);
   if (cmd === 'serve') return serve(cfg);
   const ops = await import('./server/ops.js');
-  await installPorts(cfg);
+  installPorts(cfg);
   const code = await ops.run(cmd, cfg, (n: string) => argOf(n), (n: string) => process.argv.includes(`--${n}`));
   process.exit(code);
 }

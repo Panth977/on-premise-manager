@@ -1,13 +1,12 @@
 /**
  * export-branch — §21 #106: write the GitHub-mirror tree of ONE template / deployment / agent-branch commit into a local
- * directory, exactly as the mirror would push it (same ExportRequest assembly, same exporter: functions/lib/opm-export.wasm
+ * directory, exactly as the mirror would push it (same ExportRequest assembly, same exporter: dist/opm-export.wasm
  * — run `npm run build` first). READ-ONLY on the project: nothing is written to Firestore / Storage / GitHub.
  * Secret values never leave the exporter input (they are stripped), and this script prints none.
  *
  * Usage (from backend/):
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/export-branch.ts --project your-firebase-project \
+ *   npx tsx scripts/export-branch.ts --data-dir <dir> \
  *               (--template <id> | --deployment <id> [--site <slug> (agent branch)]) [--commit <commitId> (default head)] --out <dir>
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 npx tsx scripts/export-branch.ts --project demo-opm …
  * Prints the tree (path, mode, size) and the exporter notes; --json writes the ExportRequest to <out>/../export-request.json too.
  */
 import { mkdirSync, writeFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
@@ -26,7 +25,7 @@ async function main() {
     process.exit(2);
   }
   const cl = init(project); // installs the adapter's ports for the backend modules imported below
-  process.env.OPM_EXPORT_DIR ??= path.resolve(path.dirname(new URL(import.meta.url).pathname), '../functions/lib');
+  process.env.OPM_EXPORT_DIR ??= path.resolve(path.dirname(new URL(import.meta.url).pathname), '../dist');
   const { decodeCommit, commitsOf } = await import('../functions/src/core/branches.ts');
   const { buildRequest, newExportCtx, runExporter, personOf } = await import('../functions/src/core/mirror-export.ts');
   const { db } = await import('../functions/src/core/fire.ts');

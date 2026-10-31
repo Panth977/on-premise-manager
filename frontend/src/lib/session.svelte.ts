@@ -1,22 +1,19 @@
 /**
- * Human login + the OPM account (GET /v1/me). The provider is chosen at runtime (§21 #108, <base>/opm-config.json):
- * - firebase (default; Firebase Hosting): Firebase Auth email/password; Google only with VITE_OPM_GOOGLE_DOMAIN.
- * - local (opm-cloud on a VM): /auth/* of the same origin (lib/auth/local-auth.ts); optional OIDC + password reset.
+ * Human login + the OPM account (GET /v1/me): /auth/* of the same origin (lib/auth/local-auth.ts); optional OIDC +
+ * password reset, as <base>/opm-config.json says (§21 #108).
  * In mock mode a fake auth keeps the uid in localStorage and sends "Bearer mock:<uid>" (no config fetch).
  */
 import type { Account, MeResponse, Resource, Action } from '@opm/shared';
 import { can, canSeeDeployment, isAdmin, type AccessTarget } from '@opm/shared';
 import { api, errCode, errMsg, isApiError, setTokenProvider } from './api';
-import { MOCK, USE_EMULATORS, AUTH_EMULATOR_URL, GOOGLE_DOMAIN, EMULATOR_PROJECT, setRuntimeApiBase } from './env';
-import { firebaseConfig } from './firebase-config';
-import type { Auth, User } from 'firebase/auth';
+import { MOCK, setRuntimeApiBase } from './env';
 import { asset } from '$app/paths';
 import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, type OpmAuthConfig } from './auth/runtime-config';
 import { authMessage } from './auth/messages';
 import { LocalAuth, checkPasswordReset, confirmPasswordReset, requestPasswordReset, type ResetCheck } from './auth/local-auth';
 
 export type SessionStatus = 'loading' | 'signed-out' | 'signed-in';
-export type SessionProvider = 'mock' | 'firebase' | 'local';
+export type SessionProvider = 'mock' | 'local';
 
 const MOCK_KEY = 'opm.mock.session';
 
@@ -26,12 +23,10 @@ class Session {
   /** error to show on the login page (no account, disabled, …) */
   loginError: string | null = $state(null);
   /** §21 #108 which login this console uses (known after init) */
-  provider: SessionProvider = $state(MOCK ? 'mock' : 'firebase');
+  provider: SessionProvider = $state(MOCK ? 'mock' : 'local');
   authConfig: OpmAuthConfig = $state({ ...DEFAULT_RUNTIME_CONFIG.auth });
   /** opm-config.json was read (the login page waits for it before showing provider-specific options) */
   configReady: boolean = $state(MOCK);
-  #auth: Auth | null = null;
-  #user: User | null = null;
   #local: LocalAuth | null = null;
   #ready: Promise<void> | null = null;
 
@@ -56,16 +51,13 @@ class Session {
     return this.#ready;
   }
 
-  /** §21 #108 read <base>/opm-config.json, then start the provider it names (emulators: always Firebase). */
+  /** §21 #108 read <base>/opm-config.json, then start the session. */
   async #initRuntime() {
     const cfg = await loadRuntimeConfig(asset('/opm-config.json'));
     if (cfg.apiBase) setRuntimeApiBase(cfg.apiBase);
-    const local = cfg.auth.provider === 'local' && !USE_EMULATORS;
-    this.authConfig = local ? cfg.auth : { ...DEFAULT_RUNTIME_CONFIG.auth };
-    this.provider = local ? 'local' : 'firebase';
+    this.authConfig = cfg.auth;
     this.configReady = true;
-    if (local) await this.#initLocal();
-    else await this.#initFirebase();
+    await this.#initLocal();
   }
 
   async #initLocal() {
@@ -104,31 +96,6 @@ class Session {
     else this.status = 'signed-out';
   }
 
-  async #initFirebase() {
-    const { initializeApp } = await import('firebase/app');
-    const { getAuth, connectAuthEmulator, onAuthStateChanged } = await import('firebase/auth');
-    const app = initializeApp(USE_EMULATORS ? { ...firebaseConfig, projectId: EMULATOR_PROJECT, authDomain: `${EMULATOR_PROJECT}.firebaseapp.com` } : firebaseConfig);
-    const auth = getAuth(app);
-    if (USE_EMULATORS) connectAuthEmulator(auth, AUTH_EMULATOR_URL, { disableWarnings: true });
-    this.#auth = auth;
-    setTokenProvider(async () => (this.#user ? this.#user.getIdToken() : null));
-    await new Promise<void>((resolve) => {
-      let first = true;
-      onAuthStateChanged(auth, async (u) => {
-        this.#user = u;
-        if (u) await this.#loadMe();
-        else {
-          this.me = null;
-          this.status = 'signed-out';
-        }
-        if (first) {
-          first = false;
-          resolve();
-        }
-      });
-    });
-  }
-
   async #loadMe(): Promise<boolean> {
     try {
       this.me = await api.getMe({});
@@ -164,26 +131,15 @@ class Session {
       return;
     }
     await this.init();
-    if (this.#local) {
-      try {
-        await this.#local.login(email, password);
-      } catch (e) {
-        throw new Error(authMessage(e));
-      }
-      if (!(await this.#loadMe())) throw new Error(this.loginError ?? 'Login failed');
-      return;
-    }
-    const { signInWithEmailAndPassword } = await import('firebase/auth');
     try {
-      const cred = await signInWithEmailAndPassword(this.#auth!, email.trim(), password);
-      this.#user = cred.user;
+      await this.#local!.login(email, password);
     } catch (e) {
       throw new Error(authMessage(e));
     }
     if (!(await this.#loadMe())) throw new Error(this.loginError ?? 'Login failed');
   }
 
-  /** §21 #108 local + OIDC: leave for the IdP; opm-cloud comes back to /login#oidc=<code>. */
+  /** §21 #108 OIDC: leave for the IdP; opm-cloud comes back to /login#oidc=<code>. */
   startOidc(next: string) {
     location.assign(`/auth/oidc/start?next=${encodeURIComponent(next)}`);
   }
@@ -201,25 +157,9 @@ class Session {
     if (!(await this.#loadMe())) throw new Error(this.loginError ?? 'Login failed');
   }
 
-  async loginWithGoogle(): Promise<void> {
-    if (MOCK) throw new Error('Google sign-in is not available in mock mode');
-    await this.init();
-    if (this.#local) throw new Error('Google sign-in is not available on this console');
-    const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-    const p = new GoogleAuthProvider();
-    if (GOOGLE_DOMAIN) p.setCustomParameters({ hd: GOOGLE_DOMAIN });
-    try {
-      const cred = await signInWithPopup(this.#auth!, p);
-      this.#user = cred.user;
-    } catch (e) {
-      throw new Error(authMessage(e));
-    }
-    if (!(await this.#loadMe())) throw new Error(this.loginError ?? 'Login failed');
-  }
-
-  /** Is "Forgot password" offered? Firebase / mock: always (as before); local: only with opm-config auth.passwordReset. */
+  /** Is "Forgot password" offered? Mock: always; else only with opm-config auth.passwordReset. */
   get passwordResetOffered(): boolean {
-    return this.provider !== 'local' || this.authConfig.passwordReset;
+    return this.provider === 'mock' || this.authConfig.passwordReset;
   }
 
   /** §21 #108 /reset-password?token= (opm-cloud links): is the token usable, and for which e-mail? */
@@ -253,13 +193,7 @@ class Session {
   async sendPasswordReset(email: string): Promise<void> {
     if (MOCK) return;
     await this.init();
-    if (this.#local) return requestPasswordReset(fetch, '', email);
-    const { sendPasswordResetEmail } = await import('firebase/auth');
-    try {
-      await sendPasswordResetEmail(this.#auth!, email.trim());
-    } catch {
-      /* never reveal whether the account exists */
-    }
+    return requestPasswordReset(fetch, '', email);
   }
 
   async #signOutOnly() {
@@ -267,15 +201,7 @@ class Session {
       safeDel(MOCK_KEY);
       return;
     }
-    if (this.#local) {
-      await this.#local.logout();
-      return;
-    }
-    if (this.#auth) {
-      const { signOut } = await import('firebase/auth');
-      await signOut(this.#auth).catch(() => undefined);
-    }
-    this.#user = null;
+    await this.#local?.logout();
   }
 
   async logout() {

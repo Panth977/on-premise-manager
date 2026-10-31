@@ -1,9 +1,6 @@
 /**
- * Integration-test helpers. Two backends run the SAME suite (§21 #108):
- *   firebase (default)       inside `firebase emulators:exec` (project demo-opm): Firestore / Auth / Storage emulators,
- *                            the API = the Functions emulator
- *   local (OPM_TEST_ADAPTER=local)  scripts/test-local.sh starts opm-cloud on a temp data dir; the tests open the same
- *                            SQLite files / blob dir (OPM_DATA_DIR) and sign in through opm-cloud /auth/login
+ * Integration-test helpers. scripts/test-local.sh starts opm-cloud on a temp data dir; the tests open the same SQLite
+ * files / blob dir (OPM_DATA_DIR) and sign in through opm-cloud /auth/login.
  * adb / aauth / abucket are the PORTS (DocStore / AuthAdmin / a Bucket-shaped shim over the BlobStore).
  */
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto';
@@ -15,40 +12,17 @@ import { setPorts, type AuthAdmin, type DocStore, type Ports } from '../function
 import { bucketShim, type BucketShim } from '../scripts/_admin.ts';
 
 export const here = dirname(fileURLToPath(import.meta.url));
-export const ADAPTER: 'firebase' | 'local' = process.env.OPM_TEST_ADAPTER === 'local' ? 'local' : 'firebase';
-export const PROJECT = process.env.GCLOUD_PROJECT || (ADAPTER === 'local' ? 'local' : 'demo-opm');
-if (ADAPTER === 'firebase') {
-  process.env.FIREBASE_AUTH_EMULATOR_HOST ??= '127.0.0.1:9099';
-  process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8085';
-  process.env.FIREBASE_STORAGE_EMULATOR_HOST ??= '127.0.0.1:9199';
-}
-/** opm-cloud origin in local mode (the /auth endpoints live there) */
+export const PROJECT = process.env.GCLOUD_PROJECT || 'local';
+/** opm-cloud origin (the /auth endpoints live there) */
 export const SERVER = (process.env.OPM_TEST_SERVER ?? 'http://127.0.0.1:8790').replace(/\/$/, '');
-export const BASE = process.env.OPM_TEST_API ?? (ADAPTER === 'local' ? SERVER : `http://127.0.0.1:5001/${PROJECT}/asia-south1/api`);
-export const BUCKET = `${PROJECT}.appspot.com`;
+export const BASE = process.env.OPM_TEST_API ?? SERVER;
 process.env.GCLOUD_PROJECT ??= PROJECT;
-if (ADAPTER === 'firebase') process.env.OPM_BUCKET ??= BUCKET;
 
 async function makePorts(): Promise<Ports> {
-  if (ADAPTER === 'local') {
-    const dataDir = process.env.OPM_DATA_DIR;
-    if (!dataDir) throw new Error('OPM_TEST_ADAPTER=local needs OPM_DATA_DIR (scripts/test-local.sh sets it)');
-    const { localPorts } = await import('../functions/src/adapters/local/index.js');
-    return localPorts({ dataDir, publicUrl: SERVER, consoleUrl: process.env.OPM_CONSOLE_URL });
-  }
-  const { initializeApp, getApps } = await import('firebase-admin/app');
-  const { getFirestore, Timestamp, FieldValue } = await import('firebase-admin/firestore');
-  const { getStorage } = await import('firebase-admin/storage');
-  const { getAuth } = await import('firebase-admin/auth');
-  const { firebasePorts } = await import('../functions/src/adapters/firebase/index.js');
-  if (!getApps().length) initializeApp({ projectId: PROJECT, storageBucket: BUCKET });
-  const fs = getFirestore();
-  try {
-    fs.settings({ ignoreUndefinedProperties: true });
-  } catch {
-    /* already set */
-  }
-  return firebasePorts({ db: fs, bucket: getStorage().bucket(BUCKET), auth: getAuth(), sdk: { Timestamp, FieldValue } as never });
+  const dataDir = process.env.OPM_DATA_DIR;
+  if (!dataDir) throw new Error('tests need OPM_DATA_DIR (scripts/test-local.sh sets it)');
+  const { localPorts } = await import('../functions/src/adapters/local/index.js');
+  return localPorts({ dataDir, publicUrl: SERVER, consoleUrl: process.env.OPM_CONSOLE_URL });
 }
 export const ports: Ports = await makePorts();
 // backend modules imported by tests (catalog.ts, migrations …) use the same adapter
@@ -62,17 +36,7 @@ export const uniq = (p = 'x') => `${p}${randomBytes(4).toString('hex')}`;
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function idToken(email: string, password: string): Promise<string> {
-  if (ADAPTER === 'local') {
-    const r = await fetch(`${SERVER}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-    const j = (await r.json()) as { idToken?: string; error?: unknown };
-    if (!j.idToken) throw new Error(`sign-in failed: ${JSON.stringify(j.error)}`);
-    return j.idToken;
-  }
-  const r = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, returnSecureToken: true }),
-  });
+  const r = await fetch(`${SERVER}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
   const j = (await r.json()) as { idToken?: string; error?: unknown };
   if (!j.idToken) throw new Error(`sign-in failed: ${JSON.stringify(j.error)}`);
   return j.idToken;

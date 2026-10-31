@@ -17,9 +17,8 @@
  * One `system.migration` audit entry per --apply run that changed something (op system:migrate-m, data.migration 'm').
  *
  * Usage (from backend/):
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx scripts/migrate-m.ts --project demo-opm [--dry-run]
  *   local:    npx tsx scripts/migrate-m.ts --project local --adapter local --data-dir <dir> [--dry-run | --apply]
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/migrate-m.ts --project your-firebase-project [--dry-run | --apply] [--deployment <id>] [--report <file.json>]
+ *   npx tsx scripts/migrate-m.ts --data-dir <dir> [--dry-run | --apply] [--deployment <id>] [--report <file.json>]
  * Default is the dry run; only --apply writes.
  */
 import { writeFileSync } from 'node:fs';
@@ -166,8 +165,8 @@ async function main() {
     console.error('usage: tsx scripts/migrate-m.ts --project <id> [--adapter local --data-dir <dir>] [--deployment <id>] [--dry-run (default) | --apply] [--report <file.json>]');
     process.exit(2);
   }
-  const { db, blobs, emulator, close } = init(project);
-  console.log(`migrate-m on ${project}${emulator ? ' (emulator)' : ''} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
+  const { db, blobs, close } = init(project);
+  console.log(`migrate-m on ${project} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
   const plan = await planMigrationM(db, blobs, { deploymentId });
   printPlanM(plan);
   let result: { applied: number; refused: string[] } | null = null;

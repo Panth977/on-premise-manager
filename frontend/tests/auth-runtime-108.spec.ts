@@ -30,33 +30,33 @@ const pair = (n: number, expiresIn = 3600) => ({ idToken: `id-${n}`, refreshToke
 const noTimer = { setTimer: () => 0, clearTimer: () => undefined };
 
 test.describe('runtime config (opm-config.json)', () => {
-  test('parse: firebase defaults for missing / invalid / unknown; local fields', () => {
-    for (const raw of [null, 'x', [], {}, { auth: null }, { auth: { provider: 'firebase' } }, { auth: { provider: 'saml' } }]) {
-      expect(parseRuntimeConfig(raw)).toEqual({ auth: { provider: 'firebase', passwordReset: true, oidc: null }, apiBase: null });
+  test('parse: defaults for missing / invalid / unknown; local fields', () => {
+    for (const raw of [null, 'x', [], {}, { auth: null }, { auth: { provider: 'firebase' } }]) {
+      expect(parseRuntimeConfig(raw)).toEqual({ auth: { passwordReset: false, oidc: null }, apiBase: null });
     }
-    expect(parseRuntimeConfig({ auth: { provider: 'local' } }).auth).toEqual({ provider: 'local', passwordReset: false, oidc: null });
+    expect(parseRuntimeConfig({ auth: { provider: 'local' } }).auth).toEqual({ passwordReset: false, oidc: null });
     expect(parseRuntimeConfig({ auth: { provider: 'local', passwordReset: true, oidc: { label: ' Okta ' } }, apiBase: 'https://api.example/' })).toEqual({
-      auth: { provider: 'local', passwordReset: true, oidc: { label: 'Okta' } },
+      auth: { passwordReset: true, oidc: { label: 'Okta' } },
       apiBase: 'https://api.example',
     });
-    expect(parseRuntimeConfig({ auth: { provider: 'local', oidc: { label: '' } }, apiBase: 'javascript:x' })).toEqual({ auth: { provider: 'local', passwordReset: false, oidc: null }, apiBase: null });
+    expect(parseRuntimeConfig({ auth: { provider: 'local', oidc: { label: '' } }, apiBase: 'javascript:x' })).toEqual({ auth: { passwordReset: false, oidc: null }, apiBase: null });
   });
 
-  test('load: HTML (SPA fallback), 404 and network errors → firebase defaults; no-store', async () => {
+  test('load: HTML (SPA fallback), 404 and network errors → defaults; no-store', async () => {
     const html = fakeFetch(() => new Response('<!doctype html><html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } }));
-    expect((await loadRuntimeConfig('/opm-config.json', html.f)).auth.provider).toBe('firebase');
+    expect((await loadRuntimeConfig('/opm-config.json', html.f)).auth.passwordReset).toBe(false);
     const nf = fakeFetch(() => new Response('nope', { status: 404 }));
-    expect((await loadRuntimeConfig('/opm-config.json', nf.f)).auth.provider).toBe('firebase');
+    expect((await loadRuntimeConfig('/opm-config.json', nf.f)).auth.passwordReset).toBe(false);
     const down = (async () => {
       throw new TypeError('Failed to fetch');
     }) as typeof fetch;
-    expect((await loadRuntimeConfig('/opm-config.json', down)).auth.provider).toBe('firebase');
+    expect((await loadRuntimeConfig('/opm-config.json', down)).auth.passwordReset).toBe(false);
     let cache: RequestCache | undefined;
     const ok = (async (_i: RequestInfo | URL, init?: RequestInit) => {
       cache = init?.cache;
-      return json(200, { auth: { provider: 'local' } });
+      return json(200, { auth: { provider: 'local', passwordReset: true } });
     }) as typeof fetch;
-    expect((await loadRuntimeConfig('/opm-config.json', ok)).auth.provider).toBe('local');
+    expect((await loadRuntimeConfig('/opm-config.json', ok)).auth.passwordReset).toBe(true);
     expect(cache).toBe('no-store');
   });
 });

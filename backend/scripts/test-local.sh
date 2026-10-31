@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run the backend suite against the LOCAL adapter (§21 #108): opm-cloud (dist/opm-cloud.cjs, npm run build:server)
+# Run the backend suite against the LOCAL adapter (§21 #108): opm-cloud (dist/opm-cloud.cjs, npm run build)
 # on a fresh temp data dir + port, the tests open the same data dir (OPM_TEST_ADAPTER=local).
 #   scripts/test-local.sh [test files…]     default: test/*.test.ts
 set -eu

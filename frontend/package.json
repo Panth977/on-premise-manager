@@ -15,7 +15,6 @@
     "test:e2e:mock": "OPM_E2E_MODE=mock playwright test",
     "test:e2e:emu": "OPM_E2E_MODE=emu playwright test",
     "screenshots": "OPM_E2E_MODE=mock OPM_SCREENSHOTS=1 playwright test tests/screenshots.spec.ts",
-    "deploy": "npm run build && firebase deploy --only hosting --project your-firebase-project",
     "test:e2e:prod": "OPM_E2E_MODE=prod playwright test",
     "test:bundle": "npm run build && node scripts/check-bundle-text.mjs build"
   },
@@ -40,7 +39,6 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.0",
     "@lezer/highlight": "^1.2.0",
     "@opm/shared": "file:../shared",
-    "firebase": "^12.19.0",
     "hash-wasm": "^4.12.0",
     "lucide": "^1.52.0"
   },

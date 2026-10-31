@@ -11,7 +11,7 @@
 import http from 'node:http';
 import { Readable } from 'node:stream';
 import { handleApi } from '../app.js';
-import { logger, adapterKind } from '../ports/index.js';
+import { logger } from '../ports/index.js';
 import type { CloudConfig } from './config.js';
 import { serveStatic } from './static.js';
 import { handleRemoteUpgrade, pipeRemoteStream, readRemoteBody, serveRemoteGui } from './remote-gui.js';
@@ -54,7 +54,7 @@ function send(res: http.ServerResponse, status: number, headers: Record<string, 
 
 export const VERSION = process.env.OPM_CLOUD_VERSION ?? 'dev';
 
-export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null): http.Server {
+export function createServer(cfg: CloudConfig, local: LocalHttpHandlers): http.Server {
   const server = http.createServer(async (req, res) => {
     const rawUrl = req.url || '/';
     const qi = rawUrl.indexOf('?');
@@ -84,16 +84,16 @@ export function createServer(cfg: CloudConfig, local: LocalHttpHandlers | null):
         const out = await handleApi({ method: req.method ?? 'GET', rawUrl, headers, body, ip, signal: ac.signal });
         return send(res, out.status, out.headers, out.body, out.path);
       }
-      if (path === '/healthz') return send(res, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, JSON.stringify({ ok: true, adapter: adapterKind(), version: VERSION }), path);
+      if (path === '/healthz') return send(res, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, JSON.stringify({ ok: true, adapter: 'local', version: VERSION }), path);
       if (path === '/opm-config.json') {
-        const conf = cfg.adapter === 'local' && local ? { auth: local.authConfig() } : { auth: { provider: 'firebase' } };
+        const conf = { auth: local.authConfig() };
         return send(res, 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, JSON.stringify(conf), path);
       }
-      if (local && path.startsWith('/_blob/')) {
+      if (path.startsWith('/_blob/')) {
         const out = await local.blob({ method: req.method ?? 'GET', url: rawUrl, headers });
         return send(res, out.status, out.headers, out.body, path);
       }
-      if (local && path.startsWith('/auth/')) {
+      if (path.startsWith('/auth/')) {
         let body: Buffer;
         try {
           body = req.method === 'GET' || req.method === 'HEAD' ? Buffer.alloc(0) : await readBody(req, 1024 * 1024);

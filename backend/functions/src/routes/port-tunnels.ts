@@ -13,7 +13,6 @@ import { loadDep, needDep } from '../core/perm.js';
 import { decodeDeployment } from '../core/codec.js';
 import { CloudLog } from '../core/activities.js';
 import { env } from '../core/env.js';
-import { adapterKind } from '../ports/index.js';
 import type { Handlers } from '../core/router.js';
 import { agentTunnels, configuredPorts, freePorts, hubRunning, listen, next, portTaken, recv, send, tunnelStatus, unlisten, type StoredPortTunnel } from '../core/port-tunnels.js';
 
@@ -22,7 +21,7 @@ const tunnelsCol = (d: string) => col.deployments().doc(d).collection('portTunne
 
 /** why tunnels do not work on this cloud, or null */
 function unavailableReason(): string | null {
-  if (adapterKind() !== 'local' || !hubRunning()) return 'Port tunnels need the single-process cloud on a VM (opm-cloud); this cloud cannot listen on ports.';
+  if (!hubRunning()) return 'Port tunnels need the single-process cloud on a VM (opm-cloud); this cloud cannot listen on ports.';
   if (!configuredPorts().length) return 'No public ports: set TUNNEL_FREE_PORTS on the cloud (e.g. 2000-2100,3000) and publish those ports from the cloud container to its VM.';
   return null;
 }
@@ -72,7 +71,6 @@ export const portTunnelHandlers: Pick<Handlers, 'listPortTunnels' | 'createPortT
     const reason = unavailableReason();
     const host = cloudHost();
     const sites = dep.draft.sites.map((s) => s.siteSlug);
-    if (reason && adapterKind() !== 'local') return { available: false, reason, host, freePorts: [], agents: sites.map((siteSlug) => ({ siteSlug, connected: false, enabledOnSite: null })), items: [] } satisfies PortTunnelsResponse;
     const items = (await storedTunnels(dep.deploymentId)).map((t) => tunnelStatus(t, host));
     return { available: !reason, reason, host, freePorts: reason ? [] : freePorts(), agents: agentTunnels(dep.deploymentId, sites), items } satisfies PortTunnelsResponse;
   },
@@ -134,7 +132,7 @@ export const portTunnelHandlers: Pick<Handlers, 'listPortTunnels' | 'createPortT
       tx.update(depRef, { ...log.depUpdate(), agentEpoch: d.agentEpoch + 1 });
       return t;
     });
-    if (adapterKind() === 'local') unlisten(t.publicPort);
+    unlisten(t.publicPort);
     return { deleted: true as const };
   },
 

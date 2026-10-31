@@ -18,8 +18,7 @@
  * Idempotent: a second run plans 0 changes (content reports repeat as WARN lines).
  *
  * Usage (from backend/):
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 npx tsx scripts/migrate-d.ts --project demo-opm [--dry-run]
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/migrate-d.ts --project your-firebase-project [--dry-run | --apply]
+ *   npx tsx scripts/migrate-d.ts --data-dir <dir> [--dry-run | --apply]
  * Default is the dry run; only --apply writes.
  */
 import { pathToFileURL } from 'node:url';
@@ -300,8 +299,8 @@ async function main() {
     console.error('usage: tsx scripts/migrate-d.ts --project <id> [--dry-run (default) | --apply]');
     process.exit(2);
   }
-  const { db, bucket, emulator } = init(project);
-  console.log(`migrate-d on ${project}${emulator ? ' (emulator)' : ''} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
+  const { db, bucket } = init(project);
+  console.log(`migrate-d on ${project} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
   const plan = await planMigrationD(db, bucket as unknown as BucketLike);
   printPlan(plan);
   if (apply) {

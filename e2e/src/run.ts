@@ -230,7 +230,7 @@ function containersBySlug(): Record<string, { id: string; started: string; site:
 
 // ───────────────────────── steps
 async function main(): Promise<void> {
-  log(`OPM e2e — api ${CFG.apiBase}, frontend ${CFG.frontendUrl}, auth emulator ${CFG.authEmulator || '(real)'}`);
+  log(`OPM e2e — api ${CFG.apiBase}, frontend ${CFG.frontendUrl}`);
   killPrevious();
   const arch = docker('info', '--format', '{{.Architecture}}');
   S.platform = /aarch64|arm64/.test(arch) ? 'linux/arm64' : 'linux/amd64';

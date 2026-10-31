@@ -202,7 +202,7 @@ export interface SitePortTunnel extends PortTunnelCloudItem {
 }
 export interface SitePortTunnelsResponse {
   siteSlug: Slug;
-  /** the cloud supports tunnels (its view lists them); false on a firebase cloud or before the first view */
+  /** the cloud supports tunnels (its view lists them); false before the first view */
   cloudTunnels: boolean;
   /** the agent GUI tunnel (the remote GUI switch) */
   remoteGui: boolean;

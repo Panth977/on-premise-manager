@@ -1,9 +1,0 @@
-rules_version = '2';
-// OPM: Firestore is touched ONLY by the backend (Admin SDK). Deny every client read and write.
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}

@@ -9,7 +9,7 @@
  *     agent version is unchanged, else null. --agent-notes "" clears them.
  *
  *   npx tsx scripts/upload-deps.ts [--docker-version 28.5.2] [--agent-version <v>] [--agent-notes "text" | --agent-notes-file f]
- *                                  [--project your-firebase-project] [--bucket b]
+ *                                  [--bucket b]
  *   Emulator: FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 --project demo-opm  (or --from-dir <dir> with docker-<ver>-<arch>.tgz
  *   files for offline tests)
  * Idempotent: a file already in Storage with the same sha256 is not uploaded again.
@@ -20,7 +20,7 @@ import { uploadDeps, DOCKER_VERSION } from '../functions/src/server/release.ts';
 export { DOCKER_VERSION, MIN_DOCKER_API, AGENT_NOTES_MAX, resolveAgentNotes, depsPath, uploadDeps } from '../functions/src/server/release.ts';
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const projectId = arg('project', process.env.GCLOUD_PROJECT ?? 'your-firebase-project')!;
+  const projectId = arg('project', 'local')!;
   const { bucket } = init(projectId, arg('bucket'));
   const dockerVersion = arg('docker-version', DOCKER_VERSION)!;
   if (!/^\d+\.\d+\.\d+$/.test(dockerVersion)) {

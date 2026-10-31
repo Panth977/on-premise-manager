@@ -14,7 +14,6 @@ export interface OidcConfig {
   redirectUri: string;
 }
 export interface CloudConfig {
-  adapter: 'local' | 'firebase';
   dataDir: string;
   /** external base URL of this server (agents, install commands, signed blob URLs) */
   publicUrl: string;
@@ -25,10 +24,9 @@ export interface CloudConfig {
   /** built frontend (index.html + _app/…); null = API only */
   staticDir: string | null;
   frontendOrigins: string[];
-  /** 302 large downloads to short-lived token URLs (/_blob on local, GCS signed URLs on firebase) */
+  /** 302 large downloads to short-lived /_blob token URLs */
   blobRedirect: boolean;
-  /** run the scheduled jobs + document triggers in this process (local: always; firebase: only when asked, the Cloud
-   *  Functions do it otherwise) */
+  /** run the scheduled jobs + document triggers in this process */
   runJobs: boolean;
   trustProxy: boolean;
   /** max request body (bytes) */
@@ -50,8 +48,6 @@ export function loadConfig(argv: string[] = process.argv): CloudConfig {
   const f = fileConfig(ci >= 0 ? argv[ci + 1] : process.env.OPM_CONFIG);
   const e = process.env;
   const pick = (envName: string, key: string) => str(e[envName]) ?? str(f[key]);
-  const adapter = (pick('OPM_ADAPTER', 'adapter') ?? 'local') as CloudConfig['adapter'];
-  if (adapter !== 'local' && adapter !== 'firebase') throw new Error(`adapter must be local | firebase (got ${adapter})`);
   const port = Number(pick('OPM_PORT', 'port') ?? 8790);
   const publicUrl = (pick('OPM_PUBLIC_URL', 'publicUrl') ?? `http://localhost:${port}`).replace(/\/$/, '');
   const consoleUrl = (pick('OPM_CONSOLE_URL', 'consoleUrl') ?? publicUrl).replace(/\/$/, '');
@@ -73,7 +69,6 @@ export function loadConfig(argv: string[] = process.argv): CloudConfig {
     : null;
   if (oidc && (!oidc.clientId || !oidc.clientSecret)) throw new Error('OPM_OIDC_ISSUER needs OPM_OIDC_CLIENT_ID and OPM_OIDC_CLIENT_SECRET');
   return {
-    adapter,
     dataDir,
     publicUrl,
     consoleUrl,
@@ -82,7 +77,7 @@ export function loadConfig(argv: string[] = process.argv): CloudConfig {
     staticDir: staticDir ? path.resolve(staticDir) : null,
     frontendOrigins: [...origins],
     blobRedirect: bool(e.OPM_BLOB_REDIRECT ?? f.blobRedirect, true),
-    runJobs: bool(e.OPM_RUN_JOBS ?? f.runJobs, adapter === 'local'),
+    runJobs: bool(e.OPM_RUN_JOBS ?? f.runJobs, true),
     trustProxy: bool(e.OPM_TRUST_PROXY ?? f.trustProxy, true),
     bodyLimit: Number(pick('OPM_BODY_LIMIT', 'bodyLimit') ?? 64 * 1024 * 1024),
     oidc,
@@ -97,12 +92,11 @@ export function applyEnv(c: CloudConfig) {
   e.OPM_FRONTEND_ORIGINS = [...new Set([...(e.OPM_FRONTEND_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean), ...c.frontendOrigins])].join(',');
   e.OPM_BLOB_REDIRECT = c.blobRedirect ? '1' : '0';
   e.OPM_DATA_DIR = c.dataDir;
-  e.OPM_ADAPTER = c.adapter;
   e.OPM_PUBLIC_URL ||= c.publicUrl;
   // the release public key the install script embeds: env, else the data dir's own key (opm-cloud release-key)
-  if (!e.OPM_RELEASE_PUBLIC_KEY && c.adapter === 'local') {
+  if (!e.OPM_RELEASE_PUBLIC_KEY) {
     const k = path.join(c.dataDir, 'secrets', 'release-key.json');
     if (existsSync(k)) e.OPM_RELEASE_PUBLIC_KEY = (JSON.parse(readFileSync(k, 'utf8')) as { publicKeyB64: string }).publicKeyB64;
   }
-  if (c.adapter === 'local') mkdirSync(c.dataDir, { recursive: true });
+  mkdirSync(c.dataDir, { recursive: true });
 }

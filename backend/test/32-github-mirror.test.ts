@@ -6,7 +6,7 @@
  *   crash between ref update and state write), retry / backoff on 5xx, pause on 401 and on rate limits, Sync now,
  *   Resync everything = the same shas, persist snapshots on the agent branch, drift → uncommitted branch reset / delete,
  *   heartbeat catch-up, > max file size skipped (.skipped.txt), a pushed tree = `git write-tree` of the same files.
- * The tree comes from the real exporter (functions/lib/opm-export.wasm) when it is built, else from the emulator-only
+ * The tree comes from the real exporter (dist/opm-export.wasm) when it is built, else from the emulator-only
  * stub (githubMirror/config._stubExporter): queue / push behaviour is the same.
  */
 import { test, after } from 'node:test';
@@ -25,7 +25,7 @@ const REPO = uniq('mirror');
 const GOOD = 'github_pat_11GOOD' + 'x'.repeat(40) + 'GOOD';
 const RO = 'github_pat_11READ' + 'y'.repeat(40) + 'READ';
 const NOUSER = 'github_pat_11NOUS' + 'z'.repeat(40) + 'NOUS';
-const realExporter = existsSync(path.resolve(here, '../functions/lib/opm-export.wasm'));
+const realExporter = existsSync(path.resolve(here, '../dist/opm-export.wasm'));
 const cfgRef = adb.collection('githubMirror').doc('config');
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 

@@ -2,8 +2,7 @@
  * verify-schema — reads EVERY document of the OPM Firestore (prod or emulator) and checks it against the phase-U model
  * (shared types + validate.ts + the simple-body rules of the API). Prints one line per violation; exit 1 if any.
  *
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx scripts/verify-schema.ts --project demo-opm
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/verify-schema.ts --project your-firebase-project
+ *   npx tsx scripts/verify-schema.ts --data-dir <dir>
  *
  * Checked: registries (username/password pair), services (doc id = serviceSlug, no serviceId/slug/repository/
  * defaultRepository, icon), images (doc id = version, serviceSlug = parent, reference parses and equals source, registryId
@@ -508,10 +507,10 @@ async function main() {
     console.error('usage: tsx scripts/verify-schema.ts --project <id>');
     process.exit(2);
   }
-  const { db, emulator } = init(project);
+  const { db } = init(project);
   const v = await verifySchema(db, { requireBranches: !process.argv.includes('--allow-pre-branches'), requireNoWorkingCopy: !process.argv.includes('--allow-working-copy') && !process.argv.includes('--allow-pre-branches') });
   for (const l of v) console.log(l);
-  console.log(`verify-schema ${project}${emulator ? ' (emulator)' : ''}: ${v.length} violation(s)`);
+  console.log(`verify-schema ${project}: ${v.length} violation(s)`);
   process.exit(v.length ? 1 : 0);
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main().catch((e) => {

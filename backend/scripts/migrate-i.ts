@@ -19,8 +19,7 @@
  *   One `system.migration` audit entry per --apply run that changes something (op system:migrate-i, data.migration 'i').
  *
  * Usage (from backend/):
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx scripts/migrate-i.ts --project demo-opm [--dry-run]
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/migrate-i.ts --project your-firebase-project [--dry-run | --apply] [--report <file.json>]
+ *   npx tsx scripts/migrate-i.ts --data-dir <dir> [--dry-run | --apply] [--report <file.json>]
  * Default is the dry run; only --apply writes.
  */
 import { writeFileSync } from 'node:fs';
@@ -324,8 +323,8 @@ async function main() {
     console.error('usage: tsx scripts/migrate-i.ts --project <id> [--dry-run (default) | --apply] [--report <file.json>]');
     process.exit(2);
   }
-  const { db, emulator, bucket } = init(project);
-  console.log(`migrate-i on ${project}${emulator ? ' (emulator)' : ''} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
+  const { db, bucket } = init(project);
+  console.log(`migrate-i on ${project} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
   const plan = await planMigrationI(db);
   printPlanI(plan);
   if (report) writeFileSync(report, JSON.stringify({ project, apply, counts: plan.counts, warnings: plan.warnings, entities: plan.entities }, null, 1));

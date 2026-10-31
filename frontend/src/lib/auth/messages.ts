@@ -1,6 +1,5 @@
 /**
- * User-facing text of a login error. Both providers use it: Firebase Auth errors and the opm-cloud /auth/* errors
- * (§21 #108) carry the same `auth/*` codes, so the login page shows the same messages either way.
+ * User-facing text of a login error: the `auth/*` codes of the opm-cloud /auth/* errors (§21 #108).
  */
 export function authMessage(e: unknown): string {
   const code = (e as { code?: string })?.code ?? '';
@@ -17,9 +16,6 @@ export function authMessage(e: unknown): string {
       return 'Too many attempts. Wait a moment and try again.';
     case 'auth/network-request-failed':
       return 'Cannot reach the login service. Check your connection.';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return 'The sign-in window was closed.';
     case 'auth/invalid-refresh-token':
       return 'Your login expired. Log in again.';
     case 'auth/invalid-oidc-code':

@@ -1,6 +1,6 @@
 /**
  * §21 #106 the exporter: ExportRequest assembly (never a secret value) and the run of the Go exporter
- * (`opm-export.wasm`, GOOS=wasip1, built by backend/build.mjs from agent/cmd/opm-export) through node:wasi:
+ * (`opm-export.wasm`, GOOS=wasip1, built by backend/build-server.mjs from agent/cmd/opm-export) through node:wasi:
  * stdin = ExportRequest JSON, stdout = ExportResult JSON. The compiled module is cached per instance.
  *
  * The tree runs with Docker alone (§21 #115): no OPM binary or file goes into it.
@@ -35,8 +35,8 @@ import { env } from './env.js';
 function libDirs(): string[] {
   const out: string[] = [];
   if (process.env.OPM_EXPORT_DIR) out.push(process.env.OPM_EXPORT_DIR);
-  if (typeof __dirname !== 'undefined') out.push(__dirname, path.resolve(__dirname, '../lib'), path.resolve(__dirname, '../../lib'));
-  out.push(path.resolve(process.cwd(), 'functions/lib'), path.resolve(process.cwd(), 'lib'), path.resolve(process.cwd(), 'backend/functions/lib'));
+  if (typeof __dirname !== 'undefined') out.push(__dirname);
+  out.push(path.resolve(process.cwd(), 'dist'), path.resolve(process.cwd(), 'backend/dist'));
   return out;
 }
 export function artefactPath(name: string): string | null {
@@ -52,7 +52,7 @@ export const exporterAvailable = () => artefactPath('opm-export.wasm') !== null;
 let compiled: Promise<WebAssembly.Module> | null = null;
 export async function runExporter(req: ExportRequest): Promise<ExportResult> {
   const wasmPath = artefactPath('opm-export.wasm');
-  if (!wasmPath) throw new Error('the exporter is not built (functions/lib/opm-export.wasm missing: run the backend build with Go installed)');
+  if (!wasmPath) throw new Error('the exporter is not built (dist/opm-export.wasm missing: run the backend build with Go installed)');
   compiled ??= WebAssembly.compile(readFileSync(wasmPath));
   const mod = await compiled;
   const { WASI } = await import('node:wasi');

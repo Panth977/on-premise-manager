@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import type { PortTunnelNextResponse, PortTunnelStatus, PortTunnelsResponse } from '@opm/shared';
-import { ADAPTER, BASE, enrollSite, helloDeployment, person, raw, signHeaders, type SiteKey } from './helpers.ts';
+import { BASE, enrollSite, helloDeployment, person, raw, signHeaders, type SiteKey } from './helpers.ts';
 
 async function agentGet<T>(key: SiteKey, dep: string, site: string, path: string): Promise<T> {
   const r = await fetch(BASE + path, { headers: signHeaders(key, dep, site, 'GET', path, null) });
@@ -40,7 +40,7 @@ const until = async (f: () => boolean, ms = 5000) => {
   }
 };
 
-test('§21 #125 port tunnels: add, refuse while off, relay both ways, via a peer, remove', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
+test('§21 #125 port tunnels: add, refuse while off, relay both ways, via a peer, remove', async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;

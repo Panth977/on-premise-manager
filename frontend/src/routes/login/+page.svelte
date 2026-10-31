@@ -3,19 +3,18 @@
   import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { session } from '$lib/session.svelte';
-  import { GOOGLE_DOMAIN, MOCK, USE_EMULATORS } from '$lib/env';
+  import { MOCK } from '$lib/env';
   import { RE } from '@opm/shared';
   import Button from '$lib/ui/Button.svelte';
   import Field from '$lib/ui/Field.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Icon from '$lib/ui/Icon.svelte';
-  import { CircleAlert, Globe, Server, ShieldCheck, Boxes, Eye, EyeOff, KeyRound } from '$lib/ui/icons';
+  import { CircleAlert, Server, ShieldCheck, Boxes, Eye, EyeOff, KeyRound } from '$lib/ui/icons';
 
   let email = $state('');
   let password = $state('');
   let showPw = $state(false);
   let busy = $state(false);
-  let googleBusy = $state(false);
   let oidcBusy = $state(false);
   let error = $state<string | null>(null);
   let touched = $state(false);
@@ -33,8 +32,7 @@
 
   /** §21 #108 /reset-password success → "?reset=1" */
   const notice = $derived(page.url.searchParams.get('reset') === '1' ? 'Your password was changed. Log in with the new password.' : null);
-  const showGoogle = $derived(!!GOOGLE_DOMAIN && session.provider === 'firebase');
-  const oidc = $derived(session.provider === 'local' ? session.authConfig.oidc : null);
+  const oidc = $derived(session.authConfig.oidc);
 
   onMount(async () => {
     // §21 #108 opm-cloud OIDC comes back to /login#oidc=<one-time code>: drop the hash, then exchange the code
@@ -84,18 +82,6 @@
       error = (err as Error).message;
     } finally {
       busy = false;
-    }
-  }
-  async function google() {
-    googleBusy = true;
-    error = null;
-    try {
-      await session.loginWithGoogle();
-      goto(next, { replaceState: true });
-    } catch (err) {
-      error = (err as Error).message;
-    } finally {
-      googleBusy = false;
     }
   }
   function openForgot() {
@@ -156,10 +142,7 @@
         </div>
       </Field>
       <Button type="submit" variant="primary" block loading={busy} data-testid="login-submit">Log in</Button>
-      {#if showGoogle}
-        <div class="or"><span>or</span></div>
-        <Button block icon={Globe} loading={googleBusy} onclick={google}>Continue with Google</Button>
-      {:else if oidc}
+      {#if oidc}
         <div class="or"><span>or</span></div>
         <Button block icon={KeyRound} loading={oidcBusy} onclick={startOidc} data-testid="login-oidc">Continue with {oidc.label}</Button>
       {/if}
@@ -168,8 +151,6 @@
           <div class="strong">Mock mode</div>
           <div class="muted">admin@example.com / admin123 · viewer@example.com / viewer123 · ops@example.com / ops12345</div>
         </div>
-      {:else if USE_EMULATORS}
-        <div class="demo small muted">Auth emulator (127.0.0.1:9099)</div>
       {/if}
     </form>
   </main>

@@ -12,7 +12,6 @@ import { decodeDeployment } from '../core/codec.js';
 import { CloudLog } from '../core/activities.js';
 import { Reply } from '../core/reply.js';
 import { jsonHeaders, type Handlers } from '../core/router.js';
-import { adapterKind } from '../ports/index.js';
 import { activeSites, connected, deliver, next, openSession, recv, streamOf, toBrowser } from '../core/remote-gui.js';
 
 /** the cookie of a remote session (one per site; Path = the remote prefix) */
@@ -24,7 +23,6 @@ export const remoteGuiHandlers: Pick<Handlers, 'openRemoteGui' | 'agentRemoteGui
     needDep(c, dep, 'deployment.config', 'publish');
     const siteSlug = c.params.siteSlug!;
     if (!RE.slug.test(siteSlug) || !dep.draft.sites.some((s) => s.siteSlug === siteSlug)) throw E.notFound(`site ${siteSlug} does not exist`);
-    if (adapterKind() !== 'local') throw E.unavailable('the remote agent GUI needs the single-process cloud (opm-cloud on a VM)');
     const a = c.account!;
     const wasActive = activeSites(dep.deploymentId).some((x) => x.siteSlug === siteSlug);
     const s = openSession(dep.deploymentId, siteSlug, { uid: a.uid, email: a.email, name: a.name || null });
@@ -90,4 +88,4 @@ export const remoteGuiHandlers: Pick<Handlers, 'openRemoteGui' | 'agentRemoteGui
 };
 
 /** CloudView.remoteGui (hook for routes/agent.ts) */
-export const remoteGuiCloudItems = (deploymentId: string) => (adapterKind() === 'local' ? activeSites(deploymentId) : []);
+export const remoteGuiCloudItems = (deploymentId: string) => activeSites(deploymentId);

@@ -1,4 +1,4 @@
-// Harness configuration. Everything is overridable by env; defaults = the emulator dev loop on this Mac.
+// Harness configuration. Everything is overridable by env; defaults = a local opm-cloud on this Mac.
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,17 +16,13 @@ function readJson<T>(p: string): T | null {
 }
 
 const admin = readJson<{ email: string; password: string }>(join(SECRETS_DIR, 'admin.json'));
-const web = readJson<{ apiKey: string; projectId: string }>(join(SECRETS_DIR, 'firebase-web-config.json'));
 const e = process.env;
 
 export const CFG = {
   /** cloud API base; requests go to apiBase + "/v1/…" */
-  apiBase: (e.OPM_API_BASE ?? 'http://127.0.0.1:5002').replace(/\/$/, ''),
+  apiBase: (e.OPM_API_BASE ?? 'http://127.0.0.1:8790').replace(/\/$/, ''),
   /** cloud frontend origin (Playwright) */
-  frontendUrl: (e.OPM_FRONTEND_URL ?? e.OPM_API_BASE ?? 'http://127.0.0.1:5002').replace(/\/$/, ''),
-  /** "host:port" of the Firebase Auth emulator, or "" for real Firebase Auth */
-  authEmulator: e.OPM_AUTH_EMULATOR ?? (e.OPM_API_BASE && !/127\.0\.0\.1|localhost/.test(e.OPM_API_BASE) ? '' : '127.0.0.1:9099'),
-  firebaseApiKey: e.OPM_FIREBASE_API_KEY ?? web?.apiKey ?? 'fake-api-key',
+  frontendUrl: (e.OPM_FRONTEND_URL ?? e.OPM_API_BASE ?? 'http://127.0.0.1:8790').replace(/\/$/, ''),
   adminEmail: e.OPM_ADMIN_EMAIL ?? admin?.email ?? 'admin@opm.test',
   adminPassword: e.OPM_ADMIN_PASSWORD ?? admin?.password ?? 'admin-password-123',
   registryUrl: e.OPM_E2E_REGISTRY_URL ?? 'https://asia-south1-docker.pkg.dev',

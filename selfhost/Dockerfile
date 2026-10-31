@@ -26,15 +26,12 @@ COPY ui/ ui/
 COPY frontend/ frontend/
 RUN cd frontend && npm run build
 COPY backend/ backend/
-COPY --from=go /out/ backend/functions/lib/
-# build.mjs would rebuild the Go artefacts (no Go here): write their metadata, then bundle the server
-RUN cd backend && OPM_SKIP_GO=1 node build.mjs && node -e "const fs=require('fs'),c=require('crypto');const d='functions/lib';const m={version:'',artefacts:{}};for(const f of ['opm-export.wasm'])m.artefacts[f]=c.createHash('sha256').update(fs.readFileSync(d+'/'+f)).digest('hex');m.version='export-'+m.artefacts['opm-export.wasm'].slice(0,12);fs.writeFileSync(d+'/opm-tools.json',JSON.stringify(m,null,2)+'\n')" && node build-server.mjs
+COPY --from=go /out/ backend/dist/
+RUN cd backend && OPM_SKIP_GO=1 node build-server.mjs
 
-# Stage 3: runtime — Node + the bundle + the static frontend. No Firebase SDK: the local adapter never contacts Google
-# (migrating FROM Firebase runs from the repo checkout: backend/scripts/migrate-cloud.ts).
+# Stage 3: runtime — Node + the bundle + the static frontend.
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production \
-    OPM_ADAPTER=local \
     OPM_DATA_DIR=/data \
     OPM_PORT=8790 \
     OPM_STATIC_DIR=/opt/opm-cloud/www

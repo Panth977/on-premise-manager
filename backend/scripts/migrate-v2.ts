@@ -12,8 +12,7 @@
  * Idempotent: a second run plans 0 changes. Writes happen in order: new docs + rewrites first, deletes last.
  *
  * Usage (from backend/):
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx scripts/migrate-v2.ts --project demo-opm --dry-run
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/migrate-v2.ts --project your-firebase-project --dry-run | --apply
+ *   npx tsx scripts/migrate-v2.ts --data-dir <dir> --dry-run | --apply
  */
 import { pathToFileURL } from 'node:url';
 import type { DocStore as Firestore } from '../functions/src/ports/index.js';
@@ -392,8 +391,8 @@ async function main() {
     console.error('usage: tsx scripts/migrate-v2.ts --project <id> (--dry-run | --apply)');
     process.exit(2);
   }
-  const { db, emulator } = init(project);
-  console.log(`migrate-v2 on ${project}${emulator ? ' (emulator)' : ''} — ${apply ? 'APPLY' : 'dry run'}`);
+  const { db } = init(project);
+  console.log(`migrate-v2 on ${project} — ${apply ? 'APPLY' : 'dry run'}`);
   const plan = await planMigrationV2(db);
   for (const o of plan.ops) console.log(`${o.op.padEnd(6)} ${o.path}  — ${o.why}${o.op !== 'delete' ? `\n         ${JSON.stringify(o.data).slice(0, 600)}` : ''}`);
   for (const w of plan.warnings) console.log(`WARN   ${w}`);

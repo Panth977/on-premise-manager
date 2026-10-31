@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { remoteGuiPrefix, type RemoteGuiNextResponse } from '@opm/shared';
-import { ADAPTER, BASE, enrollSite, helloDeployment, person, raw, signHeaders, type SiteKey } from './helpers.ts';
+import { BASE, enrollSite, helloDeployment, person, raw, signHeaders, type SiteKey } from './helpers.ts';
 
 async function next(key: SiteKey, dep: string, site: string, wait: number): Promise<RemoteGuiNextResponse> {
   const path = `/v1/agent/remote-gui/next?wait=${wait}`;
@@ -26,7 +26,7 @@ async function answer(key: SiteKey, dep: string, site: string, reqId: string, st
   return (await r.json()) as { accepted: boolean };
 }
 
-test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, event streams', { skip: ADAPTER !== 'local' && 'needs the single-process cloud (OPM_TEST_ADAPTER=local)' }, async () => {
+test('§21 #118 remote agent GUI: session cookie, long-poll hand-off, prefix rewriting, WebSocket relay, event streams', async () => {
   const admin = await person('admin');
   const { dep } = await helloDeployment(admin);
   const id = dep.deploymentId;

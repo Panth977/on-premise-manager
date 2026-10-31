@@ -16,8 +16,7 @@
  * One `system.migration` audit entry per --apply run that changed something (op system:migrate-j, data.migration 'j').
  *
  * Usage (from backend/):
- *   emulator: FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx scripts/migrate-j.ts --project demo-opm [--dry-run]
- *   prod:     OPM_GCLOUD_TOKEN=1 OPM_GCLOUD_ACCOUNT=<owner> npx tsx scripts/migrate-j.ts --project your-firebase-project [--dry-run | --apply] [--report <file.json>]
+ *   npx tsx scripts/migrate-j.ts --data-dir <dir> [--dry-run | --apply] [--report <file.json>]
  * Default is the dry run; only --apply writes.
  */
 import { writeFileSync } from 'node:fs';
@@ -314,8 +313,8 @@ async function main() {
     console.error('usage: tsx scripts/migrate-j.ts --project <id> [--dry-run (default) | --apply] [--report <file.json>]');
     process.exit(2);
   }
-  const { db, emulator, bucket } = init(project);
-  console.log(`migrate-j on ${project}${emulator ? ' (emulator)' : ''} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
+  const { db, bucket } = init(project);
+  console.log(`migrate-j on ${project} — ${apply ? 'APPLY' : 'dry run (nothing is written)'}`);
   const { plan, work } = await planMigrationJ(db, bucket as never);
   printPlanJ(plan);
   let result: { applied: number; refused: string[] } | null = null;

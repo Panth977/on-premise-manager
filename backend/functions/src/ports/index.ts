@@ -1,9 +1,6 @@
 /**
  * The adapter registry (SPEC §21 #108). Business code calls store() / blobs() / authAdmin(); an entry point installs
- * one adapter set first:
- *   functions/src/index.ts (Cloud Functions)  → setPorts(firebasePorts())
- *   functions/src/server.ts (opm-cloud)       → firebase | local from OPM_ADAPTER
- *   scripts/_admin.ts, test/helpers.ts        → by flags / env
+ * the adapter set first (functions/src/server.ts, scripts/_admin.ts, test/helpers.ts).
  */
 import type { DocStore } from './docstore.js';
 import type { BlobStore } from './blobstore.js';
@@ -25,13 +22,12 @@ export function hasPorts() {
 }
 function need(): Ports {
   const p = (globalThis as G)[KEY];
-  if (!p) throw new Error('no storage adapter installed (call setPorts first: firebase or local)');
+  if (!p) throw new Error('no storage adapter installed (call setPorts first)');
   return p;
 }
 export const store = (): DocStore => need().store;
 export const blobs = (): BlobStore => need().blobs;
 export const authAdmin = (): AuthAdmin => need().auth;
-export const adapterKind = (): 'firebase' | 'local' => need().store.kind;
 
 // explicit re-exports (tsx loads functions/ sources as CJS: `export *` is invisible to ESM named imports there)
 export { Timestamp, FieldTransform, FieldValue, StoreError, storeErrorCode } from './docstore.js';

@@ -2,7 +2,7 @@
  * Bootstrap the first admin (SPEC-final §5.1): Firebase Auth user + accounts/{uid} with fullAdminRules(), createdBy "bootstrap".
  *   Emulator: FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
  *             npx tsx scripts/create-admin.ts --project demo-opm --email admin@opm.test --password secret123 --name Admin
- *   Prod (ADC): npx tsx scripts/create-admin.ts --project your-firebase-project --email admin@opm.test --out ../.secrets/admin.json
+ *   Prod (ADC): npx tsx scripts/create-admin.ts --email admin@opm.test --out ../.secrets/admin.json
  * Without --password a strong random password is generated. Idempotent: an existing user gets the new password and
  * the account doc is (re)written with full admin rules. --out writes { email, password, uid, projectId } (0600).
  */
@@ -47,7 +47,7 @@ export async function createAdmin(o: { projectId: string; email: string; passwor
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const projectId = arg('project', process.env.GCLOUD_PROJECT ?? 'your-firebase-project')!;
+  const projectId = arg('project', 'local')!;
   const email = arg('email');
   if (!email) {
     console.error('usage: create-admin --email <email> [--password <pw>] [--name <name>] [--project <id>] [--out <file>]');

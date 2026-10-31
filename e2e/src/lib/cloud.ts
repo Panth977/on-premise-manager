@@ -1,4 +1,4 @@
-// Cloud API as the admin human (Firebase Auth ID token).
+// Cloud API as the admin human (ID token from /auth/login).
 import { createCloudClient, type CloudClient } from '../../../shared/dist/cloud-api.js';
 import { CFG } from './env.js';
 import { log } from './report.js';

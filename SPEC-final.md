@@ -81,10 +81,9 @@ names (`web`, `api`, `postgres`, `redis`, `worker`; deployment "ACME plant"; sit
 | dir | what | tech |
 |---|---|---|
 | `shared/` | contracts (types, API tables, expr, validate, edge resolver, access, diff) | TypeScript ESM, `@opm/shared`, no runtime deps |
-| `backend/` | cloud backend: one HTTPS Cloud Function `api` (router for `/v1/*`) + Firestore trigger `importImage` + scheduled `daily`; the SAME code also runs as **opm-cloud** (one Node server, SQLite + filesystem + built-in auth) on a VM (§21 #108) | Firebase Functions gen 2, Node 22, TS; ports + adapters (firebase \| local) |
-| `selfhost/` | opm-cloud packaging: Dockerfile, docker-compose.yml (+ Caddy HTTPS profile), systemd unit (§21 #108, docs-v2/self-host.md) | Docker, Node 22 |
-| `backend/firestore.rules`, `storage.rules` | deny ALL client access | |
-| `frontend/` | cloud frontend SPA → Firebase Hosting | SvelteKit, adapter-static (SPA fallback `index.html`) |
+| `agent/cmd/opm-cloud`, `agent/internal/cloud/` | the cloud: one process **opm-cloud** on a VM: API (`/v1/*`), built-in auth (`/auth/*`), blob store (`/_blob`), outbox dispatcher, jobs, static frontend; SQLite + local files in a data dir (§21 #108; driver notes `agent/internal/cloud/driver/README.md`) | Go, `modernc.org/sqlite` |
+| `selfhost/` | opm-cloud packaging: Dockerfile, docker-compose.yml (+ Caddy HTTPS profile), systemd unit (§21 #108, docs-v2/self-host.md) | Docker |
+| `frontend/` | cloud frontend SPA, served by opm-cloud | SvelteKit, adapter-static (SPA fallback `index.html`) |
 | `agent/` | `opm-agent` (module `opm/agent`) | Go 1.23, SQLite (pure Go driver, `modernc.org/sqlite`), Docker Engine API, Caddy v2 as library |
 | `agent/gui/` | agent GUI SPA, embedded with `go:embed`, served at `/_opm/` | Svelte (SvelteKit adapter-static, base `/_opm`) |
 | `ui/` | shared form components + design tokens of BOTH GUIs (one form per entity, §21 #102), consumed as source via the `$opm` alias | Svelte 5, `@opm/ui` (no build) |
@@ -92,15 +91,14 @@ names (`web`, `api`, `postgres`, `redis`, `worker`; deployment "ACME plant"; sit
 
 ### 1.2 Domains and hosting
 
-- API: `https://<apiBase>/v1/...`. Production default `https://api.opm.example`. With Firebase: the Hosting site rewrites
-  `/v1/**` to the function `api`, so the frontend and the API share one origin (`https://app.opm.example/v1/...` also works).
-  The backend reads its public base URL from env `OPM_API_BASE` (used in install commands and `SetupResponse.apiBase`).
-- Frontend: `https://app.opm.example` (Firebase Hosting). It calls `VITE_OPM_API_BASE` (default: same origin).
+- API: `https://<apiBase>/v1/...`. Example `https://api.opm.example`.
+  The cloud reads its public base URL from env `OPM_API_BASE` (used in install commands and `SetupResponse.apiBase`).
+- Frontend: served by opm-cloud. It calls `VITE_OPM_API_BASE` (default: same origin).
 - The API router strips any mount prefix: route matching AND request signing use the path starting at `/v1/`.
-- Firestore + Storage are touched ONLY by the backend (Admin SDK). Rules deny all client reads/writes.
-- Firebase Auth is used ONLY for human login. Nothing on a site uses Firebase.
-- Self-hosted (§21 #108): `opm-cloud` serves API + console + `/auth` + `/_blob` from one origin (`OPM_PUBLIC_URL`);
-  the data model below is identical, stored in SQLite (one global file + one file per deployment) and files.
+- The document store + blob store are touched ONLY by opm-cloud; there is no client access.
+- The built-in auth is used ONLY for human login. Nothing on a site uses it.
+- `opm-cloud` serves API + console + `/auth` + `/_blob` from one origin (`OPM_PUBLIC_URL`) (§21 #108);
+  the data model below is stored in SQLite (one global file + one file per deployment) and files.
 
 ### 1.3 Agent listeners (one process)
 
@@ -132,7 +130,7 @@ the step (→ rollback).
 ### 1.4 Outbound traffic of a site
 
 Only HTTPS to the API host (+ ACME CA for hosts in TLS mode acme). Downloads use API endpoints (200 stream or 302 to a
-5-minute signed Storage URL — agents MUST follow 302). Route order for every cloud call: (1) own internet, (2) a peer with
+5-minute signed `/_blob` URL — agents MUST follow 302). Route order for every cloud call: (1) own internet, (2) a peer with
 internet (`/_opm/peer/relay` → `/v1/agent/relay`), (3) the browser tunnel (§9.10). Optional `proxy` in agent.json /
 `HTTPS_PROXY`; extra CA bundle `/etc/opm/extra-ca.pem`.
 
@@ -140,12 +138,12 @@ internet (`/_opm/peer/relay` → `/v1/agent/relay`), (3) the browser tunnel (§9
 
 ## 2. Cloud data model
 
-Storage-neutral since §21 #108: the paths below are DocStore / BlobStore paths (Firestore + Cloud Storage on Firebase;
-SQLite tables `{ id, parent, value, ix_* }` + files on opm-cloud — table mapping in backend/functions/src/adapters/local/README.md).
-All types: `shared/src/types.ts` (Appendix A). Firestore stores `Ts` as Timestamps; the API converts to ISO strings.
+The paths below are document store / blob store paths: SQLite tables `{ id, parent, value, ix_* }` + files (table mapping in
+`agent/internal/cloud/driver/README.md`).
+All types: `shared/src/types.ts` (Appendix A). The document store keeps `Ts` as timestamps; the API converts to ISO strings.
 Limits: label ≤ 80, description ≤ 2000, Value ≤ 4096 chars, any document ≤ 900 KB (file contents never inline).
 
-### 2.1 Firestore paths
+### 2.1 Document paths
 
 | path | type | doc id | notes |
 |---|---|---|---|
@@ -155,7 +153,7 @@ Limits: label ≤ 80, description ≤ 2000, Value ≤ 4096 chars, any document �
 | `icons/{iconId}` | `IconDoc` | auto | uploaded icons; bytes inside the doc (internal `_bytes`, ≤ 64 KiB); de-duplicated by sha256 |
 | `notFoundPages/{notFoundPageId}` | `NotFoundPage` | auto | create-only |
 | `tags/{tagSlug}` | `Tag` | slug | |
-| `accounts/{uid}` | `AccountDoc` | Firebase uid | email unique (Firebase Auth enforces); `lastSetPassword { value, setAt, setBy, validAfter }` and `lastResetLink { value, createdAt, createdBy, expiresAt, validAfter }` stored plain (§5.1, §21 #84); the API (`Account`) returns only their metadata |
+| `accounts/{uid}` | `AccountDoc` | auth uid | email unique (the built-in auth enforces); `lastSetPassword { value, setAt, setBy, validAfter }` and `lastResetLink { value, createdAt, createdBy, expiresAt, validAfter }` stored plain (§5.1, §21 #84); the API (`Account`) returns only their metadata |
 | `auditLog/{auditId}` | `AuditLogEntry` | auto | root-scope audit, append-only (§6.2; changes/data as JSON strings) |
 | `templates/{templateId}` | `Template` | auto | arrays inline |
 | `deployments/{deploymentId}` | `Deployment` | auto | draft inline; `deleted` soft delete; `accessKey` = the plaintext access key (grouped, stored plain like secrets; null on pre-#84 deployments) next to `accessKeyHash` — neither is in `DeploymentView` or the cloud view (agents get only `{ hash, version }`) |
@@ -207,7 +205,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
   keep the old names until a Template sync or a manual edit (§6.1, §21 #94). Editing never changes existing revisions (they
   carry an ImageSpec copy). Delete → conflict while any template, deployment draft, head revision or open proposal uses `<serviceSlug>:<version>`.
 - **ImageVolume** (§21 #83): `{ name, mountPath, kind: 'dir' | 'file', description }` — `kind` = what the image keeps at
-  mountPath: a Folder, or ONE File (`/data/flows.json`). Always stored explicitly (register / patch / migrate-f); a request may
+  mountPath: a Folder, or ONE File (`/data/flows.json`). Always stored explicitly (register / patch); a request may
   omit it (`ImageVolumeInput`) → `inferImageVolumeKind(mountPath)`: the last path segment (`{{ }}` blocks → "x") has an
   extension — a name, a dot, 1–10 letters / digits with at least one letter, not ".d" — → `file`, else `dir` (`/data`,
   `/etc/nginx/conf.d`, `/root/.config`, `/opt/app-1.2` are folders; `/data/settings.js`, `/app/env/{{ container.env.NODE_ENV }}.ts`
@@ -245,7 +243,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
   form agents get). `accessKey: null` = created before #84 ("not stored — regenerate to view"). `draftVersion` 0,
   `agentEpoch` 1, `head` null. `srcTemplate` = `{ templateId, templateVersion, snapshot, copiedAt, baseVersion =
   templateVersion, baseSnapshot = the template config (deep copy), lastSyncedAt / lastSyncedBy null, skipped [] }`
-  (Firestore: map `srcTemplate {templateId, templateVersion, copiedAt, label, baseVersion, lastSyncedAt, lastSyncedBy}` +
+  (stored: map `srcTemplate {templateId, templateVersion, copiedAt, label, baseVersion, lastSyncedAt, lastSyncedBy}` +
   JSON strings `_srcSnapshot`, `_srcBase`, `_srcSkipped`; documents without the base fields decode to base = snapshot).
   **Detached (§21 #94):** the create is a deep copy (variables with values, secret definitions with per-deployment generated
   values, files = immutable content-addressed blob refs, sites with containers / edge / volumes / settings, 404-page refs to
@@ -313,9 +311,9 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
     pre-round-D → every image volume without a row becomes an explicit row `volume { volumeSlug: <containerSlug>-<imageVolume> }`
     (when the image is known), every `{ kind: 'data', name }` becomes `{ kind: 'volume', volumeSlug: name }` with
     **readOnly reset to false** (the round-C editor stored read-only for data volumes by mistake; a deliberate choice cannot be
-    told apart; the migration dry run lists every reset), and every such volume is DECLARED `{ volumeSlug, label: volumeSlug,
+    told apart), and every such volume is DECLARED `{ volumeSlug, label: volumeSlug,
     description: '', backup: true, location: auto }`. A current config (with `volumes`) is never auto-declared. Idempotent. The cloud
-    normalizes on every write and read (`backend/scripts/migrate-d.ts` converts stored documents); the agent decodes legacy
+    normalizes on every write and read; the agent decodes legacy
     `data` in old revisions the same way (so their hash is unchanged).
   - **Local edits** (agent GUI local proposal): adding, editing (label / description / backup / location / kind / seed) and
     removing site volumes IS allowed (config, like env values); removing a volume that is still mounted fails validation
@@ -363,7 +361,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
     `resetVolume` with typed ACCEPT → manual snapshot of that volume (note "before reset of <slug>") → stop the containers that
     mount it → wipe (dir: remove entries; file: truncate) → seed → start them; activities `snapshot.created`,
     `volume.reset-to-seed { siteSlug, volumeSlug, snapshotId, entries }`, `volume.seeded`. `SiteVolumeStatus.seeded { at,
-    source, entries } | null`. Normalization: missing kind → `dir`, missing seed → null (`normalizeSiteVolume`; migrate-e).
+    source, entries } | null`. Normalization: missing kind → `dir`, missing seed → null (`normalizeSiteVolume`).
 - **Edge** (`SiteConfig.edge: Edge`, round E shape; semantics §12): `Edge { httpPort, httpsPort, maxBodyBytes (null =
   unlimited), hosts, routes }`; `EdgeHost { hostname, tls, redirectHttpToHttps, responseHeaders: EdgeResponseHeaders }`;
   `EdgeResponseHeaders { set, add: Record<name, Value>, remove: string[], always: string[] }`; `EdgeRoute { routeId, hosts,
@@ -379,9 +377,8 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
     proxy `timeoutSec` → readTimeoutSec (connect / send 60); missing new proxy fields → defaults; `websocket` KEPT as stored;
     route responseHeaders → null; host responseHeaders → empty; edge maxBodyBytes → null. Stored revisions keep their bytes:
     the agent re-emits the raw JSON of an unchanged legacy edge so the revision hash stays valid (agent decision E1).
-    `backend/scripts/migrate-e.ts` rewrites stored templates / drafts / revisions (schema renames only; route ids, paths,
-    order and headers untouched; its dry run notes plain prefixes without a trailing "/" that now also match "/apix", and
-    response-only request headers — W_RESPONSE_HEADER_AS_REQUEST, never auto-moved).
+    Plain prefixes without a trailing "/" also match "/apix"; response-only request headers give
+    W_RESPONSE_HEADER_AS_REQUEST and are never auto-moved.
 - **FileDef.render**: `'expressions' | 'none'`; default text → expressions, binary → none (binary + expressions → V_ENUM;
   legacy documents without the field read as the default, `normalizeFileDef`). `content` is always the SOURCE blob; rendered
   bytes exist only on the site (§9.5, §2.4). A file is rendered ONCE PER SITE (field `file`, roots var, secret, site, self,
@@ -403,16 +400,16 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
   agentHome?)`, `locationLabel(…)` ("auto · <agentHome>/files/<slug>"). Changing a location moves nothing automatically
   except the round-D `vol/` → `volumes/` move (§2.4); the old place stays on disk.
 - **UptimeDay**: heartbeat increments `beats[hourUTC]` (FieldValue.increment) and sets `hours[h] = min(1, beats[h]/120)`.
-  The `daily` scheduled function deletes uptime docs older than 30 days, expires uploads (transfers never expire), and sets `token` to
+  The `daily` job deletes uptime docs older than 30 days, expires uploads (transfers never expire), and sets `token` to
   null on expired install tokens (§21 #84).
 
-### 2.3 Cloud Storage paths
+### 2.3 Blob store paths
 
 | path | holds | written by |
 |---|---|---|
 | `blobs/sha256/<hex>` | OCI/Docker blobs: platform manifest, image config, layers (content-addressed) | import job (copy) / first agent fetch (gateway) |
 | `files/<hex>` | file contents (FileDef.content), volume content files (§21 #101) and volume content trees (canonical JSON, hex = treeHash), content-addressed | POST /v1/blobs, uploads(purpose blob), agent PUT /v1/agent/volume-content/blobs/{sha256}, the cloud (trees) |
-| `logos/<deploymentId>` | legacy deployment logo (new logos are icons: `Deployment.image` = `upload:<iconId>`; icon bytes live in `icons/{iconId}`, not in Storage) | API |
+| `logos/<deploymentId>` | legacy deployment logo (new logos are icons: `Deployment.image` = `upload:<iconId>`; icon bytes live in `icons/{iconId}`, not in the blob store) | API |
 | `transfers/<deploymentId>/<transferId>` | send / receive files | uploads (purpose transfer) |
 | `uploads/<uploadId>/part-<n>` | temporary parts (deleted after complete or expiry) | PUT …/parts/{n} |
 | `activity-bundles/<deploymentId>/<ts>-<rand>.opmlog` | uploaded manual bundles (kept 90 days) | activities/upload |
@@ -522,7 +519,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
   `conflict` on ifVersion/ifRevision → `details.current` (the current version). `rate-limited` → header `Retry-After`.
 - Common errors of EVERY endpoint (not repeated in the tables): `unauthenticated`, `forbidden`, `rate-limited`, `internal`;
   human endpoints with a `{deploymentId}` also `not-found` when the deployment is deleted or invisible.
-- Times: ISO 8601 UTC. Ids: Firestore auto ids (20 chars), ULIDs for revisions / snapshots / sessions / leases / requests / updates / intents.
+- Times: ISO 8601 UTC. Ids: auto ids (20 chars), ULIDs for revisions / snapshots / sessions / leases / requests / updates / intents.
 - Lists: `{ items }`; paged lists `{ items, cursor }` (opaque cursor; `limit` default 100 unless stated).
 - Masking: secret values and registry passwords are NEVER in normal reads: `value: "•••"` + `isSet` (types `SecretDefView`,
   `RegistryView`). Only the reveal endpoints return them. They never appear in logs, diffs, debug logs or activity bundles.
@@ -531,7 +528,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
   regenerated any time by whoever holds the permission. Every value-returning op (`CREDENTIAL_OPS`: reveal, regenerate and
   create responses) returns `RevealResponse { value, hideAfterSec: 60 }` (`REVEAL_SECONDS`), is served with
   `Cache-Control: no-store`, writes an activity and / or audit entry, and is rate-limited to `REVEAL_RATE_PER_MINUTE` = 30
-  per uid per fixed minute (Firestore counter `rateLimits/reveal_<uid>_<yyyymmddhhmm>`) → 429 `rate-limited`
+  per uid per fixed minute (document counter `rateLimits/reveal_<uid>_<yyyymmddhhmm>`) → 429 `rate-limited`
   `details { retryAfterSec }` + `Retry-After`. The GUIs show values only through `RevealValue` (§17.0).
 - Every response carries `X-Request-Id`. Agent-facing cloud responses also carry `X-OPM-Server-Time: <unix seconds>` (also on 401) so
   agents can correct clock skew (agent keeps `kv.clockOffsetSec` = serverTime − localTime when |offset| > 5 s and signs with local+offset).
@@ -550,7 +547,7 @@ targetType | outcome, ts desc), (_actionKeys array-contains, ts desc). Collectio
 
 ### 4.1 Four trust paths
 
-1. **People → cloud**: Firebase Auth ID token (`Authorization: Bearer <idToken>`).
+1. **People → cloud**: ID token of the built-in auth (`Authorization: Bearer <idToken>`; HS256, 1 h, from `POST /auth/login`, renewed with `POST /auth/refresh`).
 2. **Install → cloud**: install token (`Authorization: Bearer opi_…`) only for `/v1/install/*` and `POST /v1/agent/enroll`.
 3. **Agent → cloud, agent → agent**: Ed25519 signed requests with the site key.
 4. **People → agent GUI**: access-key login (cookie `opm_session_<siteSlug>`, 6 h) + actor popup (actor token) — §4.6.
@@ -706,24 +703,24 @@ ACCEPT, every action logged with email + sessionId + IP + user agent; rotate whe
 
 ### 5.1 Human login
 
-- `/login`: Firebase Auth email + password (Google SSO only when env `VITE_OPM_GOOGLE_DOMAIN` is set). No signup anywhere.
-- API: verify the ID token (Admin SDK `verifyIdToken(token, checkRevoked=true)`), load `accounts/{uid}`; missing account
+- `/login`: built-in auth `/auth/*`, email + password (argon2id); OIDC single sign-on only when env `OPM_OIDC_ISSUER` is set. No signup anywhere.
+- API: verify the ID token (`VerifyIDToken(token, checkRevoked=true)`; key `<dataDir>/secrets/auth-jwt.key` or env `OPM_AUTH_SECRET`), load `accounts/{uid}`; missing account
   → 403 `forbidden` ("no account"); disabled → 403. `GET /v1/me` sets `lastLoginAt` (at most once per hour).
-- Bootstrap: `backend/scripts/create-admin.ts --email --password --name` (Admin SDK; works against the emulator) creates the
-  Firebase user and `accounts/{uid}` with `access = fullAdminRules()` (access.ts) and `createdBy = "bootstrap"`.
-- `POST /v1/accounts` creates the Firebase user with a generated 20-char alnum password (Admin SDK), the account doc with
+- Bootstrap: `opm-cloud create-admin --email E [--password P] [--name N]` creates the
+  auth user and `accounts/{uid}` with `access = fullAdminRules()` (access.ts) and `createdBy = "bootstrap"`.
+- `POST /v1/accounts` creates the auth user with a generated 20-char alnum password, the account doc with
   `lastSetPassword` (stored, §2.2), and returns `CreateAccountResponse { account, value = the password, hideAfterSec 60 }`
   (audit `account.created` with `data.passwordSet = true` + `account.password-set`). No set-password link after creation
-  (§21 #84). Firebase Auth cannot return a password, so OPM stores the one it set:
+  (§21 #84). The auth user holds only a hash, so OPM stores the one it set:
   - **Password** (account page): RevealValue — **View** (`revealAccountPassword`, audit `account.password-revealed`; 410
     `gone` when none is stored or the person has changed it since) + **Set new password…** (typed ACCEPT;
     `setAccountPassword` generates and sets a new 20-char password, stores it, audit `account.password-set`; the person's
-    sessions end). After every set the backend stores `validAfter` = the Auth user's `tokensValidAfterTime`; a later value
+    sessions end). After every set the cloud stores `validAfter` = the Auth user's `tokensValidAfterTime`; a later value
     clears the stored password and link (it is not their current password any more).
   - **Reset link…**: `resetAccountPassword` makes a new password-reset link any time (`generatePasswordResetLink`, 1 h),
     stores it as `lastResetLink` and returns it (`ResetLinkResponse`, value = the link; audit `account.reset-link-created`);
     `revealAccountResetLink` shows it again (audit `account.reset-link-revealed`; 410 `gone` when none / expired / used). If
-    SMTP env (`OPM_SMTP_URL`) is set, the link is also e-mailed; the emulator just returns it.
+    SMTP env (`OPM_SMTP_URL`) is set, the link is also e-mailed.
 
 ### 5.2 Access rule evaluation (exact — `access.ts can()`)
 
@@ -774,8 +771,7 @@ read/write/publish; other deployment.* read/write. `validateAccessRules` enforce
 
 ### 5.4 Access key generation (cloud)
 
-`crypto.randomBytes(15)` → base32 encode (no padding) → 24 chars. Hash with argon2id (§4.6) — backend uses the npm package
-`argon2` (native) or `hash-wasm` (wasm); both produce the PHC string; the Go agent verifies with `golang.org/x/crypto/argon2`
+`crypto.randomBytes(15)` → base32 encode (no padding) → 24 chars. Hash with argon2id (§4.6), PHC string; the Go agent verifies with `golang.org/x/crypto/argon2`
 (parse PHC, recompute, constant-time compare).
 
 ---------------------------------------------------------------------------------------------------------------------
@@ -825,7 +821,7 @@ names refer to `types.ts`. Status 200 unless shown. "errors" lists codes besides
 | `patchTemplate` | PATCH | `/v1/templates/{templateId}` | human | templates.write | `PatchTemplateRequest` | `TemplateWriteResponse`  | not-found, conflict, invalid | audit:template.updated | Replace parts; draft-level validation errors → invalid (nothing saved); publish-level issues are returned in validation. version +1. |
 | `deleteTemplate` | DELETE | `/v1/templates/{templateId}` | human | templates.write | — | `Deleted`  | not-found | audit:template.deleted | Delete a template (deployments keep their own copy). |
 | `uploadBlob` | POST | `/v1/blobs` | human | templates.write or deployment.config.write (any deployment) | raw bytes | `BlobRef` (201) | too-large, invalid | audit:blob.uploaded | Upload file content (raw body ≤ 24 MiB; optional header X-OPM-Sha256 is verified). Content-addressed. |
-| `getBlob` | GET | `/v1/blobs/{sha256}` | human | templates.read or deployment.config.read (any deployment) | — | bytes (200, Range) or 302  | not-found | — | Download file content: bodies ≤ 8 MiB (BLOB_STREAM_MAX) stream with 200 (Content-Type, ETag = sha256, private cache); larger ones 302 to a 5-min signed URL (bucket CORS: backend/storage.cors.json). |
+| `getBlob` | GET | `/v1/blobs/{sha256}` | human | templates.read or deployment.config.read (any deployment) | — | bytes (200, Range) or 302  | not-found | — | Download file content: bodies ≤ 8 MiB (BLOB_STREAM_MAX) stream with 200 (Content-Type, ETag = sha256, private cache); larger ones 302 to a 5-min signed `/_blob` URL. |
 | `createUpload` | POST | `/v1/uploads` | human | templates.write or deployment.config.write | `CreateUploadRequest` | `Upload` (201) | invalid, too-large | audit:upload.created | Start a multi-part blob upload (> 24 MiB, ≤ 50 MiB for blobs). |
 | `getUpload` | GET | `/v1/uploads/{uploadId}` | human | creator of the upload | — | `Upload`  | not-found, gone | — | Upload state (to resume). |
 | `putUploadPart` | PUT | `/v1/uploads/{uploadId}/parts/{index}` | human | creator of the upload | raw bytes | `UploadPartResponse`  | not-found, gone, invalid | — | Upload part index (0-based, exactly partSize bytes except the last). Idempotent. |
@@ -835,13 +831,13 @@ names refer to `types.ts`. Status 200 unless shown. "errors" lists codes besides
 | `patchTag` | PATCH | `/v1/tags/{tagSlug}` | human | tags.write | `PatchTagRequest` | `Tag`  | not-found, invalid | audit:tag.updated | Change label / icon / color. |
 | `deleteTag` | DELETE | `/v1/tags/{tagSlug}` | human | tags.write | — | `DeleteTagResponse`  | not-found | audit:tag.deleted | Delete and remove from every deployment and access scope (batch). |
 | `listAccounts` | GET | `/v1/accounts` | human | accounts.read | — | `ListResponse<Account>`  | — | — | List accounts. |
-| `createAccount` | POST | `/v1/accounts` | human | accounts.admin | `CreateAccountRequest` | `CreateAccountResponse` (201) | invalid, conflict, rate-limited | audit:account.created, audit:account.password-set | Create the Firebase Auth user (generated 20-char password) + account; value = the password, stored as lastSetPassword (revealAccountPassword until the person changes it). §21 #84. |
+| `createAccount` | POST | `/v1/accounts` | human | accounts.admin | `CreateAccountRequest` | `CreateAccountResponse` (201) | invalid, conflict, rate-limited | audit:account.created, audit:account.password-set | Create the auth user (generated 20-char password) + account; value = the password, stored as lastSetPassword (revealAccountPassword until the person changes it). §21 #84. |
 | `getAccount` | GET | `/v1/accounts/{uid}` | human | accounts.read (own account always) | — | `Account`  | not-found | — | Get one account. |
 | `patchAccount` | PATCH | `/v1/accounts/{uid}` | human | accounts.write (own name/phone/img: always; access: accounts.admin) | `PatchAccountRequest` | `Account`  | not-found, invalid, conflict | audit:account.updated, audit:account.access-changed | Change profile or access (removing the last admin → conflict). |
 | `disableAccount` | POST | `/v1/accounts/{uid}/disable` | human | accounts.admin | `DisableAccountRequest` | `Account`  | not-found, conflict | audit:account.disabled, audit:account.enabled | Disable / enable; disabling revokes refresh tokens (yourself or the last admin → conflict). |
 | `resetAccountPassword` | POST | `/v1/accounts/{uid}/password-reset` | human | accounts.admin | — | `ResetLinkResponse`  | not-found, rate-limited | audit:account.reset-link-created | Make a new password-reset link (any time; replaces the stored one, 1 h); value = the link (stored as lastResetLink). |
 | `revealAccountResetLink` | POST | `/v1/accounts/{uid}/password-reset/reveal` | human | accounts.admin | — | `ResetLinkResponse`  | not-found, gone, rate-limited | audit:account.reset-link-revealed | Show the stored reset link again (gone when none / expired / used). |
-| `setAccountPassword` | POST | `/v1/accounts/{uid}/password` | human | accounts.admin | — | `SetAccountPasswordResponse`  | not-found, rate-limited | audit:account.password-set | "Set new password…": generate a strong password, set it with the Admin SDK, store it as lastSetPassword; value = the password. |
+| `setAccountPassword` | POST | `/v1/accounts/{uid}/password` | human | accounts.admin | — | `SetAccountPasswordResponse`  | not-found, rate-limited | audit:account.password-set | "Set new password…": generate a strong password, set it in the built-in auth, store it as lastSetPassword; value = the password. |
 | `revealAccountPassword` | POST | `/v1/accounts/{uid}/password/reveal` | human | accounts.admin | — | `RevealAccountPasswordResponse`  | not-found, gone, rate-limited | audit:account.password-revealed | Show the last password an admin set (gone when none, or the person changed their password since: Auth tokensValidAfterTime moved → cleared). |
 | `listAuditLog` | GET | `/v1/audit-log` · query `AuditLogQuery` | human | accounts.admin | — | `PageResponse<AuditLogEntry>`  | — | — | Root-scope audit entries, newest first; filters action (exact or prefix ending in "."), actor (uid / "system" / e-mail), targetType, target, outcome, from, to. |
 | `listDeployments` | GET | `/v1/deployments` · query `{ tag?: string; cursor?: string; limit?: number }` | human | deployments.read (filtered per deployment) | — | `PageResponse<DeploymentSummary>`  | — | — | Deployments the caller can read. |
@@ -885,7 +881,7 @@ names refer to `types.ts`. Status 200 unless shown. "errors" lists codes besides
 | `downloadTransfer` | GET | `/v1/deployments/{deploymentId}/transfers/{transferId}/download` | human | deployment.transfers.read | — | bytes (200, Range) or 302  | not-found, gone | transfer.received | Download (Range supported); to-cloud transfers become downloaded. |
 | `deleteTransfer` | DELETE | `/v1/deployments/{deploymentId}/transfers/{transferId}` | human | deployment.transfers.write | — | `Deleted`  | not-found | transfer.deleted | Delete a transfer and its blob (status expired, blob removed). |
 | `installScript` | GET | `/v1/install/script` · query `{ version? }` | install | install token (unused, not expired, not revoked) OR the token of the site's current enrollment (§21 #86 upgrade, no expiry) | — | text  | gone | — | The POSIX sh install script for the token site (a used token gets the upgrade-only script). §21 #91: `?version=x` embeds that uploaded version (else a tiny script "not uploaded"); an expired / revoked / used-elsewhere / unknown token → 200 + a tiny script that prints what to do and exits 1. |
-| `installDeps` | GET | `/v1/install/deps/{name}` · query `{ arch: 'amd64' \| 'arm64' }` | install | install token | — | bytes (200) or 302  | gone, invalid, not-found | — | A pinned install dependency from Storage deps/ (name "docker" = the official static Docker bundle docker-<ver>.tgz of deps/manifest.json) for arch; 200 bytes (or 302 signed URL) with X-OPM-Sha256 + X-OPM-Version. Same token rules as installBinary. |
+| `installDeps` | GET | `/v1/install/deps/{name}` · query `{ arch: 'amd64' \| 'arm64' }` | install | install token | — | bytes (200) or 302  | gone, invalid, not-found | — | A pinned install dependency from the blob store deps/ (name "docker" = the official static Docker bundle docker-<ver>.tgz of deps/manifest.json) for arch; 200 bytes (or 302 signed URL) with X-OPM-Sha256 + X-OPM-Version. Same token rules as installBinary. |
 | `installRelease` | GET | `/v1/install/release` · query `{ os; arch; version? }` | install | install token (same rules as installScript) | — | `AgentReleaseResponse` | gone, invalid, not-found | — | §21 #91 release metadata of the pin or an uploaded version (`agent/<v>/`): sha256, signature, public key, schema, minSchema, notes (pin only) — for `OPM_AGENT_VERSION=x`. |
 | `installBinary` | GET | `/v1/install/binary` · query `{ os: 'linux' \| 'darwin'; arch: 'amd64' \| 'arm64'; version?: string }` | install | install token | — | bytes (200, Range) or 302  | gone, invalid, not-found | — | Agent binary (200 or 302) with headers X-OPM-Sha256 + X-OPM-Signature (Ed25519 of the sha256 hex by the release key). |
 | `enroll` | POST | `/v1/agent/enroll` | install | install token (consumed) | `EnrollRequest` | `EnrollResponse` (201) | gone, conflict, invalid | install.enrolled | Register the site public key; marks the token used; agentEpoch +1. |
@@ -922,7 +918,7 @@ registry, else no scope. The typed client sends no body (contract `body: 'none'`
 200 → ok "login ok"; else ok false + message (HTTP status + body excerpt ≤ 200 chars). Stored in `lastCheck`.
 **Pull-access check (Docker Hub 401).** Docker Hub issues a token even when the account cannot pull the repository (unknown
 repository or no access); the token is then a JWT whose `access` claim does not grant `pull` on it. With a repository, the
-backend decodes the JWT (no signature check, `tokenGrantsPull`) and answers ok false with the message
+cloud decodes the JWT (no signature check, `tokenGrantsPull`) and answers ok false with the message
 `repository <repo> not found, or account <user> has no pull access to it (Docker Hub answers 401 for both)` (anonymous:
 `anonymous access`; other registries: `the registry answers 401 for both`). The same message is used when a manifest GET
 answers 401 in `inspectImage` and in the import job. An opaque (non-JWT) token cannot be checked (no extra error).
@@ -936,8 +932,7 @@ registries: Docker v2 `_catalog`. `listRegistryTags` (`?repository=&q=`) — Doc
 **Icons.** `uploadIcon`: raw body ≤ `ICON_MAX_BYTES` (65536; else too-large), content type from the magic bytes (png, webp,
 svg text; else invalid), SVG sanitized (scripts, `on*` handlers, external references removed), `?name=` (1–80, default the
 file name). sha256 of the stored bytes equal to an existing icon → that icon with `existing: true` (nothing stored; still
-audited `icon.uploaded` with `data.existing`). The bytes are stored IN the document as the internal field `_bytes` (Firestore
-Bytes) — one document, atomic create / delete, never returned by the API. `listIcons`: every icon (newest first) + `usedBy`.
+audited `icon.uploaded` with `data.existing`). The bytes are stored IN the document as the internal field `_bytes` (bytes) — one document, atomic create / delete, never returned by the API. `listIcons`: every icon (newest first) + `usedBy`.
 `deleteIcon`: 409 conflict `details.users` (`IconUser[]`) while a service / template / tag / deployment / account uses it.
 `getIconContent` (auth public, so `<img>` works without a token): the bytes with `Content-Type`, `Cache-Control: public,
 max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`; SVG also with a restrictive `Content-Security-Policy`. Icon
@@ -956,8 +951,7 @@ V_REFERENCE); source resolution: `registryId` omitted → the first registry (by
 'version-exists' }`. Stores `reference` (trimmed, as entered), `source` (parsed + normalized `ImageRefParts`), `registryId`,
 `digest` = `source.digest` (or null), env normalized (`normalizeImageEnv`, `options` always written: null or the list), and
 `import { mode, status: 'pending', error null, sizeBytes null, manifestMediaType null, configDigest null, layers [], startedAt
-null, finishedAt null }`. The Firestore trigger `importImage` (onDocumentWritten, runs when `import.status` becomes `pending`;
-timeout 540 s, 1 GiB):
+null, finishedAt null }`. The outbox trigger `importImage` (runs when `import.status` becomes `pending`; 15-minute lease):
 1. status `copying`, startedAt.
 2. Credentials: the image registry (its host must still equal `source.host`), or anonymous on the reference host
    (`docker.io` → `https://registry-1.docker.io`, else `https://<host>`). Token auth as in test with
@@ -971,7 +965,7 @@ timeout 540 s, 1 GiB):
 6. status `ready`, layers [{digest, sizeBytes, mediaType}], sizeBytes = Σ layers, configDigest, manifestMediaType, finishedAt.
    Any error → status `failed`, error message. `retry-import` sets status back to `pending` (only from failed).
 System audit entries `image.import-ready` / `image.import-failed` (§6.2). Gateway mode: the first `GET /v1/agent/blobs/{sha}`
-for a missing layer streams it from the registry into Storage (then serves it).
+for a missing layer streams it from the registry into the blob store (then serves it).
 `patchImage` (§21 #82): every field except the identity (version, serviceSlug, source, digest, platform, import / mode /
 layers, created → invalid V_IMMUTABLE). `reference` / `registryId` only while `import.status = failed` (else 409 conflict): fix
 a wrong source, then `retry-import`. Body fields given replace the stored ones; `ports` / `env` / `volumes` are FULL lists
@@ -979,7 +973,7 @@ a wrong source, then `retry-import`. Body fields given replace the stored ones; 
 image is checked by `validateImageSpec` (= the registration rules: names, numbers, choice defaults V_OPTION, mount paths V_PATH,
 health check port V_REF …). Renames are explicit: `renames: [{ kind: port | env | volume, from, to }]` (`imageNameChanges`;
 bad entries / a name both kept and renamed → V_RENAME); an old name neither kept nor renamed is REMOVED. Impact, in the same
-Firestore transaction as the write: `imageNameUses` scans every template and every non-deleted deployment DRAFT for containers
+document store transaction as the write: `imageNameUses` scans every template and every non-deleted deployment DRAFT for containers
 with this serviceSlug + version — port: `ports[<p>]`, container `healthcheck.portName`, edge proxy routes of that container
 `edge.routes[<id>].portName`, expressions `site.<s>.port.<containerSlug>.<p>` in env values of any container; env: `env[<N>]`,
 `container.env.<N>` in that container's env values / mount paths; volume: `volumes[<v>]`. Heads, revisions and open
@@ -1009,14 +1003,13 @@ false, secret: false }` (only names matching the env pattern), `Volumes` → `v1
 "error" → 422 invalid (nothing saved); else saved, version+1, response carries `validation` (warnings = publish-level issues).
 
 **Commit stages (§21 #107).** `POST /v1/stages` · `PUT /v1/stages/{stageId}/blobs/{sha256}` · `DELETE /v1/stages/{stageId}`
-(+ `POST /v1/uploads { …, stageId }`): the bytes of ONE commit attempt, in Storage `staging/<stageId>/<hex>` (never read by
+(+ `POST /v1/uploads { …, stageId }`): the bytes of ONE commit attempt, in the blob store `staging/<stageId>/<hex>` (never read by
 anything but the commit; lifecycle rule: deleted after 1 day). The commit verifies + promotes them into `files/<hex>` before it
 becomes visible and deletes the stage on every outcome. Not audited (the commit is the entry). See §21 #107.
 
 **Blobs + uploads.** `GET /v1/blobs/{sha256}` (humans: file editors, previews): `files/<hex>` must exist (else not-found);
 `sizeBytes ≤ BLOB_STREAM_MAX` (8 MiB) → 200 stream, `Content-Type: application/octet-stream`, `ETag: "<sha256>"`,
-`Cache-Control: private, max-age=300`; larger → 302 to a 5-minute signed URL. The bucket CORS (`backend/storage.cors.json`:
-GET/HEAD from the hosting origins + `http://localhost:5173`, `http://127.0.0.1:5173`) is applied by the backend deploy script
+`Cache-Control: private, max-age=300`; larger → 302 to a 5-minute signed `/_blob` URL. `/_blob` allows CORS GET/HEAD from `OPM_FRONTEND_ORIGINS`
 so the browser can follow the 302. `POST /v1/blobs`: raw body; sha256 computed; if header `X-OPM-Sha256` is present and differs → invalid;
 store `files/<hex>` if missing; `{ sha256, sizeBytes }`. Uploads (`purpose: 'blob'` up to 50 MiB, transfers up to 2 GiB):
 `partSize = 8388608`, `partCount = max(1, ceil(sizeBytes / partSize))`; PUT part `index` (0-based) must be exactly partSize
@@ -1026,8 +1019,8 @@ target path (`files/<hex>` or `transfers/<dep>/<tid>`), stream-verify sha256 + s
 delete parts, status complete. Transfer uploads: transfer becomes `ready` (+ activity `transfer.sent`, `agentEpoch+1` for
 to-site). Expiry: uploads 24 h (`daily` deletes parts; status failed "expired").
 
-**Accounts** (§5.1, §21 #84). `createAccount` / `setAccountPassword`: generate a 20-char alnum password, set it with the
-Admin SDK ("Set new password…" ends the person's sessions), read the Auth user back and store
+**Accounts** (§5.1, §21 #84). `createAccount` / `setAccountPassword`: generate a 20-char alnum password, set it in the
+built-in auth ("Set new password…" ends the person's sessions), read the Auth user back and store
 `lastSetPassword { value, setAt, setBy, validAfter = tokensValidAfterTime }`; response `{ value, hideAfterSec: 60, … }`.
 `resetAccountPassword`: `generatePasswordResetLink` → `lastResetLink { value, createdAt, createdBy, expiresAt = +1 h,
 validAfter }` (replaces the previous one). `getAccount` / `listAccounts` (batched `getUsers`) / the reveals compare the
@@ -1161,10 +1154,10 @@ First broken entry and all later ones of that site → rejected (errors[]). Othe
 
 **Transfers.** `createTransfer` (to-site): `sizeBytes ≤ 2 GiB`, fileName 1–255 without `/`, `\`, NUL; creates Transfer
 (status uploading, expiresAt +30 d) + Upload(purpose transfer). Download marks to-cloud transfers `downloaded` and writes
-`transfer.received`. Delete: status expired, Storage object removed, agentEpoch+1 (to-site).
+`transfer.received`. Delete: status expired, blob store object removed, agentEpoch+1 (to-site).
 
 **Agent: poll** (`GET /v1/agent/poll?cursor&wait`): resolve the signer; load the deployment; if `cursor !== String(agentEpoch)`
-or `wait = 0` → answer now; else hold: re-read `agentEpoch` every 1 s (or a Firestore listener) until it changes or `wait`
+or `wait = 0` → answer now; else hold: re-read `agentEpoch` every 1 s until it changes or `wait`
 seconds pass (default 25, max 50), then answer. Answer = `CloudView { fetchedAt: server now, source: 'cloud', cursor:
 String(agentEpoch), deploymentId, deleted, proposals: open proposals + 5 newest terminal (ProposalMeta), transfersToSite: every
 to-site transfer of the deployment with status ready (TransferMeta), draftHead: deployment.head (revId, seq) | null, accessKey:
@@ -1199,7 +1192,7 @@ overrides approved/applying/terminal states except by an explicit coordinator st
 the head revision config or an open proposal of the deployment
 (else forbidden); import not ready → invalid. `getAgentBlob`: sha256 must belong to (a) manifest/config/layer of such an image,
 or (b) a file content sha of such a config (else forbidden); serve `blobs/sha256/<hex>` (images) or `files/<hex>` (files);
-200 stream with `Content-Length`, `Accept-Ranges: bytes`, Range support, or 302 to a 5-minute signed URL (production). Gateway
+200 stream with `Content-Length`, `Accept-Ranges: bytes`, Range support, or 302 to a 5-minute signed `/_blob` URL (`OPM_BLOB_REDIRECT`). Gateway
 mode missing layer: fetch from the registry first.
 
 **Agent: activities** (pipe): entries must be contiguous ascending seq for the signer site; first entry seq must be ≤ ackSeq+1
@@ -1258,8 +1251,8 @@ lists `audit:<action>` for every audited op. Handlers refine the action through 
 `revealRegistryPassword` → `registry.password-revealed`. The legacy action `account.password-reset` stays in the catalog for
 old entries only. System entries (actor `"system"`, op `system:<job>`): `image.import-ready` / `image.import-failed` (import
 trigger, with the diff of the image doc), `system.daily-cleanup` (one summary entry per daily run, data = counts; a failed
-run writes outcome error), `system.migration` (op `system:migration`, one entry per `--apply` run of a data migration script,
-e.g. `backend/scripts/migrate-v2.ts`; data = `{ migration, dryRun, changes }` + the id → slug / tag → version mapping).
+run writes outcome error), `system.migration` (op `system:migration`, old entries only: one per `--apply` run of a former data migration
+script; data = `{ migration, dryRun, changes }` + the id → slug / tag → version mapping).
 Icons: `uploadIcon` → `icon.uploaded` (also when the bytes existed: `data.existing = true`), `deleteIcon` → `icon.deleted`
 (target type `icon`, target `icons/{iconId}`).
 
@@ -1288,13 +1281,13 @@ activity data.
 **Reliability.** The audit write is awaited after the handler; a failed read or write is logged with `logger.error` and never
 changes the answer.
 
-**Storage.** `changes` / `data` are JSON strings (`_changes`, `_data`; Firestore rejects nested arrays) and `_actionKeys` holds
+**Storage.** `changes` / `data` are JSON strings (`_changes`, `_data`) and `_actionKeys` holds
 the action and its prefixes (`template.`, `template.updated`) for prefix filters.
 
 **`GET /v1/audit-log`** (accounts.admin) — newest first (`ts` desc), `limit` default 100 / max 500, opaque `cursor`. Filters
 (`AuditLogQuery`): `action` (exact or a prefix ending in "."), `actor` (uid, `system`, or an e-mail when it contains "@",
 case-insensitive), `targetType`, `target` (exact path), `outcome`, `from` / `to` (ISO, inclusive). ONE equality filter runs in
-Firestore (priority target > actor > action > targetType > outcome; indexes `(field, ts desc)` and `(_actionKeys
+the document store (priority target > actor > action > targetType > outcome; indexes `(field, ts desc)` and `(_actionKeys
 array-contains, ts desc)`) plus the `ts` range; the others are applied in memory with over-fetch. Bad values → 422 invalid.
 
 ## 7. Agent local API (`/_opm/api/*`)
@@ -3079,7 +3072,7 @@ CPU %, memory, disk of agentHome, load. Cloud: online = heartbeat < 90 s, Uptime
   timer — no modal, no checkbox. 429 `rate-limited` → error toast with the wait (`retryAfterSec`).
 - Actions the account may not do are hidden (`can()`); read-only screens show a "read only" chip.
 - Dates: relative ("5 min ago") with the ISO time in a tooltip. Ids: monospace with a copy button.
-- Routes use SvelteKit path params (SPA; Firebase Hosting rewrites `**` → `/index.html`). Every route param is the entity's
+- Routes use SvelteKit path params (SPA; opm-cloud answers unknown paths with `/index.html`). Every route param is the entity's
   one identifier (`{serviceSlug}`, `{version}`, `{registryId}`, …).
 - **Pickers rule.** A field that refers to something that exists (service, image version, registry, repository, docker tag,
   icon, variable, secret, file, site, container, port name, not-found page, tag, account) is a picker (select, combobox with
@@ -3107,7 +3100,7 @@ Root sidebar: Deployments · Templates · Services · Registries · Not-found pa
 
 **Sidebar footer** (every scope, always present): account chip (avatar, name) → menu: My profile → **modal** (Name 1–80,
 Phone E.164 or empty, Avatar (IconPicker with uploads; None = initials; a legacy https URL is kept); PATCH /v1/accounts/{me}) ·
-Log out (Firebase signOut → /login); and the light / dark **theme toggle**. The account menu exists only there (never also in
+Log out (`POST /auth/logout` → /login); and the light / dark **theme toggle**. The account menu exists only there (never also in
 a top bar). The menu and the My profile modal portal to the body (Overlay rule), above the sidebar.
 
 **Top bar.** Inner scopes (template, deployment) have NO global top bar: their pages start with the **breadcrumb row**
@@ -3120,9 +3113,9 @@ bar or the page header row). The drawer closes on navigation.
 
 ### 17.2 Routes (root scope)
 
-**`/login`** — page. Fields: Email (required, email), Password (required). Buttons: **Log in** (primary) → Firebase
-`signInWithEmailAndPassword` → `GET /v1/me` → redirect to `?next` or `/app/deployments`; **Continue with Google** (only when
-`VITE_OPM_GOOGLE_DOMAIN` is set; `hd` restricted); **Forgot password** → modal (Email) → Firebase `sendPasswordResetEmail`,
+**`/login`** — page. Fields: Email (required, email), Password (required). Buttons: **Log in** (primary) →
+`POST /auth/login` → `GET /v1/me` → redirect to `?next` or `/app/deployments`; **Continue with <label>** (OIDC, only when
+`OPM_OIDC_ISSUER` is set; `OPM_OIDC_ALLOWED_DOMAIN` restricts it); **Forgot password** (only with `OPM_SMTP_URL`) → modal (Email) → `POST /auth/reset/request`,
 always answers "If the account exists, an email was sent". Errors: wrong credentials → "Email or password is wrong"; API 403
 "no account" → "There is no OPM account for this login. Ask an admin."; disabled → "This account is disabled". No signup link.
 
@@ -3959,12 +3952,12 @@ curl -fsSL -H "Authorization: Bearer opi_…" <apiBase>/v1/install/script | sudo
 curl -fsSL -H "Authorization: Bearer opi_…" <apiBase>/v1/install/script | sudo OPM_SKIP_DOCKER_INSTALL=1 sh
 ```
 
-The cloud generates a POSIX `sh` script for ONE token (source: `backend/functions/src/routes/install-script.ts`, `sh -n` +
+The cloud generates a POSIX `sh` script for ONE token (source: `agent/internal/cloud/core/install_script.tmpl`, `sh -n` +
 shellcheck clean). **Everything it installs is pinned at generation** — nothing resolves "latest" at run time:
 - agent: exact version (`deps/manifest.json` `agent.version`, else `OPM_AGENT_VERSION` / `agent/latest` at generation) +
   per-arch sha256 + release signature embedded; downloaded from `/v1/install/binary?os=linux&arch=…&version=<pinned>`.
-- Docker Engine: the official static bundle `docker-<ver>.tgz` (download.docker.com) re-hosted in Storage
-  (`deps/docker/<ver>/<arch>/docker-<ver>.tgz`, `backend/scripts/upload-deps.ts`, `deps/manifest.json` = `DepsManifest`),
+- Docker Engine: the official static bundle `docker-<ver>.tgz` (download.docker.com) re-hosted in the blob store
+  (`deps/docker/<ver>/<arch>/docker-<ver>.tgz`, `opm-cloud upload-deps`, `deps/manifest.json` = `DepsManifest`),
   version + per-arch sha256 embedded; downloaded from `GET /v1/install/deps/docker?arch=amd64|arm64` (install token,
   same rules as installBinary; headers `X-OPM-Sha256`, `X-OPM-Version`). Pinned: **Docker 28.5.2**,
   `minDockerApi` **1.41** (user decision: Docker 20.10 is the minimum; the agent negotiates the Engine API between 1.41 and
@@ -4004,7 +3997,8 @@ Steps (numbered `[n/7]` on screen, every line + every command's output with time
    else `opm-agent status`) → the token is NEVER written (no re-enroll; a revoked enrollment needs /var/lib/opm moved
    away); else the token goes to `/etc/opm/install-token` (0600; the agent deletes it after enrolling). Kept on every
    rerun: agent.json, site key, enrollment, data dir, volumes, files, certificates, transcripts; app containers are never
-   touched.
+   touched, except this site's containers during an agent-home move (upgrade to ≥ 0.19.1 with an explicit `OPM_MOVE_HOME`
+   or a terminal yes, never `DRY_RUN`; §21 #120 (d)).
 5. **Service** — for an up- / down- / reinstall: the old agent's health is read first (`/_opm/api/health`
    `cloud.connected`) → `systemctl stop opm-agent` (containers keep running) → `<dataDir>/*.db*` copied to
    `<dataDir>/backup/<oldVersion>-<UTC ts>/` + `meta.env` (version, schema, createdAt, reason; the 5 newest kept) → optional
@@ -4131,15 +4125,14 @@ guard drop-in) have ONE source, the Go binary: `opm-agent systemd-units --instal
 
 | where | name | meaning |
 |---|---|---|
-| backend | `OPM_API_BASE` | public API base used in install commands (e.g. `https://api.opm.example`) |
-| backend | `OPM_FRONTEND_ORIGINS` | CORS origins for human endpoints |
-| backend | `OPM_RELEASE_PUBLIC_KEY` | base64 Ed25519 public key embedded in the install script |
-| backend | `OPM_AGENT_VERSION` | default agent version served by /v1/install/binary (else `agent/latest`) |
-| backend | `OPM_CONSOLE_URL` | cloud console origin sent to agents (CloudView / EnrollResponse `consoleUrl`, shown as links in the agent GUI); default = the first https entry of `OPM_FRONTEND_ORIGINS` (prod: https://opm.example.com) |
-| backend | `OPM_SMTP_URL` | optional, mail for password-reset links (Reset link…) |
-| backend | `OPM_BLOB_REDIRECT` | `1` = downloads answer 302 to signed URLs (production); default `0` = stream (emulator). Human `GET /v1/blobs/{sha}` always streams bodies ≤ 8 MiB (`BLOB_STREAM_MAX`) |
-| backend | `backend/storage.cors.json` | bucket CORS (GET/HEAD from the hosting origins + localhost:5173 / 127.0.0.1:5173), applied by the deploy script (`gcloud storage buckets update gs://<bucket> --cors-file=storage.cors.json`) |
-| frontend | `VITE_OPM_API_BASE`, `VITE_FIREBASE_*`, `VITE_OPM_GOOGLE_DOMAIN` | API base, Firebase web config, optional SSO domain |
+| opm-cloud | `OPM_API_BASE` | public API base used in install commands (e.g. `https://api.opm.example`) |
+| opm-cloud | `OPM_FRONTEND_ORIGINS` | CORS origins for human endpoints |
+| opm-cloud | `OPM_RELEASE_PUBLIC_KEY` | base64 Ed25519 public key embedded in the install script |
+| opm-cloud | `OPM_AGENT_VERSION` | default agent version served by /v1/install/binary (else `agent/latest`) |
+| opm-cloud | `OPM_CONSOLE_URL` | cloud console origin sent to agents (CloudView / EnrollResponse `consoleUrl`, shown as links in the agent GUI); default = the first https entry of `OPM_FRONTEND_ORIGINS` (prod: https://opm.example.com) |
+| opm-cloud | `OPM_SMTP_URL` | optional, mail for password-reset links (Reset link…) |
+| opm-cloud | `OPM_BLOB_REDIRECT` | default `1` = downloads answer 302 to signed `/_blob` URLs; `0` = stream. Human `GET /v1/blobs/{sha}` always streams bodies ≤ 8 MiB (`BLOB_STREAM_MAX`) |
+| frontend | `VITE_OPM_API_BASE`; at runtime `/opm-config.json` from opm-cloud | API base; auth options (password reset, OIDC label) |
 | agent | agent.json | §2.4 / `AgentConfigFile` (§21 #86: `edgeHttpPort` default 80 / null = no default edge; `releasePublicKey`; `consoleUrl` fallback) |
 | agent | `--data-dir` / `OPM_DATA_DIR` | **agentHome** = the agent data dir: the flag, else the env, else agent.json `dataDir`, else `/var/lib/opm`. Holds everything of §2.4; a storage location `./x/y` (files, site volumes) is relative to it. Reported to the GUI in `SiteVolumesResponse.agentHome` |
 | agent | `OPM_APPROVE_WAIT_SEC` | every intent wait — approve / rollback / volume reset / empty / restore (default 60; tests may set ≥ 1); effective seconds, fast-forward up to ×4 (§21 #95) |
@@ -4153,13 +4146,13 @@ guard drop-in) have ONE source, the Go binary: `opm-agent systemd-units --instal
 | install script | `OPM_YES`, `OPM_INSTALL_DOCKER` (`OPM_SKIP_DOCKER_INSTALL` = alias of 0), `OPM_ALLOW_DOWNGRADE`, `OPM_RESTORE_DB_BACKUP`, `OPM_AGENT_VERSION`, `OPM_SOCKET_ACTIVATION`, `DRY_RUN` (§21 #91) | answers to the `/dev/tty` questions without a terminal (env after `sudo`); `OPM_YES` does not answer the downgrade or the DB restore; tests only: `OPM_NO_TTY`, `OPM_HEALTH_TIMEOUT` |
 | install script | `?version=x` on the script URL (§21 #91) | target an uploaded agent version instead of the pin |
 | agent | agentHome `backup/` (§21 #91) | DB backups `<version>-<ts>/` + meta.env, 5 kept (§2.4) |
-| backend | `upload-agent.ts` `<dir>/release.json` → `agent/<v>/release.json` (§21 #91) | AgentBuildMeta (schema, minSchema; absent = legacy 1); headers `X-OPM-Agent-Schema` / `-Min-Schema`; `upload-deps.ts` copies them into `deps/manifest.json` agent |
-| backend | `upload-deps.ts --agent-notes` / `--agent-notes-file` (§21 #90) | release notes of the pinned agent → `deps/manifest.json` `agent.notes` → Setup + Agent page |
+| opm-cloud | `opm-cloud upload-agent` `<dir>/release.json` → `agent/<v>/release.json` (§21 #91) | AgentBuildMeta (schema, minSchema; absent = legacy 1); headers `X-OPM-Agent-Schema` / `-Min-Schema`; `opm-cloud upload-deps` copies them into `deps/manifest.json` agent |
+| opm-cloud | `opm-cloud upload-deps --agent-notes` / `--agent-notes-file` (§21 #90) | release notes of the pinned agent → `deps/manifest.json` `agent.notes` → Setup + Agent page |
 | agent | agentHome files (§21 #89) | `metrics.db` (monitoring, ≤ 64 MiB), `transcripts/` (terminal transcripts, 7 days, ≤ 200 MiB, 0600), `logs/edge-access.log` (+ .1–.5, 20 MiB each), `tools/manual-stops.json` |
 
-Firebase: `firebase.json` — hosting `public: frontend/build`, rewrites `{ "source": "/v1/**", "function": { "functionId": "api" } }`
-then `{ "source": "**", "destination": "/index.html" }`; functions source `backend`; firestore rules + indexes; storage rules.
-Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hosting 5000, UI 4000.
+Deployment: `selfhost/` (Dockerfile = the `opm-cloud` binary + `frontend/build`; docker compose; Caddyfile; systemd unit), one port.
+Operations: `opm-cloud create-admin | reset-link | release-key | upload-agent | upload-deps | backup | verify-schema`
+(`agent/internal/cloud/ops.go`). All `opm-cloud` settings: docs-v2/self-host.md.
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -4171,10 +4164,14 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   access rules, validation (hello config valid; each rule family), diff.
 - `agent`: `go vet ./... && go test ./...` — the SAME vector files (`internal/expr`, `internal/canonical`), model round trips;
   later: driver spec hash, edge Caddy JSON golden files, update coordinator with a fake driver, smart-distribution fetcher choice.
-- `backend`: route handlers against the Firestore emulator: auth (ID token, disabled, signed requests incl. clock/nonce/
+- `agent/internal/cloud/apitest` (`cd agent && go test ./internal/cloud/apitest`; starts the real `opm-cloud` binary on a temp
+  data dir; named `apitest` below, `NN-name` = `NN_name_test.go`; the mapping from the former TS suite is
+  `testdata/ts-tests.txt` + `ts-dropped.txt`): auth (ID token, disabled, signed requests incl. clock/nonce/
   signature failures, relay), access rules per route, publish/stale/superseded, activities upsert (skip / reject chain),
   uploads compose + sha256, install token lifecycle, enroll conflict.
-- `frontend`: svelte-check + Playwright smoke on the emulator (login, create registry/service/image, template, deployment, diff).
+- Pure-logic port vectors: `agent/internal/cloud/**/testdata/*.mts` and `gen/gen.mts` run the `shared/src` TS through tsx
+  (`cd shared && node --import tsx ../agent/internal/cloud/gen/gen.mts`).
+- `frontend`: svelte-check + Playwright smoke on the mock API, `VITE_MOCK=1` (login, create registry/service/image, template, deployment, diff).
 - Phase U additions:
   - `shared/testdata/expr-vectors.json` has three sections: `cases` (resolve), `check` (save-level check) and `containers`
     (`resolveContainer`: env + mount sources → resolved values or errors with code + position; covers `container.env.<NAME>`,
@@ -4186,10 +4183,9 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   - `agent`: `TestCatalogOptionsAndIconsRoundTrip`, `TestImageEnvOptions`, `TestReadableNameNotHashed`, old-shape revision
     refused, `TestTwoSiteMesh` (readable tags through the Docker API; kv runs from `kv:1`; a mount at
     `/{{ container.env.DATA_DIR }}` with a choice env).
-  - `backend` `test/10-phase-u.test.ts`: services by slug, images by version (`version-exists`), source auto-match / public /
+  - `apitest` `10-phase-u`: services by slug, images by version (`version-exists`), source auto-match / public /
     host mismatch, icons (upload, dedupe, sanitizing, public content headers, delete conflict), registry browsing (Docker v2 and
-    Docker Hub API stubs), the Docker Hub JWT access-claim check, and the migration: old-shape data → dry run changes nothing
-    → apply → `verifySchema` reports 0 violations → a second run plans 0 changes.
+    Docker Hub API stubs), the Docker Hub JWT access-claim check.
 - Round C additions:
   - `shared`: expr vectors for field `file` (multi-line text, block positions → line:col, secrets allowed), context
     `auto-host` (`<auto:slug>` placeholder in the cloud, E_NULL in agent mode) and the `{{ "{{" }}` escape; `validate.test.ts`:
@@ -4206,8 +4202,8 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
     site with host null that resolves to its advertiseHost (`site.<s>.host` in a peer's env); a text file with
     `render: 'expressions'` mounted by both instances (round D part 2: rendered ONCE for the site and shared — per-container
     content now comes from env, not from the file) and a JSON file renders to valid JSON.
-  - `backend`: `GET /v1/blobs/{sha}` 200 ≤ 8 MiB with ETag / cache headers, 302 above; heartbeat / enroll store
-    `detectedAddresses`; usage items per container instance; `migrate-c.ts` dry run / apply / idempotent.
+  - `apitest`: `GET /v1/blobs/{sha}` 200 ≤ 8 MiB with ETag / cache headers, 302 above; heartbeat / enroll store
+    `detectedAddresses`; usage items per container instance.
   - `frontend`: container full page (new / edit / duplicate), host auto toggle, file editor render toggle + preview.
 - Round D part 2 additions (one copy per site, storage locations):
   - `shared`: `checkLocation` / V_LOCATION (bad `./` segments, reserved agent dirs, bare kind dir, unsafe absolute path,
@@ -4221,9 +4217,7 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   - **Mesh test**: two containers mount the same file → exactly ONE host file exists and both see it; a file with a `./`
     location; a volume with a custom `./` location is backed up and restored there; `container.env` in a file → staging fails
     E_NOT_ALLOWED.
-  - `backend`: location normalized on write / read; `verify-schema.ts` (locations present + valid); `migrate-d.ts` sets
-    location auto on files and volumes and REPORTS (no rewrite) every file with render expressions whose content uses
-    `container.*` / `file.*` (it becomes a validation error on the template).
+  - `apitest`: location normalized on write / read; `verify-schema` (locations present + valid).
   - `frontend` / `agent/gui`: Files "On the server" column + Location control, "Preview for site…"; Volumes location column
     and modal control; container rows "Inside the container", file / secret as text + Edit path, "shared copy · also used by";
     summary Mounts lines with the server location. Prod check `tests/prod/d-files.spec.ts` on the template copy.
@@ -4242,9 +4236,8 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   - **Mesh test** (`TestTwoSiteMesh` + e2e): two containers share ONE declared volume (a file written by one is read by the
     other); a `backup = false` volume is absent from the snapshot; a restore by volumeSlug works, also after the volume was
     moved to another container.
-  - `backend`: write + read normalization (template PATCH / draft PUT / create), `verify-schema.ts` (every site config has
-    `volumes`; no `data` sources; every volume source declared), `migrate-d.ts` dry run / apply / idempotent (reports per site
-    the declared volumes and every readOnly reset; keeps template version / updatedAt; one `system.migration` audit entry).
+  - `apitest`: write + read normalization (template PATCH / draft PUT / create), `verify-schema` (every site config has
+    `volumes`; no `data` sources; every volume source declared).
   - `frontend` (mock Playwright): sidebar tree (template + deployment scope, validation badges, expanded state), per-section
     site routes + `/sites/{s}` and `?tab=` redirects, no top bar in inner scopes, account menu + theme toggle in the sidebar
     footer, 390 px drawer with its toggle in the breadcrumb row, leave guard; Volumes page (add / edit / backup toggle /
@@ -4264,9 +4257,9 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
     `nginx-import.test.ts` (§12.7); `required-vars-vectors.json` (template / draft / publish / agent cases); `checkSeed`,
     V_VOLUME_KIND (+ _IMAGE), `seedPathError`, diff notes.
   - Volume kind fix (§21 #83): `testdata/volume-kind-vectors.json` (infer 13 paths, 4 image-volume cases, 12 mount cases ×
-    template / publish) run by `shared/src/volume-kind.test.ts` AND `agent/internal/validate/volumekind_test.go`; backend
-    `test/15-volume-kind.test.ts` (register / patch / read kinds, V_ENUM, inspect prefill dir, draft API mismatch error + rename
-    info, migrate-f dry run → apply → rerun 0 + verify-schema + audit); frontend `tests/volume-kind.spec.ts` (Folder / File
+    template / publish) run by `shared/src/volume-kind.test.ts` AND `agent/internal/validate/volumekind_test.go`; `apitest`
+    `15-volume-kind` (register / patch / read kinds, V_ENUM, inspect prefill dir, draft API mismatch error + rename
+    info); frontend `tests/volume-kind.spec.ts` (Folder / File
     control + Auto, register Auto, the user's case = info only, mismatch error + "+ New single-file volume…", warning → image
     page link → File → back, disabled container error); agent GUI kind badge + corrected inline flag
     (`tests/rounde-volumes.spec.ts`); TestEdgeParityDocker mounts the single-file volume on a File image volume row
@@ -4282,8 +4275,8 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
     `opm-edge-testsrv` container per upstream, every client vector + the checks above; volume kinds, seeds (files with a
     rendered file, archive, single file), Node-RED-like rename over a single-file mount fails with EBUSY, seed change leaves
     data, snapshot of a single-file volume, reset to starter content).
-  - `backend`: `13-round-e.test.ts` — new edge shapes saved as sent, legacy edges normalized on write and read, V_EDGE_REGEX
-    422 + W_RESPONSE_HEADER_AS_REQUEST warning, `migrate-e` dry run / apply / idempotent / verify-schema 0, required-vars
+  - `apitest` `13-round-e`: new edge shapes saved as sent, legacy edges normalized on write and read, V_EDGE_REGEX
+    422 + W_RESPONSE_HEADER_AS_REQUEST warning, required-vars
     vectors through the API, seed-archive uploads + agent blob access, kind / seed defaults.
   - `frontend` / `agent/gui` (mock Playwright): the user's mistake (Cache-Control as a request header) → warning → **Move to
     response headers** → Test a URL shows it on the response; route page kinds, regex check, redirect / rewrite previews,
@@ -4294,12 +4287,11 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   - `shared`: `REVEAL_SECONDS` 60 / `RevealResponse` on every credential response, `CREDENTIAL_OPS` / `AUDIT_DEPLOYMENT_OPS`
     / `AUDIT_OPS` / activity catalog entries, audit redaction masks leaves inside secret-named objects
     (`lastSetPassword.value`, `lastResetLink.value`) — `reveal.test.ts`, `access.test.ts`.
-  - `backend`: each credential op (create / reveal / regenerate of access key, install command, secret, registry password,
+  - `apitest`: each credential op (create / reveal / regenerate of access key, install command, secret, registry password,
     account password, reset link): value returned with `hideAfterSec` 60 and `Cache-Control: no-store`, activity + audit
     written without the value, permissions per §21 #84, 410 `gone` reasons (not-stored, used / revoked / expired, password
     changed by the person), install token nulled on enroll / revoke / expiry, `replaceActive` revokes the old tokens, the 31st
-    value request in one minute → 429 `rate-limited` with `retryAfterSec`; agents still get only `{ hash, version }`;
-    `migrate-g` dry run / apply / idempotent / verify-schema 0.
+    value request in one minute → 429 `rate-limited` with `retryAfterSec`; agents still get only `{ hash, version }`.
   - `agent`: `revealSecret` → `hideAfterSec` 60, no-store, 31st reveal per session per minute → 429.
   - `frontend` / `agent/gui`: RevealValue (masked → View → value + 60 s ring → masked; re-masks on route change and hidden
     tab; nothing in localStorage / sessionStorage); create deployment / account / install command show the value in
@@ -4321,7 +4313,7 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
     sections without secrets; `upgrade-guard --install` idempotent (non-root → note, exit 0). Linux smoke test: a real
     systemd host upgrades X → Y via the GUI API, then a broken Y (exits at start) is rolled back by the watcher and, with the
     watcher killed, by the boot guard after a reboot / restart.
-  - `backend`: requestAgentUpgrade checks (not enrolled, < 0.10.0 + hint, stale pin, already on it, conflict), audit +
+  - `apitest`: requestAgentUpgrade checks (not enrolled, < 0.10.0 + hint, stale pin, already on it, conflict), audit +
     `_cloud` activities, agentEpoch +1, CloudView.agentUpgrades (expired dropped), heartbeat `upgrade` clears the request on
     done / failed / rolled-back, upgrade-all run sequencing (next site only after done, stop on failure, cancel), Setup /
     Status `upgrade` view, release notes from `deps/manifest.json`; install script calls `opm-agent upgrade-guard --install`
@@ -4334,12 +4326,12 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
     agent; agent.json masked view + settings drawer validation + save; support bundle download; uninstall lines; CLI map;
     `*` = one card per site.
   - §21 #91 extension (install command = hard fallback):
-    - `backend` 22-install-fallback: sh `ver_cmp` vs `compareAgentVersions` on 28×28 vectors (sh + dash), `schema_ok` vs
+    - `apitest` `22-install-fallback`: sh `ver_cmp` vs `compareAgentVersions` on 28×28 vectors (sh + dash), `schema_ok` vs
       `agentSchemaCompatible`, actions vs `agentInstallAction`; script `sh -n` / `dash -n` / shellcheck; used token →
       upgrade-only script with the schema; `?version=` embedding + "not uploaded" tiny script; installRelease (pin,
       version, 404, 422); schema headers; expired / revoked / used-elsewhere / unknown token → tiny scripts (exit 1 +
       text), binary / release / deps 410; upload-agent release.json → upload-deps manifest schema.
-    - `backend` 23-install-fallback-e2e (ubuntu:24.04, fake TTY): Docker missing (no terminal → no + exact rerun command;
+    - `apitest` `23-install-fallback-e2e` (ubuntu:24.04, fake TTY): Docker missing (no terminal → no + exact rerun command;
       TTY n; OPM_INSTALL_DOCKER=1); upgrade 0.7.2 → pin (TTY n = nothing changed; no terminal → OPM_YES hint; TTY y →
       signature, agent.json key added, backup + meta.env, .prev, `systemd-units --install --socket`, healthy, no token);
       SAME reinstall; unhealthy target → rollback + DB restored, exit 1; downgrade refused without a compatible backup,
@@ -4361,7 +4353,7 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
   multi-statement + params + explain, paging, cancel, read-only, destructive confirm, activities without secrets),
   `internal/agent` TestDevToolsRevisionHash, TestDevToolsThroughAgentAndMesh, TestDevToolsMQTTStreamThroughMesh,
   TestLocalEditDevTools, `cmd/opm-devmesh` TestDevmeshDevToolsPresetsEndToEnd (presets from a real revision over HTTP);
-  backend `26-devtools-presets`; frontend `devtools-presets.spec.ts`; agent GUI `devtools.spec.ts`, `devtools-mobile.spec.ts`,
+  `apitest` `26-devtools-presets`; frontend `devtools-presets.spec.ts`; agent GUI `devtools.spec.ts`, `devtools-mobile.spec.ts`,
   `devtools-real.spec.ts` (real agent, manual + preset connections).
 - §21 #95 / #96: shared `intent-wait.test.ts` (×1, min = wait / 4, heartbeat decay, piecewise, only 1 \| 2 \| 4, clock
   backwards, interpolated ready) + `volume-ops.test.ts`; Go `intentwait_test.go` (the same cases, the endpoints with a fake
@@ -4377,13 +4369,13 @@ Emulators (dev): auth 9099, firestore 8085, functions 5001, storage 9199, hostin
 
 - §21 #100 transfers: shared `transfers.test.ts` (hostfs vectors, transferState, contract); Go `transfer_saf_test.go`
   (store-and-forward to the cloud with the cloud unreachable then reachable and nobody on the receiving end; a cloud file
-  fetched after the agent comes online + fetchedAt; hostfs vectors; listing + send policy); backend `06-transfers` (fetched);
+  fetched after the agent comes online + fetchedAt; hostfs vectors; listing + send policy); `apitest` `06-transfers` (fetched);
   agent GUI `transfers.spec.ts` + `transfers-mobile.spec.ts`; cloud `transfers-100.spec.ts`.
 
 ### 20.2 Hello-world end-to-end (the acceptance test)
 
-Machine: one macOS host with Colima (Docker), Firebase project (emulators for the dev loop, deployed for the final run),
-Google Artifact Registry repo `opm` in the same project. Two agents run on the Mac host (darwin build) as two sites with their
+Machine: one macOS host with Colima (Docker), a running opm-cloud (`OPM_API_BASE`, default a local one; `--deployed` for the
+final run), Google Artifact Registry repo `opm`. Two agents run on the Mac host (darwin build) as two sites with their
 own data dirs and ports. Files: `e2e/`.
 
 **Images** (built for the Colima architecture, e.g. linux/arm64; pushed to `<region>-docker.pkg.dev/<project>/opm/…`):
@@ -4419,10 +4411,10 @@ generate alnum 24 and value null; the deployment generates it):
 Expected orders: sites db → app; containers hello-api → hello-web.
 
 **Steps and checks** (script `e2e/run.sh`, results in `e2e/results/<ts>.md`):
-1. Bootstrap admin (`create-admin`), log in (Firebase REST signInWithPassword for the script; the browser flow is checked
+1. Bootstrap admin (`create-admin`), log in (`POST /auth/login` for the script; the browser flow is checked
    with Playwright once). `GET /v1/me` → isAdmin.
 2. Registry: create, **Test login** → ok.
-3. Services + images: register 3 images (copy) → wait until `import.status = ready` (≤ 10 min) — layers in Storage.
+3. Services + images: register 3 images (copy) → wait until `import.status = ready` (≤ 10 min) — layers in the blob store.
 4. Not-found page "Hello 404" (`<h1>Hello 404</h1>`).
 5. Template "Hello world" (PATCH with the config; secret value null) → validation ok (warnings allowed).
 6. Deployment from the template → access key returned (stored; viewable again with revealAccessKey, never in
@@ -6849,20 +6841,20 @@ Pass = every check above green; results file lists timings and the activity coun
 /**
  * @opm/shared · types.ts
  *
- * NORMATIVE wire format of On-Prem Manager (OPM). Every document stored in Firestore / agent SQLite and
+ * NORMATIVE wire format of On-Prem Manager (OPM). Every document stored in the cloud document store / agent SQLite and
  * every API request / response body uses exactly these names. JSON on the wire. See SPEC-final.md.
  *
  * Conventions
  * - `Ts` is ISO 8601 UTC with "Z" (e.g. "2026-10-07T09:30:00Z"); milliseconds optional on input, the cloud
- *   writes millisecond precision ("2026-10-07T09:30:00.123Z"). Firestore stores Timestamps; the API converts.
+ *   writes millisecond precision ("2026-10-07T09:30:00.123Z"). The document store keeps Timestamps; the API converts.
  * - Optional fields (`?`) may be absent; `| null` fields are always present.
  * - "View" types are what the API returns (secrets masked). "Input" types are request bodies.
  */
 
 // ───────────────────────────────────────────────────────────── common scalars
-export type Id = string; //        Firestore auto id: ^[A-Za-z0-9]{20}$
+export type Id = string; //        document auto id: ^[A-Za-z0-9]{20}$
 export type Slug = string; //      ^[a-z][a-z0-9-]{1,39}$ (2–40 chars), immutable after create
-export type Uid = string; //       Firebase Auth uid (1–128 chars)
+export type Uid = string; //       auth user id (1–128 chars)
 export type Ts = string; //        ISO 8601 UTC
 export type Sha256 = string; //    "sha256:" + 64 lowercase hex
 export type Ulid = string; //      ^[0-9A-HJKMNP-TV-Z]{26}$
@@ -7180,13 +7172,13 @@ export interface Account {
   /**
    * §21 #84: the last password an admin set ("Set new password…" or account creation), viewable with
    * revealAccountPassword until the person changes their own password (Auth tokensValidAfterTime moves → cleared).
-   * null = none stored. The API returns only { setAt, setBy }; Firestore holds AccountDoc.lastSetPassword.
+   * null = none stored. The API returns only { setAt, setBy }; the document holds AccountDoc.lastSetPassword.
    */
   lastSetPassword: StoredCredentialMeta | null;
-  /** the last password-reset link (Firebase oob link, 1 h), viewable with revealAccountResetLink until it expires / is used */
+  /** the last password-reset link (1 h), viewable with revealAccountResetLink until it expires / is used */
   lastResetLink: (StoredCredentialMeta & { expiresAt: Ts }) | null;
 }
-/** Firestore accounts/{uid}: the API Account + the stored values (never returned except by the reveal endpoints). */
+/** accounts/{uid}: the API Account + the stored values (never returned except by the reveal endpoints). */
 export type AccountDoc = Omit<Account, 'lastSetPassword' | 'lastResetLink'> & {
   /** validAfter = Auth tokensValidAfterTime (ISO) right after the set; a later one = the person changed it → cleared */
   lastSetPassword: (StoredCredentialMeta & { value: string; validAfter: Ts | null }) | null;
@@ -7350,7 +7342,7 @@ export const AUDIT_OPS = {
 export const AUDIT_DEPLOYMENT_OPS = ['revealAccessKey', 'rotateAccessKey', 'createInstallToken', 'revealInstallCommand', 'revealUpgradeCommand', 'regenerateUpgradeCommand', 'revealSecret', 'regenerateSecret', 'requestAgentUpgrade', 'upgradeAllAgents', 'cancelAgentUpgrade', 'cancelAgentUpgradeRun', 'applyTemplateSync', 'unlinkTemplate', 'commitDeployment', 'discardDeploymentWorking'] as const;
 /**
  * §21 #84: every CLOUD_API op whose response carries a credential value. The router sends `Cache-Control: no-store`
- * on them and rate-limits them per uid (REVEAL_RATE_PER_MINUTE, fixed 1-minute window, Firestore counter
+ * on them and rate-limits them per uid (REVEAL_RATE_PER_MINUTE, fixed 1-minute window, document counter
  * `rateLimits/reveal_<uid>_<yyyymmddhhmm>`; 429 rate-limited, details.retryAfterSec, Retry-After).
  */
 export const CREDENTIAL_OPS = [
@@ -7414,7 +7406,7 @@ export interface AuditLogEntry {
   /** extra facts (redacted like changes), e.g. { removedFrom } for deleteTag, { partCount } for completeUpload */
   data: Record<string, unknown>;
 }
-/** GET /v1/audit-log query (one filter runs in Firestore, the others in memory). */
+/** GET /v1/audit-log query (one filter runs in the store, the others in memory). */
 export interface AuditLogQuery {
   action?: string; //     exact action or a prefix ending in "." (e.g. "template.")
   actor?: string; //      uid, "system", or an e-mail (contains "@")
@@ -7847,7 +7839,7 @@ export interface TemplateSyncSkip {
   skippedAt: Ts;
   skippedBy: Uid;
 }
-/** §21 #94 Deployment.srcTemplate (stored; the snapshots are internal JSON strings in Firestore). */
+/** §21 #94 Deployment.srcTemplate (stored; the snapshots are internal JSON strings in the document). */
 export interface SrcTemplate {
   templateId: Id;
   templateVersion: number; // the template version cloned at create (or linked at by Template sync "Change template…")
@@ -9184,7 +9176,7 @@ export interface CreateAccountRequest {
 export interface CreateAccountResponse extends RevealResponse {
   account: Account;
 }
-/** POST /v1/accounts/{uid}/password ("Set new password…"): a generated strong password (20 chars, alnum) set via the Admin SDK. */
+/** POST /v1/accounts/{uid}/password ("Set new password…"): a generated strong password (20 chars, alnum) set via the auth driver. */
 export interface SetAccountPasswordResponse extends RevealResponse {
   setAt: Ts;
   setBy: Uid;
@@ -9197,7 +9189,7 @@ export interface ResetLinkResponse extends RevealResponse {
   passwordSetLink: string;
   createdAt: Ts;
   createdBy: Uid;
-  expiresAt: Ts; // createdAt + 1 h (Firebase oob code lifetime)
+  expiresAt: Ts; // createdAt + 1 h (reset link lifetime)
 }
 export interface PatchAccountRequest {
   name?: string;
@@ -9490,7 +9482,7 @@ export interface AgentClockSkew {
   /** server time of the heartbeat that measured it */
   measuredAt: Ts;
 }
-/** Storage deps/manifest.json — pinned install dependencies (written by backend/scripts/upload-deps.ts). The install script
+/** blob deps/manifest.json — pinned install dependencies (written by opm-cloud upload-deps). The install script
  *  never installs "latest": versions + sha256 are embedded at script generation. */
 export interface DepsFile {
   path: string; //   Storage path, e.g. deps/docker/27.5.1/amd64/docker-27.5.1.tgz

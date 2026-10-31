@@ -503,7 +503,7 @@ export function parseBranchKey(s: string): BranchRef | null {
   if (m[1] === 'agent' && m[3]) return { kind: 'agent', deploymentId: m[2], siteSlug: m[3] };
   return null;
 }
-/** Firestore doc id of a branch key (no "/" allowed): "/" → "~" */
+/** Document id of a branch key (no "/" allowed): "/" → "~" */
 export const branchKeyDocId = (key: string) => key.replace(/\//g, '~');
 export const sameBranch = (a: BranchRef, b: BranchRef) => branchKey(a) === branchKey(b);
 /** "Single@12" style label of a commit point */

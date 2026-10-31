@@ -1,20 +1,20 @@
 /**
  * @opm/shared · types.ts
  *
- * NORMATIVE wire format of On-Prem Manager (OPM). Every document stored in Firestore / agent SQLite and
+ * NORMATIVE wire format of On-Prem Manager (OPM). Every document stored in the cloud document store / agent SQLite and
  * every API request / response body uses exactly these names. JSON on the wire. See SPEC-final.md.
  *
  * Conventions
  * - `Ts` is ISO 8601 UTC with "Z" (e.g. "2026-10-07T09:30:00Z"); milliseconds optional on input, the cloud
- *   writes millisecond precision ("2026-10-07T09:30:00.123Z"). Firestore stores Timestamps; the API converts.
+ *   writes millisecond precision ("2026-10-07T09:30:00.123Z"). The document store keeps Timestamps; the API converts.
  * - Optional fields (`?`) may be absent; `| null` fields are always present.
  * - "View" types are what the API returns (secrets masked). "Input" types are request bodies.
  */
 
 // ───────────────────────────────────────────────────────────── common scalars
-export type Id = string; //        Firestore auto id: ^[A-Za-z0-9]{20}$
+export type Id = string; //        document auto id: ^[A-Za-z0-9]{20}$
 export type Slug = string; //      ^[a-z][a-z0-9-]{1,39}$ (2–40 chars), immutable after create
-export type Uid = string; //       Firebase Auth uid (1–128 chars)
+export type Uid = string; //       auth user id (1–128 chars)
 export type Ts = string; //        ISO 8601 UTC
 export type Sha256 = string; //    "sha256:" + 64 lowercase hex
 export type Ulid = string; //      ^[0-9A-HJKMNP-TV-Z]{26}$
@@ -332,13 +332,13 @@ export interface Account {
   /**
    * §21 #84: the last password an admin set ("Set new password…" or account creation), viewable with
    * revealAccountPassword until the person changes their own password (Auth tokensValidAfterTime moves → cleared).
-   * null = none stored. The API returns only { setAt, setBy }; Firestore holds AccountDoc.lastSetPassword.
+   * null = none stored. The API returns only { setAt, setBy }; the document holds AccountDoc.lastSetPassword.
    */
   lastSetPassword: StoredCredentialMeta | null;
-  /** the last password-reset link (Firebase oob link, 1 h), viewable with revealAccountResetLink until it expires / is used */
+  /** the last password-reset link (1 h), viewable with revealAccountResetLink until it expires / is used */
   lastResetLink: (StoredCredentialMeta & { expiresAt: Ts }) | null;
 }
-/** Firestore accounts/{uid}: the API Account + the stored values (never returned except by the reveal endpoints). */
+/** accounts/{uid}: the API Account + the stored values (never returned except by the reveal endpoints). */
 export type AccountDoc = Omit<Account, 'lastSetPassword' | 'lastResetLink'> & {
   /** validAfter = Auth tokensValidAfterTime (ISO) right after the set; a later one = the person changed it → cleared */
   lastSetPassword: (StoredCredentialMeta & { value: string; validAfter: Ts | null }) | null;
@@ -502,7 +502,7 @@ export const AUDIT_OPS = {
 export const AUDIT_DEPLOYMENT_OPS = ['revealAccessKey', 'rotateAccessKey', 'createInstallToken', 'revealInstallCommand', 'revealUpgradeCommand', 'regenerateUpgradeCommand', 'revealSecret', 'regenerateSecret', 'requestAgentUpgrade', 'upgradeAllAgents', 'cancelAgentUpgrade', 'cancelAgentUpgradeRun', 'applyTemplateSync', 'unlinkTemplate', 'commitDeployment', 'discardDeploymentWorking'] as const;
 /**
  * §21 #84: every CLOUD_API op whose response carries a credential value. The router sends `Cache-Control: no-store`
- * on them and rate-limits them per uid (REVEAL_RATE_PER_MINUTE, fixed 1-minute window, Firestore counter
+ * on them and rate-limits them per uid (REVEAL_RATE_PER_MINUTE, fixed 1-minute window, document counter
  * `rateLimits/reveal_<uid>_<yyyymmddhhmm>`; 429 rate-limited, details.retryAfterSec, Retry-After).
  */
 export const CREDENTIAL_OPS = [
@@ -566,7 +566,7 @@ export interface AuditLogEntry {
   /** extra facts (redacted like changes), e.g. { removedFrom } for deleteTag, { partCount } for completeUpload */
   data: Record<string, unknown>;
 }
-/** GET /v1/audit-log query (one filter runs in Firestore, the others in memory). */
+/** GET /v1/audit-log query (one filter runs in the store, the others in memory). */
 export interface AuditLogQuery {
   action?: string; //     exact action or a prefix ending in "." (e.g. "template.")
   actor?: string; //      uid, "system", or an e-mail (contains "@")
@@ -1058,7 +1058,7 @@ export interface TemplateSyncSkip {
   skippedAt: Ts;
   skippedBy: Uid;
 }
-/** §21 #94 Deployment.srcTemplate (stored; the snapshots are internal JSON strings in Firestore). */
+/** §21 #94 Deployment.srcTemplate (stored; the snapshots are internal JSON strings in the document). */
 export interface SrcTemplate {
   templateId: Id;
   templateVersion: number; // the template version cloned at create (or linked at by Template sync "Change template…")
@@ -2438,7 +2438,7 @@ export interface CreateAccountRequest {
 export interface CreateAccountResponse extends RevealResponse {
   account: Account;
 }
-/** POST /v1/accounts/{uid}/password ("Set new password…"): a generated strong password (20 chars, alnum) set via the Admin SDK. */
+/** POST /v1/accounts/{uid}/password ("Set new password…"): a generated strong password (20 chars, alnum) set via the auth driver. */
 export interface SetAccountPasswordResponse extends RevealResponse {
   setAt: Ts;
   setBy: Uid;
@@ -2451,7 +2451,7 @@ export interface ResetLinkResponse extends RevealResponse {
   passwordSetLink: string;
   createdAt: Ts;
   createdBy: Uid;
-  expiresAt: Ts; // createdAt + 1 h (Firebase oob code lifetime)
+  expiresAt: Ts; // createdAt + 1 h (reset link lifetime)
 }
 export interface PatchAccountRequest {
   name?: string;
@@ -2744,7 +2744,7 @@ export interface AgentClockSkew {
   /** server time of the heartbeat that measured it */
   measuredAt: Ts;
 }
-/** Storage deps/manifest.json — pinned install dependencies (written by backend/scripts/upload-deps.ts). The install script
+/** blob deps/manifest.json — pinned install dependencies (written by opm-cloud upload-deps). The install script
  *  never installs "latest": versions + sha256 are embedded at script generation. */
 export interface DepsFile {
   path: string; //   Storage path, e.g. deps/docker/27.5.1/amd64/docker-27.5.1.tgz

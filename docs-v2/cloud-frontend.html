@@ -216,7 +216,7 @@
 
 <div class="callout note"><b>Rules for every screen</b>
 <ul>
-  <li>The frontend calls only the HTTP API <code>https://api.opm.example/v1/…</code> with the Firebase ID token. It never reads Firestore or Storage directly.</li>
+  <li>The frontend calls only the HTTP API <code>https://api.opm.example/v1/…</code> with the signed ID token. It never reads the document store or the blob store directly.</li>
   <li>A screen hides the actions that the user has no permission for. The API checks the permission again.</li>
   <li>Edits in the deployment scope change the cloud draft only. The sites change only after a person approves the proposal in the agent GUI.</li>
   <li>Every entity has one identifier, and the routes use it: <code>{serviceSlug}</code>, <code>{version}</code> (of an image in its service), <code>{registryId}</code>, <code>{templateId}</code>, <code>{tagSlug}</code>, <code>{deploymentId}</code>, <code>{siteSlug}</code>, <code>{containerSlug}</code>, <code>{uid}</code>, <code>{iconId}</code>. <code>new</code> is reserved (<code>…/containers/new</code>), so no container can be named <code>new</code>.</li>
@@ -600,7 +600,7 @@ const tr = (cells, go) => `<tr ${go ? `class="click" data-go="${go}"` : ''}>${ce
 const draftBan = `<div class="ban warn"><b>Cloud draft.</b> Edits here change only the cloud draft. Open <a data-go="diff" style="cursor:pointer;text-decoration:underline">Diff</a> to publish a proposal. The sites change only after a person approves it in the agent GUI.</div>`;
 
 const R = [
-  { id: 'login', scope: 'root', route: '/login', name: 'Login', shows: 'Email + password form (or Google SSO for the org domain). No signup link.', actions: 'Log in · Forgot password', api: 'Firebase Auth (client SDK) → GET /v1/accounts/{uid}', perm: 'none (account must exist and not be disabled)', noside: true,
+  { id: 'login', scope: 'root', route: '/login', name: 'Login', shows: 'Email + password form (or OIDC single sign-on when configured). No signup link.', actions: 'Log in · Forgot password', api: 'POST /auth/login → GET /v1/me', perm: 'none (account must exist and not be disabled)', noside: true,
     render: () => `<div class="login box"><h3>On-Prem Manager</h3><div class="sub">Operations and developer teams only.</div>
       <div class="fld"><label>Email</label><input value="ravi@ops.example" /></div><div class="fld"><label>Password</label><input type="password" value="••••••••••" /></div>
       ${B('Log in', 'pri', 'deployments')} ${B('Continue with Google (ops.example)')}<p class="hint" style="margin-top:10px">No account? Ask an admin. There is no signup. Disabled accounts cannot log in.</p></div>` },
@@ -980,7 +980,7 @@ function render() {
       else if (v.startsWith('acc:')) { SECVAL[v] = Array.from({ length: 20 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[Math.floor(Math.random() * 57)]).join(''); st.audit.unshift({ kind: 'reg', ts: now(), type: 'account.password-set', target: 'accounts/' + v.slice(4) }); }
       showFor(v);
     }
-    if (a === 'resetLink') { SECVAL['link:kiran'] = 'https://opm-cloud.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=' + Math.random().toString(36).slice(2, 14); showFor('link:kiran'); st.audit.unshift({ kind: 'reg', ts: now(), type: 'account.reset-link-created', target: 'accounts/kiran' }); }
+    if (a === 'resetLink') { SECVAL['link:kiran'] = 'https://app.opm.example/reset-password?token=' + Math.random().toString(36).slice(2, 14); showFor('link:kiran'); st.audit.unshift({ kind: 'reg', ts: now(), type: 'account.reset-link-created', target: 'accounts/kiran' }); }
     if (a === 'upl') st.uploaded = true;
     if (a === 'actf') st.act = v;
     if (a === 'dtab') st.diff = v;

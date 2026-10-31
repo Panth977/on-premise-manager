@@ -5,7 +5,7 @@ import type { ApiErrorBody, ErrorCode } from './types.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /**
- * human         Authorization: Bearer <Firebase ID token>
+ * human         Authorization: Bearer <ID token of /auth>
  * agent         signed request (X-OPM-Site / X-OPM-Ts / X-OPM-Nonce / X-OPM-Sig)
  * install       Authorization: Bearer opi_… (install token)
  * public        nothing

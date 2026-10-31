@@ -40,7 +40,7 @@
 <div class="eyebrow">Reference</div>
 <h1>Data model (schemas)</h1>
 <div class="callout note" id="github-106"><b>§21 #106 GitHub mirror</b><p>New: <code>Template.slug</code> / <code>Deployment.slug</code> (stable, immutable; migrate-k), <code>githubMirror/config</code> (+ <code>queue</code>, <code>branches</code>, <code>blobs</code>), <code>AgentBranchDoc.drift</code>. See <a href="github-mirror.md">github-mirror.md</a>.</p></div>
-<div class="callout note" id="stages-107"><b>§21 #107 commit stages</b><p>New: <code>stages/{stageId}</code> (creator, createdAt, expiresAt; 24 h) + Storage <code>staging/&lt;stageId&gt;/&lt;hex&gt;</code> (lifecycle rule: deleted after 1 day; the daily job removes expired stages). Browser: IndexedDB <code>opm-pending-blobs</code> (pending bytes per entity + sha256), <code>StoredPending.blobs</code>. Agent: <code>&lt;dataDir&gt;/staging/&lt;stageId&gt;/</code>.</p></div>
+<div class="callout note" id="stages-107"><b>§21 #107 commit stages</b><p>New: <code>stages/{stageId}</code> (creator, createdAt, expiresAt; 24 h) + blob store <code>staging/&lt;stageId&gt;/&lt;hex&gt;</code> (lifecycle rule: deleted after 1 day; the daily job removes expired stages). Browser: IndexedDB <code>opm-pending-blobs</code> (pending bytes per entity + sha256), <code>StoredPending.blobs</code>. Agent: <code>&lt;dataDir&gt;/staging/&lt;stageId&gt;/</code>.</p></div>
 <div class="callout note" id="branches-104"><b>§21 #104 branches</b><p>New: <code>templates/{id}/commits</code>, <code>deployments/{id}/commits</code>, <code>…/mergeBases/{sourceKey}</code>, <code>deployments/{id}/agentBranches/{site}[/commits]</code>; <code>Template.branch</code> / <code>Deployment.branch</code> (head, origin; §21 #105 removed <code>uncommitted</code>: the config fields / <code>draft</code> are a copy of the head, pending edits live in the browser). The template fields / <code>draft</code> are the working copy. Agent SQLite: commits, cloud_commits, working_items, drift, drift_accepts, merge_bases, merge_runs. See <a href="branches-commits.md">branches-commits.md</a>.</p></div>
 <p class="lede">This page defines every stored type of On-Prem Manager (OPM). Each type has a TypeScript block, a field table, a valid JSON example, and the validation rules. If a field is not on this page, it does not exist.</p>
 
@@ -52,9 +52,9 @@
 </ul></div>
 
 <div class="callout"><b>One identifier per entity</b>
-<p>Each entity has exactly one identifier. The identifier is the Firestore document id. It never changes after create. Do not add a second id field to an entity.</p>
+<p>Each entity has exactly one identifier. The identifier is the document id. It never changes after create. Do not add a second id field to an entity.</p>
 <div class="tbl-wrap"><table>
-<tr><th>Entity</th><th>Identifier</th><th>Kind</th><th>Firestore document</th></tr>
+<tr><th>Entity</th><th>Identifier</th><th>Kind</th><th>Document</th></tr>
 <tr><td>Registry</td><td><code>registryId</code></td><td>auto id</td><td><code>registries/{registryId}</code></td></tr>
 <tr><td>Service</td><td><code>serviceSlug</code></td><td>slug (user, from the label)</td><td><code>services/{serviceSlug}</code></td></tr>
 <tr><td>Image</td><td><code>version</code> (in its service)</td><td>version (user, e.g. <code>v1</code>)</td><td><code>services/{serviceSlug}/images/{version}</code></td></tr>
@@ -65,7 +65,7 @@
 <tr><td>Site</td><td><code>siteSlug</code> (in its deployment)</td><td>slug</td><td>inside the config (<code>Config.sites[]</code>)</td></tr>
 <tr><td>Container</td><td><code>containerSlug</code> (in its site)</td><td>slug (default = the service slug, then <code>-2</code>, <code>-3</code> …)</td><td>inside the site (<code>SiteConfig.containers[]</code>)</td></tr>
 <tr><td>Site volume</td><td><code>volumeSlug</code> (in its site)</td><td>name (<code>^[a-z0-9][a-z0-9_.-]{0,99}$</code>, suggested <code>&lt;containerSlug&gt;-&lt;imageVolume&gt;</code>; never renamed)</td><td>inside the site (<code>SiteConfig.volumes[]</code>)</td></tr>
-<tr><td>Account</td><td><code>uid</code></td><td>Firebase Auth uid</td><td><code>accounts/{uid}</code></td></tr>
+<tr><td>Account</td><td><code>uid</code></td><td>auth uid</td><td><code>accounts/{uid}</code></td></tr>
 <tr><td>Icon</td><td><code>iconId</code></td><td>auto id</td><td><code>icons/{iconId}</code></td></tr>
 </table></div>
 <p>A container is one <b>instance</b> of an image on a site. It refers to its image with <code>serviceSlug</code> + <code>version</code>, and has its own name <code>containerSlug</code>. The same image can run many times on one site, each time with its own env, ports and volumes (for example <code>worker</code> and <code>worker-2</code> with a different <code>NODE_ENV</code>). Data folders are declared once on the site (<code>SiteConfig.volumes</code>, see <a href="#t-SiteVolume">SiteVolume</a>); a container mounts one by its <code>volumeSlug</code>, and several containers may share one. On a site, the agent tags the loaded image <code>&lt;serviceSlug&gt;:&lt;version&gt;</code>, for example <code>northwind-backend:v1</code>. Every instance of that version uses the same tag.</p>
@@ -82,17 +82,17 @@
   </div>
 </div>
 
-<h2 id="paths">Firestore paths and Storage layout</h2>
-<p>Clients never read or write Firestore or Storage directly. The security rules deny all client access. Only the cloud backend API uses these paths.</p>
+<h2 id="paths">Document paths and blob store layout</h2>
+<p>Clients never read or write the document store or the blob store directly. Only the cloud API (<code>opm-cloud</code>) uses these paths.</p>
 <div class="tbl-wrap"><table>
-<tr><th>Firestore path</th><th>Type</th><th>Document id</th><th>Notes</th></tr>
+<tr><th>Document path</th><th>Type</th><th>Document id</th><th>Notes</th></tr>
 <tr><td><code>registries/{registryId}</code></td><td><a href="#t-Registry">Registry</a></td><td>auto id</td><td>password stored plain; reads return ••• (View any time, 60 s; every reveal is audited)</td></tr>
 <tr><td><code>services/{serviceSlug}</code></td><td><a href="#t-Service">Service</a></td><td>service slug</td><td>one identifier: no <code>serviceId</code>, no <code>repository</code></td></tr>
 <tr><td><code>services/{serviceSlug}/images/{version}</code></td><td><a href="#t-Image">Image</a></td><td>the OPM version (e.g. <code>v1</code>)</td><td>the docker source is in <code>reference</code>; a second create of the same version → <code>conflict</code> (<code>version-exists</code>)</td></tr>
 <tr><td><code>icons/{iconId}</code></td><td><a href="#t-IconDoc">IconDoc</a></td><td>auto id</td><td>uploaded icon; the bytes are in the same document (internal field <code>_bytes</code>, ≤ 64 KiB); de-duplicated by sha256</td></tr>
 <tr><td><code>notFoundPages/{notFoundPageId}</code></td><td><a href="#t-NotFoundPage">NotFoundPage</a></td><td>auto id</td><td>create-only</td></tr>
 <tr><td><code>tags/{tagSlug}</code></td><td><a href="#t-Tag">Tag</a></td><td>slug</td><td></td></tr>
-<tr><td><code>accounts/{uid}</code></td><td><a href="#t-Account">Account</a></td><td>Firebase Auth uid</td><td></td></tr>
+<tr><td><code>accounts/{uid}</code></td><td><a href="#t-Account">Account</a></td><td>auth uid</td><td></td></tr>
 <tr><td><code>auditLog/{auditId}</code></td><td><a href="#t-AuditLogEntry">AuditLogEntry</a></td><td>auto id</td><td>root-scope audit: one entry per human write and per system job (see <a href="#t-AuditLogEntry">AuditLogEntry</a>); append-only</td></tr>
 <tr><td><code>templates/{templateId}</code></td><td><a href="#t-Template">Template</a></td><td>auto id</td><td>variables, secrets, files, sites are arrays in the document</td></tr>
 <tr><td><code>deployments/{deploymentId}</code></td><td><a href="#t-Deployment">Deployment</a></td><td>auto id</td><td>draft config is inside the document; the agent GUI access key is stored (plaintext + hash; sites get only the hash)</td></tr>
@@ -105,7 +105,7 @@
 <tr><td><code>deployments/{id}/uptime/{siteSlug}_{yyyymmdd}</code></td><td><a href="#t-UptimeDay">UptimeDay</a></td><td><code>&lt;siteSlug&gt;_&lt;yyyymmdd&gt;</code></td><td>24 hourly values</td></tr>
 </table></div>
 <div class="tbl-wrap"><table>
-<tr><th>Storage path</th><th>Holds</th><th>Written by</th></tr>
+<tr><th>Blob path</th><th>Holds</th><th>Written by</th></tr>
 <tr><td><code>blobs/sha256/&lt;hex&gt;</code></td><td>image manifests, image configs and layers (OCI blobs), content-addressed</td><td>image import job (copy mode) or first agent fetch (gateway mode)</td></tr>
 <tr><td><code>files/&lt;sha256 hex&gt;</code></td><td>contents of template and deployment files (<a href="#t-FileDef">FileDef.content</a>)</td><td>API <code>POST /v1/blobs</code></td></tr>
 <tr><td><code>logos/&lt;deploymentId&gt;</code></td><td>deployment logo (<code>Deployment.image</code>)</td><td>API</td></tr>
@@ -396,10 +396,10 @@ const AUDIT = [
 const T = [];
 const add = (o) => T.push(o);
 
-add({ id: 'Common', group: 'Common', path: 'used everywhere', ts: `type Id = string;        // Firestore auto id: 20 chars [A-Za-z0-9]
+add({ id: 'Common', group: 'Common', path: 'used everywhere', ts: `type Id = string;        // auto id: 20 chars [A-Za-z0-9]
 type Slug = string;      // ^[a-z][a-z0-9-]{1,39}$  user-defined, unique in its parent, immutable after create
-type Uid = string;       // Firebase Auth uid
-type Ts = string;        // ISO 8601 UTC, e.g. "2026-10-07T09:30:00Z" (stored as Firestore Timestamp)
+type Uid = string;       // auth uid
+type Ts = string;        // ISO 8601 UTC, e.g. "2026-10-07T09:30:00Z" (stored as a timestamp)
 type Sha256 = string;    // "sha256:" + 64 lowercase hex
 type RevId = string;     // ULID (26 chars, sortable)
 type Expr = string;      // a string that contains at least one "{{ … }}" block (see §9)
@@ -407,10 +407,10 @@ type Value = string;     // plain string or Expr
 type Icon = string | null; // null = default icon · "lucide:<name>" · "upload:<iconId>" · legacy bare Lucide name (see Icon)
 interface Audit { createdAt: Ts; createdBy: Uid; updatedAt: Ts; updatedBy: Uid; }`,
   fields: [
-    ['Id', 'string', '—', '—', 'never', '^[A-Za-z0-9]{20}$', 'Firestore auto id.'],
+    ['Id', 'string', '—', '—', 'never', '^[A-Za-z0-9]{20}$', 'Auto id.'],
     ['Slug', 'string', '—', '—', 'never', '^[a-z][a-z0-9-]{1,39}$', 'User-defined id. Unique in its parent. 2–40 chars.'],
-    ['Uid', 'string', '—', '—', 'never', '1–128 chars', 'Firebase Auth uid.'],
-    ['Ts', 'string', '—', '—', '—', 'ISO 8601, UTC, Z suffix', 'Time. Stored as a Firestore Timestamp.'],
+    ['Uid', 'string', '—', '—', 'never', '1–128 chars', 'Auth uid.'],
+    ['Ts', 'string', '—', '—', '—', 'ISO 8601, UTC, Z suffix', 'Time. Stored as a timestamp.'],
     ['Sha256', 'string', '—', '—', 'never', '^sha256:[0-9a-f]{64}$', 'Content hash.'],
     ['RevId', 'string', '—', '—', 'never', '^[0-9A-HJKMNP-TV-Z]{26}$ (ULID)', 'Revision id. Sorts by time.'],
     ['Expr', 'string', '—', '—', '—', 'contains "{{" … "}}"', 'Expression. See <a href="expressions.html">Expressions</a>.'],
@@ -419,7 +419,7 @@ interface Audit { createdAt: Ts; createdBy: Uid; updatedAt: Ts; updatedBy: Uid; 
     ...AUDIT,
   ],
   example: { id: 'Xk3f9QmPz2Lw8RtYbN4c', slug: 'acme-plant', ts: '2026-10-07T09:30:00Z', sha256: 'sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', revId: '01JA2X3Y4Z5A6B7C8D9E0F1G2H' },
-  rules: ['Labels: 1–80 chars. Descriptions: 0–2000 chars.', 'Any Firestore document: ≤ 900 KB. File contents are never inline; they are blobs in Storage.', 'A Slug cannot change after create. To rename, create a new item.', 'One identifier per entity: the identifier is the document id. There is no second id field (for example, a service has <code>serviceSlug</code> and no <code>serviceId</code>).'],
+  rules: ['Labels: 1–80 chars. Descriptions: 0–2000 chars.', 'Any document: ≤ 900 KB. File contents are never inline; they are blobs in the blob store.', 'A Slug cannot change after create. To rename, create a new item.', 'One identifier per entity: the identifier is the document id. There is no second id field (for example, a service has <code>serviceSlug</code> and no <code>serviceId</code>).'],
 });
 
 add({ id: 'Icon', group: 'Common', path: 'Service.icon · Template.icon · Tag.icon · Account.img · Deployment.image', ts: `type Icon = string | null;
@@ -449,11 +449,11 @@ add({ id: 'IconDoc', group: 'Common', path: 'icons/{iconId}', ts: `interface Ico
   createdBy: Uid;
   createdAt: Ts;
 }
-// internal field _bytes (Firestore Bytes) holds the icon; the API never returns it.
+// internal field _bytes (bytes) holds the icon; the API never returns it.
 type IconListItem = IconDoc & { usedBy: number };
 interface IconUser { type: 'service' | 'template' | 'tag' | 'deployment' | 'account'; id: string; label: string; }`,
   fields: [
-    ['iconId', 'Id', 'auto', '—', 'never', '', 'Firestore auto id. Used as <code>upload:&lt;iconId&gt;</code>.'],
+    ['iconId', 'Id', 'auto', '—', 'never', '', 'Auto id. Used as <code>upload:&lt;iconId&gt;</code>.'],
     ['name', 'string', 'no', 'file name', 'never', '1–80 chars', 'Name shown in the Uploads tab of the icon picker.'],
     ['contentType', 'enum', 'auto', '—', 'never', 'image/png | image/svg+xml | image/webp', 'Found from the bytes (magic bytes), not from the file name.'],
     ['sizeBytes', 'number', 'auto', '—', 'never', '1–65536', 'Size of the stored bytes.'],
@@ -462,7 +462,7 @@ interface IconUser { type: 'service' | 'template' | 'tag' | 'deployment' | 'acco
     ['createdAt', 'Ts', 'auto', '—', 'system', '', ''],
   ],
   example: { iconId: 'Ic8mQ2rT5vX9zB3dF6hK', name: 'northwind-logo', contentType: 'image/svg+xml', sizeBytes: 2311, sha256: 'sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a', createdBy: 'uidDev01', createdAt: '2026-10-07T11:00:00Z' },
-  rules: ['Upload: raw body ≤ 64 KiB → else <code>too-large</code>. A type that is not png, svg or webp → <code>invalid</code>.', 'SVG is sanitized before it is stored: scripts, <code>on*</code> handlers and external references are removed.', 'The bytes are in the same Firestore document (internal field <code>_bytes</code>). Create and delete are atomic. There is no Storage object.', '<code>GET /v1/icons/{iconId}/content</code> is public (an <code>&lt;img&gt;</code> works without a token), immutable cache, <code>nosniff</code>, and a restrictive CSP for SVG.', 'DELETE while a service, template, tag, deployment or account uses the icon → <code>conflict</code> with <code>details.users</code> (IconUser[]).', 'Audit: <code>icon.uploaded</code> (also when the bytes existed: <code>data.existing = true</code>), <code>icon.deleted</code>.'],
+  rules: ['Upload: raw body ≤ 64 KiB → else <code>too-large</code>. A type that is not png, svg or webp → <code>invalid</code>.', 'SVG is sanitized before it is stored: scripts, <code>on*</code> handlers and external references are removed.', 'The bytes are in the same document (internal field <code>_bytes</code>). Create and delete are atomic. There is no blob object.', '<code>GET /v1/icons/{iconId}/content</code> is public (an <code>&lt;img&gt;</code> works without a token), immutable cache, <code>nosniff</code>, and a restrictive CSP for SVG.', 'DELETE while a service, template, tag, deployment or account uses the icon → <code>conflict</code> with <code>details.users</code> (IconUser[]).', 'Audit: <code>icon.uploaded</code> (also when the bytes existed: <code>data.existing = true</code>), <code>icon.deleted</code>.'],
 });
 
 add({ id: 'Registry', group: 'Developer tools', path: 'registries/{registryId}', ts: `interface Registry extends Audit {
@@ -474,11 +474,11 @@ add({ id: 'Registry', group: 'Developer tools', path: 'registries/{registryId}',
   lastCheck: { at: Ts; ok: boolean; message: string } | null;   // POST /v1/registries/{id}/test
 }`,
   fields: [
-    ['registryId', 'Id', 'auto', '—', 'never', '', 'Firestore auto id.'],
+    ['registryId', 'Id', 'auto', '—', 'never', '', 'Auto id.'],
     ['label', 'string', 'yes', '—', 'cloud', '1–80 chars', 'Name shown in the GUI.'],
     ['url', 'string', 'no', '"https://registry-1.docker.io"', 'cloud', 'https URL, no path', 'Registry base URL. Its host is compared with the host of an image reference (Docker Hub URLs count as <code>docker.io</code>).'],
     ['username', 'string', 'yes', '—', 'cloud', '1–255 chars, or "" (anonymous)', 'Registry user. Empty together with an empty password = anonymous.'],
-    ['password', 'string', 'yes', '—', 'cloud', '1–8192 chars, or "" (anonymous)', 'Stored plain in Firestore (database security is out of scope for the prototype). A GCP service-account key JSON (<code>_json_key</code>) is about 2.4 KB. The API returns <code>"•••"</code> and <code>isSet</code>; only a reveal shows it, and every reveal writes <code>registry.password-revealed</code> in <code>auditLog/{id}</code>.'],
+    ['password', 'string', 'yes', '—', 'cloud', '1–8192 chars, or "" (anonymous)', 'Stored plain in the document store (database security is out of scope for the prototype). A GCP service-account key JSON (<code>_json_key</code>) is about 2.4 KB. The API returns <code>"•••"</code> and <code>isSet</code>; only a reveal shows it, and every reveal writes <code>registry.password-revealed</code> in <code>auditLog/{id}</code>.'],
     ['lastCheck', 'object | null', 'auto', 'null', 'system', '', 'Result of the last "Test login". Set to null when url, username or password change.'],
     ...AUDIT,
   ],
@@ -514,7 +514,7 @@ add({ id: 'Image', group: 'Developer tools', path: 'services/{serviceSlug}/image
   digest: Sha256 | null;       // manifest digest, set by the import, IMMUTABLE once set
   platform: 'linux/amd64' | 'linux/arm64';   // IMMUTABLE
   import: {
-    mode: 'copy' | 'gateway';  // copy = cloud copies all layers to Storage now; gateway = layers are fetched from the registry on the first agent request and cached in Storage
+    mode: 'copy' | 'gateway';  // copy = cloud copies all layers to the blob store now; gateway = layers are fetched from the registry on the first agent request and cached in the blob store
     status: 'pending' | 'copying' | 'ready' | 'failed';
     error: string | null; sizeBytes: number | null;
     manifestMediaType: string | null; configDigest: Sha256 | null;
@@ -550,7 +550,7 @@ interface ImageRefParts {      // parseImageReference(): [host/]repository[:tag]
     ['registryId', 'Id | null', 'no', 'matched by host', 'failed import only', 'must exist, or null', 'Omitted → the first registry (by label) whose URL host equals <code>source.host</code>; none → null = public. You can override it. Change only while the import failed.'],
     ['digest', 'Sha256 | null', 'auto', 'null', 'system', 'set once', 'Manifest digest after import.'],
     ['platform', 'enum', 'no', '"linux/amd64"', 'never', 'linux/amd64 | linux/arm64', 'CPU platform of the copied manifest.'],
-    ['import.mode', 'enum', 'yes', '—', 'never', 'copy | gateway', 'How layers reach Storage.'],
+    ['import.mode', 'enum', 'yes', '—', 'never', 'copy | gateway', 'How layers reach the blob store.'],
     ['import.status', 'enum', 'auto', '"pending"', 'system', 'pending → copying → ready | failed', 'Only <code>ready</code> images can be staged.'],
     ['import.error', 'string | null', 'auto', 'null', 'system', '', 'Reason for <code>failed</code>.'],
     ['import.sizeBytes', 'number | null', 'auto', 'null', 'system', '≥ 0', 'Sum of layer sizes.'],
@@ -571,7 +571,7 @@ interface ImageRefParts {      // parseImageReference(): [host/]repository[:tag]
     ...AUDIT,
   ],
   example: { version: 'v1', serviceSlug: 'northwind-backend', reference: 'docker.io/northwind/backend:3.0.9', source: { host: 'docker.io', repository: 'northwind/northwind', tag: 'backend-3.0.9', digest: null }, registryId: 'R1gH7kLm2Np4Qr6St8Uv', digest: 'sha256:3c7a9e0f61b2d4c58e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5', platform: 'linux/amd64', import: { mode: 'copy', status: 'ready', error: null, sizeBytes: 158334976, manifestMediaType: 'application/vnd.oci.image.manifest.v1+json', configDigest: 'sha256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730', layers: [{ digest: 'sha256:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90', sizeBytes: 29124640, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }], startedAt: '2026-10-07T09:35:02Z', finishedAt: '2026-10-07T09:40:12Z' }, kind: 'service', entrypoint: null, command: null, workdir: '/app', user: null, ports: [{ name: 'http', port: 3000, protocol: 'tcp', description: 'REST API' }], env: [{ name: 'NODE_ENV', value: 'production', options: ['production', 'staging', 'development'], required: true, secret: false, description: 'Runtime mode' }, { name: 'DB_PASSWORD', options: null, required: true, secret: true, description: 'Database password' }], volumes: [{ name: 'config', mountPath: '/app/helper/config/env/{{ container.env.NODE_ENV }}.ts', description: 'Config of the selected mode' }], healthcheck: { type: 'http', portName: 'http', path: '/healthz', expectStatus: 200, intervalSec: 10, timeoutSec: 5, retries: 3, startPeriodSec: 30 }, stopTimeoutSec: 30, description: 'Northwind core (Deno) 3.0.9', createdAt: '2026-10-07T09:35:00Z', createdBy: 'uidDev01', updatedAt: '2026-10-07T09:40:12Z', updatedBy: 'system' },
-  rules: ['Identity is locked: <code>version</code>, <code>serviceSlug</code>, <code>source</code> / <code>reference</code> / <code>registryId</code> (except while the import failed), <code>digest</code>, <code>platform</code>, <code>import</code>. PATCH of one of them → <code>invalid</code> <code>V_IMMUTABLE</code>. The fetched image is never re-fetched; <b>Clone as new version</b> registers another one.', 'Everything else can be edited with the registration rules (<code>validateImageSpec</code>). PATCH sends full <code>ports</code> / <code>env</code> / <code>volumes</code> lists plus <code>renames: [{ kind, from, to }]</code>. A renamed or removed name that a template or a deployment draft still uses → <code>409 conflict</code>, <code>details.reason = "in-use"</code> with the list of uses. <code>renameEverywhere: true</code> rewrites renamed names in those templates and drafts in the same transaction (never in heads or revisions). Removals stay blocked until the containers stop using the name.', '<code>version</code> pattern fails → <code>invalid</code> <code>V_FORMAT</code>. The version already exists in the service → <code>conflict</code> with <code>details.reason = "version-exists"</code> (register a new version; never re-import).', 'The form suggests the next version from the latest one: <code>v3</code> → <code>v4</code>, <code>3.1.0</code> → <code>3.1.1</code>, none → <code>v1</code> (<code>nextVersion</code>).', '<code>reference</code> does not parse as <code>[host/]repository[:tag][@sha256:digest]</code> → <code>invalid</code> <code>V_REFERENCE</code>.', 'PATCH of <code>reference</code> or <code>registryId</code> while <code>import.status ≠ failed</code> → <code>conflict</code>. While it is failed: fix the source, then <code>retry-import</code>.', 'PATCH that touches version, digest, platform, import, kind, entrypoint, command, workdir, user, volumes, or a port name / number, or an env name → <code>invalid</code> <code>V_IMMUTABLE</code>.', 'Port names unique; env names unique and match <code>^[A-Z_][A-Z0-9_]*$</code>.', '<code>healthcheck.portName</code> must be one of <code>ports[].name</code>.', 'A container can use the version only when <code>import.status = ready</code>; else staging fails with <code>invalid</code>.', 'DELETE while a template or deployment (draft, head, open proposal) uses the version → <code>conflict</code>.', 'Old documents (doc id = docker tag, <code>serviceId</code>, no <code>reference</code>) were moved by the migration <code>system.migration</code> (backend/scripts/migrate-v2.ts).'],
+  rules: ['Identity is locked: <code>version</code>, <code>serviceSlug</code>, <code>source</code> / <code>reference</code> / <code>registryId</code> (except while the import failed), <code>digest</code>, <code>platform</code>, <code>import</code>. PATCH of one of them → <code>invalid</code> <code>V_IMMUTABLE</code>. The fetched image is never re-fetched; <b>Clone as new version</b> registers another one.', 'Everything else can be edited with the registration rules (<code>validateImageSpec</code>). PATCH sends full <code>ports</code> / <code>env</code> / <code>volumes</code> lists plus <code>renames: [{ kind, from, to }]</code>. A renamed or removed name that a template or a deployment draft still uses → <code>409 conflict</code>, <code>details.reason = "in-use"</code> with the list of uses. <code>renameEverywhere: true</code> rewrites renamed names in those templates and drafts in the same transaction (never in heads or revisions). Removals stay blocked until the containers stop using the name.', '<code>version</code> pattern fails → <code>invalid</code> <code>V_FORMAT</code>. The version already exists in the service → <code>conflict</code> with <code>details.reason = "version-exists"</code> (register a new version; never re-import).', 'The form suggests the next version from the latest one: <code>v3</code> → <code>v4</code>, <code>3.1.0</code> → <code>3.1.1</code>, none → <code>v1</code> (<code>nextVersion</code>).', '<code>reference</code> does not parse as <code>[host/]repository[:tag][@sha256:digest]</code> → <code>invalid</code> <code>V_REFERENCE</code>.', 'PATCH of <code>reference</code> or <code>registryId</code> while <code>import.status ≠ failed</code> → <code>conflict</code>. While it is failed: fix the source, then <code>retry-import</code>.', 'PATCH that touches version, digest, platform, import, kind, entrypoint, command, workdir, user, volumes, or a port name / number, or an env name → <code>invalid</code> <code>V_IMMUTABLE</code>.', 'Port names unique; env names unique and match <code>^[A-Z_][A-Z0-9_]*$</code>.', '<code>healthcheck.portName</code> must be one of <code>ports[].name</code>.', 'A container can use the version only when <code>import.status = ready</code>; else staging fails with <code>invalid</code>.', 'DELETE while a template or deployment (draft, head, open proposal) uses the version → <code>conflict</code>.', 'Old documents (doc id = docker tag, <code>serviceId</code>, no <code>reference</code>) were moved by a former migration (audit <code>system.migration</code>).'],
 });
 
 add({ id: 'ImagePort', group: 'Developer tools', path: 'Image.ports[]', ts: `interface ImagePort { name: Slug; port: number | Expr; protocol: 'tcp' | 'udp'; description: string; }  // container-side port`,
@@ -675,11 +675,11 @@ add({ id: 'Account', group: 'Access', path: 'accounts/{uid}', ts: `interface Acc
   uid: Uid; img: Icon /* or a legacy https URL */; name: string; email: string; phone: string | null;   // phone in E.164
   access: AccessRule[]; disabled: boolean;
   createdAt: Ts; createdBy: Uid; lastLoginAt: Ts | null;
-  lastSetPassword: { setAt: Ts; setBy: Uid } | null;                  // API view; Firestore also holds value + validAfter
-  lastResetLink: { setAt: Ts; setBy: Uid; expiresAt: Ts } | null;     // API view; Firestore also holds value + validAfter
+  lastSetPassword: { setAt: Ts; setBy: Uid } | null;                  // API view; the document also holds value + validAfter
+  lastResetLink: { setAt: Ts; setBy: Uid; expiresAt: Ts } | null;     // API view; the document also holds value + validAfter
 }`,
   fields: [
-    ['uid', 'Uid', 'auto', '—', 'never', '', 'From Firebase Auth.'],
+    ['uid', 'Uid', 'auto', '—', 'never', '', 'From the built-in auth.'],
     ['img', 'Icon', 'no', 'null', 'cloud', 'upload:&lt;iconId&gt;, lucide:&lt;name&gt;, legacy https URL, or null', 'Avatar. null = initials.'],
     ['name', 'string', 'yes', '—', 'cloud', '1–80 chars', ''],
     ['email', 'string', 'yes', '—', 'never', 'valid email, unique', 'Login name.'],
@@ -689,11 +689,11 @@ add({ id: 'Account', group: 'Access', path: 'accounts/{uid}', ts: `interface Acc
     ['createdAt', 'Ts', 'auto', '—', 'system', '', ''],
     ['createdBy', 'Uid', 'auto', '—', 'system', '', ''],
     ['lastLoginAt', 'Ts | null', 'auto', 'null', 'system', '', ''],
-    ['lastSetPassword', 'object | null', 'auto', 'null', 'system', 'set on create and on "Set new password…"', 'The last password an admin set. Firestore stores <code>{ value, setAt, setBy, validAfter }</code> (plain, like secrets); the API returns only <code>{ setAt, setBy }</code>. An admin can <b>View</b> it any time (60 s; audited <code>account.password-revealed</code>) until the person changes their password: then it is cleared.'],
-    ['lastResetLink', 'object | null', 'auto', 'null', 'system', 'set by "Reset link…", valid 1 h', 'The last password-reset link. Firestore stores <code>{ value, createdAt, createdBy, expiresAt, validAfter }</code>; the API returns only the metadata. View again until it expires or is used (audited <code>account.reset-link-revealed</code>).'],
+    ['lastSetPassword', 'object | null', 'auto', 'null', 'system', 'set on create and on "Set new password…"', 'The last password an admin set. The document stores <code>{ value, setAt, setBy, validAfter }</code> (plain, like secrets); the API returns only <code>{ setAt, setBy }</code>. An admin can <b>View</b> it any time (60 s; audited <code>account.password-revealed</code>) until the person changes their password: then it is cleared.'],
+    ['lastResetLink', 'object | null', 'auto', 'null', 'system', 'set by "Reset link…", valid 1 h', 'The last password-reset link. The document stores <code>{ value, createdAt, createdBy, expiresAt, validAfter }</code>; the API returns only the metadata. View again until it expires or is used (audited <code>account.reset-link-revealed</code>).'],
   ],
   example: { uid: 'uidOps07', img: null, name: 'Priya Shah', email: 'priya@ops.example', phone: '+919812345678', access: [{ resource: 'deployment.config', actions: ['read', 'write'], scope: { kind: 'tags', tagSlugs: ['region-west'] } }], disabled: false, createdAt: '2026-10-01T09:05:00Z', createdBy: 'uidAdmin01', lastLoginAt: '2026-10-07T08:55:00Z' },
-  rules: ['Only an account with <code>accounts</code> + <code>admin</code> can create accounts or change <code>access</code> → else <code>forbidden</code>.', 'There is no signup. POST /v1/accounts creates the Firebase user with a generated password, stores it as <code>lastSetPassword</code> and returns it (shown 60 s, View again any time). No set-password link.', 'Any time: <b>Set new password…</b> (typed ACCEPT; the person\'s sessions end) and <b>Reset link…</b> work any time. When the person changes their own password (Firebase <code>tokensValidAfterTime</code> moves), both stored values are cleared.', 'Nobody can remove their own <code>accounts admin</code> rule if they are the last admin → <code>conflict</code>.'],
+  rules: ['Only an account with <code>accounts</code> + <code>admin</code> can create accounts or change <code>access</code> → else <code>forbidden</code>.', 'There is no signup. POST /v1/accounts creates the auth user with a generated password, stores it as <code>lastSetPassword</code> and returns it (shown 60 s, View again any time). No set-password link.', 'Any time: <b>Set new password…</b> (typed ACCEPT; the person\'s sessions end) and <b>Reset link…</b> work any time. When the person changes their own password (the auth user's <code>tokensValidAfterTime</code> moves), both stored values are cleared.', 'Nobody can remove their own <code>accounts admin</code> rule if they are the last admin → <code>conflict</code>.'],
 });
 
 add({ id: 'AccessRule', group: 'Access', path: 'Account.access[]', ts: `interface AccessRule { resource: Resource; actions: Action[]; scope: Scope; }
@@ -787,7 +787,7 @@ add({ id: 'FileDef', group: 'Templates', path: 'Template.files[] · Config.files
   mime: string;                // "text/plain", "application/json", "application/octet-stream" …
   editor: 'text' | 'binary';   // text = edited in the code editor; binary = upload / download only
   maxBytes: number;            // default 1 MiB, max 50 MiB
-  content: { sha256: Sha256; sizeBytes: number } | null;   // blob in Storage files/<sha256>; template = default content (the SOURCE)
+  content: { sha256: Sha256; sizeBytes: number } | null;   // blob store files/<sha256>; template = default content (the SOURCE)
   render: 'expressions' | 'none';   // text default 'expressions': {{ }} resolve ONCE per site; binary always 'none'
   location: StorageLocation;   // where the ONE copy per site lives: { kind: 'auto' } = &lt;agentHome&gt;/files/&lt;fileSlug&gt;, or { kind: 'path', path: './x/y' | '/abs/path' }
 }
@@ -1314,7 +1314,7 @@ type AuditAction =
     ['data', 'object', 'auto', '{}', 'never', 'never contains secret values', 'Extra facts of the action.'],
   ],
   example: { auditId: 'Au7Lm3xQ9sD2fG4hJ6kL', ts: '2026-10-07T13:02:11Z', op: 'system:migration', actor: 'system', actorEmail: null, action: 'system.migration', outcome: 'ok', status: 200, errorCode: null, errorMessage: null, targetType: 'system', target: 'services', requestId: null, ip: null, userAgent: null, changes: [{ path: 'services/4WczlsAAaexWRXrzPvq4', before: { serviceId: '4WczlsAAaexWRXrzPvq4' }, after: null }, { path: 'services/northwind-backend', before: null, after: { serviceSlug: 'northwind-backend' } }], changesTotal: 2, data: { migration: 'v2', dryRun: false, changes: 2 } },
-  rules: ['Append-only: the API has no update or delete for audit entries.', 'The router writes one entry per human write (success or failure) outside <code>/v1/deployments/{id}/…</code>. System jobs write their own entries. <code>putUploadPart</code> is the only human write without an entry.', '<code>icon.uploaded</code> is also written when the same bytes already existed (<code>data.existing = true</code>).', '<code>system.migration</code>: the data migration scripts (backend/scripts/migrate-v2.ts, dry-run or apply) write one entry with <code>data = { migration, dryRun, changes }</code>.', 'Values of secrets or passwords are never written here.'],
+  rules: ['Append-only: the API has no update or delete for audit entries.', 'The router writes one entry per human write (success or failure) outside <code>/v1/deployments/{id}/…</code>. System jobs write their own entries. <code>putUploadPart</code> is the only human write without an entry.', '<code>icon.uploaded</code> is also written when the same bytes already existed (<code>data.existing = true</code>).', '<code>system.migration</code>: old entries of the former data migration scripts, one entry each with <code>data = { migration, dryRun, changes }</code>.', 'Values of secrets or passwords are never written here.'],
 });
 
 add({ id: 'Snapshot', group: 'Agent', path: 'agent: /var/lib/opm/snapshots/<snapshotId>/manifest.json', ts: `interface Snapshot { snapshotId: string /* ULID */; createdAt: Ts; reason: 'pre-update' | 'manual' | 'scheduled' | 'imported'; revId: RevId; seq: number;
@@ -1377,7 +1377,7 @@ add({ id: 'Transfer', group: 'Agent', path: 'deployments/{id}/transfers/{transfe
     ['fetchedAt', 'string | null', 'auto', 'null (absent on docs from before §21 #100)', 'system', 'ISO timestamp', 'to-site: when the site\'s agent stored the file on the site (report `fetched`, agents ≥ 0.11.2; saved / downloaded also set it). null = still waiting for the site — store-and-forward, the site fetches it the next time it is online.'],
   ],
   example: { transferId: 'Tr0aB1cD2eF3gH4iJ5kL', deploymentId: 'acme-plant', siteSlug: 'app', direction: 'to-site', fileName: 'license.key', sizeBytes: 2048, sha256: 'sha256:4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a', storagePath: 'transfers/acme-plant/Tr0aB1cD2eF3gH4iJ5kL', createdAt: '2026-10-07T13:10:00Z', createdBy: 'uidOps07', note: 'New license', expiresAt: null, status: 'ready', savedPath: null },
-  rules: ['sha256 mismatch after upload → status stays uploading, error <code>invalid</code>.', 'Transfers never expire: a file stays until someone deletes it (status <code>expired</code> = deleted; the file is removed from Storage).'],
+  rules: ['sha256 mismatch after upload → status stays uploading, error <code>invalid</code>.', 'Transfers never expire: a file stays until someone deletes it (status <code>expired</code> = deleted; the file is removed from the blob store).'],
 });
 
 add({ id: 'TunnelLease', group: 'Agent', path: 'agent SQLite table tunnel_leases · POST /_opm/api/tunnel/start', ts: `interface TunnelLease {   // one browser tab that gives internet to the agent
@@ -1407,16 +1407,16 @@ add({ id: 'TunnelLease', group: 'Agent', path: 'agent SQLite table tunnel_leases
 add({ id: 'TunnelRequest', group: 'Agent', path: 'GET /_opm/api/tunnel/next (response items)', ts: `interface TunnelRequest {   // one cloud call that the browser makes for the agent
   reqId: string;               // ULID
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  url: string;                 // absolute https URL: cloud API /v1/agent/* or a signed Storage URL
+  url: string;                 // absolute https URL: cloud API /v1/agent/* or a signed /_blob URL
   headers: Record<string, string>;   // includes X-OPM-Site, X-OPM-Ts, X-OPM-Sig (agent signature)
-  bodyB64: string | null;      // ≤ 4 MB; larger uploads use a signed Storage URL
+  bodyB64: string | null;      // ≤ 4 MB
   createdAt: Ts;
   timeoutSec: number;          // default 60
 }`,
   fields: [
     ['reqId', 'string', 'auto', '—', 'never', 'ULID, unique', 'Match key for the result.'],
     ['method', 'enum', 'yes', '—', 'never', 'GET | POST | PUT | PATCH | DELETE', ''],
-    ['url', 'string', 'yes', '—', 'never', 'https only; cloud API or Storage host', ''],
+    ['url', 'string', 'yes', '—', 'never', 'https only; the cloud', ''],
     ['headers', 'map', 'yes', '{}', 'never', 'X-OPM-* signature headers set by the agent', 'The browser does not change them.'],
     ['bodyB64', 'string | null', 'no', 'null', 'never', 'base64, ≤ 4 MB', ''],
     ['createdAt', 'Ts', 'auto', '—', 'never', '', ''],

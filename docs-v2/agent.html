@@ -295,7 +295,7 @@
 </ol>
 
 <h2 id="fallback">Rerun the install command: the hard fallback</h2>
-<p>If the upgrade from the GUI or the cloud cannot run, or you need a downgrade or a clean reinstall, rerun the site's install command on the server (SPEC §19.1, §21 #91). It is safe: it asks before it changes anything, keeps the whole setup, and puts the old agent back by itself when the new one is not healthy. App containers keep running the whole time.</p>
+<p>If the upgrade from the GUI or the cloud cannot run, or you need a downgrade or a clean reinstall, rerun the site's install command on the server (SPEC §19.1, §21 #91). It is safe: it asks before it changes anything, keeps the whole setup, and puts the old agent back by itself when the new one is not healthy. App containers keep running the whole time, except when you move the agent home on an upgrade to ≥ 0.19.1 (explicit <code>OPM_MOVE_HOME</code> or a yes at the terminal, never <code>DRY_RUN</code>): this site's containers stop for the move and start again.</p>
 <div class="diagram"><svg id="fbSvg" viewBox="0 0 900 230" role="img" aria-label="Install command as the hard fallback"></svg>
   <div class="cap">The flow of a rerun on a server where the agent is installed. Every question reads the terminal (<code>/dev/tty</code>), also under <code>curl | sudo sh</code>.</div></div>
 <div class="tbl-wrap"><table><thead><tr><th>Situation</th><th>The script asks / does</th><th>Without a terminal</th></tr></thead><tbody>
@@ -307,7 +307,7 @@
 <tr><td>Expired / revoked token</td><td>Prints what to do (Setup → Install command → Regenerate or View) and "Nothing was changed on this server.", exit 1</td><td>same</td></tr>
 </tbody></table></div>
 <ul>
-  <li><b>Kept</b>: agent.json (only missing keys are added and printed), the site key, the enrollment (never re-enrolled), the data dir, volumes, files, certificates, transcripts. App containers are never touched.</li>
+  <li><b>Kept</b>: agent.json (only missing keys are added and printed), the site key, the enrollment (never re-enrolled), the data dir, volumes, files, certificates, transcripts. App containers are never touched, except this site's during an agent-home move (see above).</li>
   <li><b>Backup</b>: before every up-, down- or reinstall the agent is stopped and <code>/var/lib/opm/*.db*</code> is copied to <code>/var/lib/opm/backup/&lt;oldVersion&gt;-&lt;time&gt;/</code> with <code>meta.env</code>; the 5 newest are kept.</li>
   <li><b>Swap + check</b>: <code>opm-agent.prev</code> is kept, the new binary writes the units, the service restarts, and the script waits ≤ 60 s for <code>/_opm/api/health</code> with the new version (and the cloud connection, if the old agent had it). Not healthy → <code>.prev</code> back, the DB backup restored when the schema changed, restart, the log path, exit 1.</li>
   <li>Without a terminal the script never waits: an unanswered question means "no", and it prints the exact rerun command with the flag after <code>sudo</code>, e.g. <code>curl -fsSL -H "Authorization: Bearer opi_…" …/v1/install/script | sudo OPM_YES=1 sh</code>.</li>

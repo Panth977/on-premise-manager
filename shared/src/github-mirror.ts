@@ -18,7 +18,7 @@
  *     only exist on the machine (secrets, auto host, cross-site hosts, required variables of templates) are written as
  *     ${NAME} / @@{NAME}@@ placeholders; deploy.sh fills them in from site.env with the official busybox image (filters such
  *     as sha256 or mosquitto_passwd become steps of setup.sh). Wire format: ExportRequest → ExportResult below.
- *   - Queue in Firestore (`githubMirror/config/queue/{itemId}`, idempotent item ids, ordered per branch, retry / backoff),
+ *   - Queue in the document store (`githubMirror/config/queue/{itemId}`, idempotent item ids, ordered per branch, retry / backoff),
  *     pushed with the GitHub REST Git Data API (blobs / trees / commits / refs), no git binary.
  *   - Admin → GitHub page (accounts.admin): repo owner / name, token (fine-grained PAT, Contents read + write; stored like a
  *     registry password: masked, 60 s reveal, audited, replaceable), enabled, Test connection, per-branch status, Sync now,
@@ -80,7 +80,7 @@ export function parseMirrorBranchName(name: string): { kind: MirrorBranchKind; e
   if (m) return { kind: m[2] as 'agent' | 'uncommitted', entitySlug: m[1]!, siteSlug: m[3]! };
   return null;
 }
-/** Firestore doc id of a git branch (no "/" allowed in ids): "/" → "~". */
+/** Document id of a git branch (no "/" allowed in ids): "/" → "~". */
 export function mirrorBranchDocId(gitBranch: string): string {
   return gitBranch.replace(/\//g, '~');
 }
@@ -180,7 +180,7 @@ export function maskGithubToken(token: string | null | undefined): string | null
   return `${m ? m[1] : ''}•••${tail}`;
 }
 
-/** Firestore `githubMirror/config` (server-only; never readable by clients — firestore.rules deny). */
+/** Document `githubMirror/config` (server-only; never readable by clients). */
 export interface GithubMirrorDoc {
   enabled: boolean;
   owner: string;
@@ -252,7 +252,7 @@ export type MirrorQueueOp =
   | 'rebuild'; //          rebuild the branch from OPM history (seq 1 … head), force-update the ref (Resync everything)
 export type MirrorItemState = 'pending' | 'running' | 'done' | 'skipped' | 'failed';
 /**
- * Firestore `githubMirror/config/queue/{itemId}`; itemId = mirrorItemId(…) (idempotent: enqueueing twice = one item).
+ * Document `githubMirror/config/queue/{itemId}`; itemId = mirrorItemId(…) (idempotent: enqueueing twice = one item).
  * Processed in `orderKey` order per gitBranch, one branch at a time (lease on the branch doc).
  */
 export interface MirrorQueueItem {
@@ -279,7 +279,7 @@ export interface MirrorQueueItem {
 export function mirrorOrderKey(createdAt: Ts, seq: number | null, opmId: string): string {
   return `${createdAt}|${String(seq ?? 0).padStart(10, '0')}|${opmId}`;
 }
-/** idempotent queue item id (Firestore-safe): <docId of branch>__<op>__<opmId or "-"> (≤ 1500 bytes) */
+/** idempotent queue item id (document-id safe): <docId of branch>__<op>__<opmId or "-"> (≤ 1500 bytes) */
 export function mirrorItemId(gitBranch: string, op: MirrorQueueOp, opmId: string): string {
   return `${mirrorBranchDocId(gitBranch)}__${op}__${opmId || '-'}`.replace(/[^A-Za-z0-9~_.-]/g, '_');
 }
@@ -289,7 +289,7 @@ export function mirrorBackoffSec(attempts: number): number {
   return MIRROR_BACKOFF_SEC[i]!;
 }
 export type MirrorBranchStatus = 'synced' | 'queued' | 'pushing' | 'error' | 'paused' | 'deleted' | 'never';
-/** Firestore `githubMirror/config/branches/{mirrorBranchDocId}` + the status table row. */
+/** Document `githubMirror/config/branches/{mirrorBranchDocId}` + the status table row. */
 export interface MirrorBranchState {
   gitBranch: string;
   branch: MirrorBranchRef;

@@ -48,7 +48,7 @@ CREATE TABLE t (id TEXT PRIMARY KEY /* full document path */, parent TEXT NOT NU
 | anything else | NULL |
 
 `array-contains` filters run `json_each` over the stored JSON. Each table gets SQLite indexes on `(parent, ix)`, on
-the composite shapes from firestore.indexes.json, and on `(ix)` for fields that collection-group queries use.
+the composite shapes the queries use, and on `(ix)` for fields that collection-group queries use.
 
 **Registry upgrades.** Tables are created lazily. Each file has a `_schema` table that records a hash of the registry
 entry for every table. When that hash changes, the adapter runs `ALTER TABLE ADD COLUMN`, backfills the new column in

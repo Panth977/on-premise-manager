@@ -55,42 +55,28 @@
 <h2 id="repo">Repository layout</h2>
 <p>Three codebases. Each has one clear owner role.</p>
 <div class="grid g3">
-<div class="card"><h4>backend/ <span class="tag app">cloud backend</span></h4>
-<pre><code>backend/
-  package.json  tsconfig.json
-  firebase.json firestore.rules
-  storage.rules
-  src/
-    index.ts          # HTTP entry
-    router.ts         # /v1 routes
-    auth/human.ts     # ID token → account
-    auth/access.ts    # access rules
-    auth/agent.ts     # signed requests
-    routes/
-      registries.ts services.ts
-      images.ts notFoundPages.ts
-      templates.ts tags.ts
-      accounts.ts blobs.ts
-      deployments.ts setup.ts
-      draft.ts diff.ts publish.ts
-      activities.ts transfers.ts
-      status.ts
-    agent/
-      install.ts enroll.ts
-      poll.ts heartbeat.ts
-      head.ts proposals.ts
-      images.ts blobs.ts
-      activities.ts setup.ts
-      transfers.ts relay.ts
-    jobs/importImage.ts
-    lib/canonicalJson.ts
-    lib/mask.ts lib/errors.ts
-    schema/*.ts       # types (§2–§3)</code></pre></div>
+<div class="card"><h4>agent/internal/cloud/ <span class="tag app">opm-cloud</span></h4>
+<pre><code>agent/cmd/opm-cloud/  # serve + ops commands
+agent/internal/cloud/
+  serve.go http.go    # one port
+  router.go           # /v1 routes
+  auth.go access.go   # ID token, rules
+  ops.go              # opm-cloud commands
+  driver/             # SQLite docs, blobs,
+                      # /auth, outbox
+                      # (see driver/README.md)
+  routes/             # /v1 handlers, jobs
+  core/               # domain logic,
+                      # install_script.tmpl
+  shared/             # Go port of shared/src
+  apitest/            # API test suite
+selfhost/             # Dockerfile, compose,
+                      # Caddyfile, systemd</code></pre></div>
 <div class="card"><h4>frontend/ <span class="tag app">cloud frontend</span></h4>
 <pre><code>frontend/
   svelte.config.js
   src/lib/api.ts      # fetch + ID token
-  src/lib/firebase.ts # Auth only
+  src/lib/auth/       # /auth client
   src/lib/schema.ts   # shared types
   src/lib/editors/    # tables, JSON,
                       # code editor
@@ -151,11 +137,11 @@
 <h2 id="stack">Tech stack</h2>
 <div class="tbl-wrap"><table>
 <tr><th>Part</th><th>Choice</th><th>Note</th></tr>
-<tr><td>Cloud backend</td><td>Cloud Functions 2nd gen, Node 22, TypeScript, one HTTP function with a router</td><td>Only writer of Firestore and Storage</td></tr>
-<tr><td>Data</td><td>Firestore, Cloud Storage</td><td>Security rules deny all client access</td></tr>
-<tr><td>Human login</td><td>Firebase Auth (email + password, optional Google SSO)</td><td>No signup; admin creates accounts</td></tr>
-<tr><td>Secrets</td><td>Stored like variables (plain values in Firestore and agent SQLite). No KMS, no Secret Manager in the prototype.</td><td>API masks values ("•••" + isSet). View shows a value for 60 s, any number of times; every reveal and every agent fetch is an activity. Encryption at rest is a later item.</td></tr>
-<tr><td>Cloud frontend</td><td>SvelteKit SPA on Firebase Hosting</td><td>Calls <code>api.opm.example/v1</code> with the ID token</td></tr>
+<tr><td>Cloud backend</td><td><code>opm-cloud</code>: one Go process on a VM with a router, jobs and an outbox dispatcher</td><td>Only writer of the document store and the blob store</td></tr>
+<tr><td>Data</td><td>Document store on SQLite + blob store on local files, in one data dir</td><td>No client access</td></tr>
+<tr><td>Human login</td><td>Built-in auth <code>/auth/*</code> (email + password, optional OIDC SSO), signed ID token</td><td>No signup; admin creates accounts</td></tr>
+<tr><td>Secrets</td><td>Stored like variables (plain values in the cloud document store and agent SQLite). No KMS, no Secret Manager in the prototype.</td><td>API masks values ("•••" + isSet). View shows a value for 60 s, any number of times; every reveal and every agent fetch is an activity. Encryption at rest is a later item.</td></tr>
+<tr><td>Cloud frontend</td><td>SvelteKit SPA served by <code>opm-cloud</code></td><td>Calls <code>api.opm.example/v1</code> with the ID token</td></tr>
 <tr><td>Agent</td><td>Go 1.23, static binary, systemd unit <code>opm-agent</code></td><td>Runs as root for the Docker socket</td></tr>
 <tr><td>Agent store</td><td>SQLite (pure Go driver)</td><td>Revisions, proposals, activities, actors, uptime</td></tr>
 <tr><td>Agent GUI</td><td>Svelte SPA embedded with <code>go:embed</code></td><td>Served at <code>/_opm/</code> on every edge host (80/443), on agentGuiAliasPort (8080) and on agentPort (7080)</td></tr>
@@ -231,7 +217,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 </div>
 <script>
 const TL = [
-  { hr: '09:00–10:00', t: 'Scaffold', owner: 'All', tasks: ['Create the 3 repos from the layout above', 'Firebase project: Firestore, Storage, Auth, Functions', 'Shared schema types (§2–§3) in backend + frontend', 'Agent: main.go, config file, SQLite open'], done: 'Each codebase builds and starts. The API answers GET /v1/healthz.' },
+  { hr: '09:00–10:00', t: 'Scaffold', owner: 'All', tasks: ['Create the 3 repos from the layout above', 'opm-cloud: data dir, document store, blob store, auth', 'Shared schema types (§2–§3) in opm-cloud + frontend', 'Agent: main.go, config file, SQLite open'], done: 'Each codebase builds and starts. The API answers GET /v1/healthz.' },
   { hr: '10:00–11:30', t: 'Catalog', owner: 'Backend + frontend', tasks: ['Registries (password write-only)', 'Services + images (register a version from a full image reference, copy import job)', 'Icon library (Lucide picker + uploads)', 'Not-found pages (create only)', 'Frontend list + create pages'], done: 'An image shows import.status = ready with a digest and layers.' },
   { hr: '11:30–13:00', t: 'Templates + deployments', owner: 'Backend + frontend', tasks: ['Template editor: variables, secrets, files, sites, containers', 'Deployment from template (snapshot copy)', 'Draft PUT endpoints + validation'], done: 'Deployment acme-plant exists with sites app and db.' },
   { hr: '13:00–14:00', t: 'Install + enroll', owner: 'Agent + backend', tasks: ['Install token (24 h, single use) + install script', 'Agent: site key, POST /v1/agent/enroll', 'Access key on the cloud Setup page (stored; View any time for 60 s, Regenerate; sites get only accessKeyHash)', 'Agent /_opm/login → opm_session cookie (6 h, no sliding renewal)', 'Agent GUI popup "Who is working right now?" + actor token (= session expiry)'], done: 'Both VMs show as enrolled and online in the cloud.' },

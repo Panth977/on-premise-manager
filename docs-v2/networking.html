@@ -301,7 +301,7 @@ add_header Cache-Control "public, max-age=3600, must-revalidate";</pre>
     <li><code>GET /_opm/api/tunnel/next</code> waits ≤ 25 s and returns ≤ 4 requests. No poll for 30 s → the lease expires.</li>
     <li>The tab fetches two URLs only: <code>GET /v1/agent/tunnel-key</code> and <code>POST /v1/agent/sealed</code>. The real request is inside.</li>
     <li>Bodies over 4 MB: chunk upload, then complete with sha256.</li>
-    <li>The cloud allows CORS from any origin on <code>/v1/agent/*</code> and on the Storage bucket. The agent signature, inside the sealed request, is the authorization, not the browser.</li>
+    <li>The cloud allows CORS from any origin on <code>/v1/agent/*</code>, and a browser-sent agent request gets its bytes as a stream, never a 302. The agent signature, inside the sealed request, is the authorization, not the browser.</li>
     <li>Activities: <code>internet.tunnel.started</code> · <code>stopped</code> · <code>revoked</code> · <code>expired</code>, and <code>internet.tunnel.plaintext</code> for a lease in clear.</li>
   </ol></div>
   <div class="callout note"><b>Security note</b><p>Traffic is end-to-end encrypted between the agent and the cloud. The tab, and anything on the path of the agent GUI (plain http on a LAN), carries ciphertext only: no secret, no inner path, no signature header. The actor popup is still required, and the agent still logs <code>secret.fetched</code> for each secret read.</p></div>

@@ -24,7 +24,7 @@
 <main>
 <div class="eyebrow">Security</div>
 <h1>Auth &amp; access</h1>
-<p class="lede">OPM has four trust paths. People log in to the cloud with Firebase Auth. Agents sign every request with their own site key. People do NOT log in to an agent: the agent GUI only asks "Who is working right now?" and writes that email as the actor. The site never uses Firebase, so a later move away from Firebase is simple.</p>
+<p class="lede">OPM has four trust paths. People log in to the cloud with its built-in auth (<code>/auth/*</code>). Agents sign every request with their own site key. People do NOT log in to an agent: the agent GUI only asks "Who is working right now?" and writes that email as the actor. The site never uses the cloud login.</p>
 
 <h2 id="paths">The four trust paths</h2>
 <div class="explorer">
@@ -41,7 +41,7 @@
       <g data-k="sa"><rect x="500" y="60" width="170" height="70" rx="9" class="box agent" /><text x="585" y="88" text-anchor="middle" font-size="13" font-weight="650">site app</text><text x="585" y="106" text-anchor="middle" font-size="10.5" class="muted">agent · site key A</text></g>
       <g data-k="sd"><rect x="700" y="60" width="170" height="70" rx="9" class="box agent" /><text x="785" y="88" text-anchor="middle" font-size="13" font-weight="650">site db</text><text x="785" y="106" text-anchor="middle" font-size="10.5" class="muted">agent · site key B</text></g>
       <g data-k="login"><rect x="560" y="260" width="250" height="60" rx="9" class="box ext" /><text x="685" y="286" text-anchor="middle" font-size="13" font-weight="650">login (access key) + "who?"</text><text x="685" y="304" text-anchor="middle" font-size="10.5" class="muted">opm_session 6 h · declared email</text></g>
-      <path d="M115,220 V106" class="ln ln-cloud" marker-end="url(#pa)" /><text x="122" y="170" class="lbl">1 · Firebase Auth</text>
+      <path d="M115,220 V106" class="ln ln-cloud" marker-end="url(#pa)" /><text x="122" y="170" class="lbl">1 · Built-in auth</text>
       <path d="M200,78 H240" class="ln ln-cloud" marker-end="url(#pa)" /><text x="220" y="70" text-anchor="middle" class="lbl">ID token</text>
       <path d="M500,95 C450,95 450,80 410,80" class="ln ln-agent" marker-end="url(#pa)" /><text x="455" y="128" text-anchor="middle" class="lbl">2 · signed request</text>
       <path d="M670,95 H700" class="ln ln-agent" marker-start="url(#pa)" marker-end="url(#pa)" /><text x="685" y="150" text-anchor="middle" class="lbl">3 · signed (mesh)</text>
@@ -103,7 +103,7 @@ type Scope    = { kind: 'all' } | { kind: 'tags'; tagSlugs: Slug[] } | { kind: '
 <p>The agent GUI has two separate layers. The <b>login</b> proves that the person has the deployment access key. The <b>actor popup</b> names the person who works now, because many people share one key and a site does not know when a new operations person takes over.</p>
 <div class="grid g2">
   <div class="card"><h4>1 · Login — <code>/_opm/login</code></h4><ul>
-    <li>One field: the deployment <b>access key</b> (24 characters, base32). There is no email/password and no Firebase on the site.</li>
+    <li>One field: the deployment <b>access key</b> (24 characters, base32). There is no email/password on the site.</li>
     <li>The cloud makes the key when the deployment is created. The Setup page (<code>/app/deployments/{id}/setup</code>) shows it masked, with <b>View</b> (visible for 60 s, then masked again; logged) and <b>Regenerate</b>. The cloud stores the key and its <code>accessKeyHash</code> (argon2id). Sites get only the hash.</li>
     <li><code>POST /_opm/api/login { accessKey }</code> → cookie <code>opm_session</code> (HttpOnly, SameSite=Strict, Secure on https). It expires <b>6 h after login</b>. There is no sliding renewal.</li>
     <li>After 6 h every API call returns <b>401 <code>session-expired</code></b> and the GUI goes to <code>/_opm/login</code>.</li>
@@ -151,11 +151,11 @@ type Scope    = { kind: 'all' } | { kind: 'tags'; tagSlugs: Slug[] } | { kind: '
 <div class="callout note"><b>What changed from the first design</b><p>The first design renewed a shared deployment credential with a two-phase commit across all sites. That is gone. The access key is simpler: only its hash goes to the sites, with the cloud view, and each site switches when it receives the new hash. Machine trust does not change: a 24 h install token enrolls the site, the site gets an Ed25519 key, and every agent → cloud and agent → agent request is signed.</p></div>
 
 <h2 id="secrets">Secrets: masking and reveal audit</h2>
-<div class="callout warn"><b>Prototype decision</b><p>Secrets are stored like variables: plain values in the same documents (Firestore, agent SQLite). There is no Cloud KMS, no data key and no Secret Manager. Database security is out of scope for now. The protection is in the API and the GUIs.</p></div>
+<div class="callout warn"><b>Prototype decision</b><p>Secrets are stored like variables: plain values in the same documents (cloud document store, agent SQLite). There is no Cloud KMS, no data key and no Secret Manager. Database security is out of scope for now. The protection is in the API and the GUIs.</p></div>
 <div class="diagram">
   <svg viewBox="0 0 900 270" role="img" aria-label="Secret masking and reveal audit">
     <defs><marker id="sa2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah" /></marker></defs>
-    <rect x="20" y="30" width="190" height="64" rx="9" class="box" /><text x="115" y="56" text-anchor="middle" font-size="13" font-weight="650">Stored value</text><text x="115" y="74" text-anchor="middle" font-size="10.5" class="mono muted">Firestore · agent SQLite (plain)</text>
+    <rect x="20" y="30" width="190" height="64" rx="9" class="box" /><text x="115" y="56" text-anchor="middle" font-size="13" font-weight="650">Stored value</text><text x="115" y="74" text-anchor="middle" font-size="10.5" class="mono muted">cloud SQLite · agent SQLite (plain)</text>
     <rect x="300" y="30" width="230" height="64" rx="9" class="box" /><text x="415" y="56" text-anchor="middle" font-size="13" font-weight="650">Normal read (API)</text><text x="415" y="74" text-anchor="middle" font-size="10.5" class="mono muted">value: "•••" · isSet: true</text>
     <rect x="620" y="30" width="260" height="64" rx="9" class="box agent" /><text x="750" y="56" text-anchor="middle" font-size="13" font-weight="650">GUI field</text><text x="750" y="74" text-anchor="middle" font-size="10.5" class="mono muted">••• [View]</text>
     <path d="M210,62 H300" class="ln ln-cloud" marker-end="url(#sa2)" /><text x="255" y="54" text-anchor="middle" class="lbl">mask</text>
@@ -224,9 +224,9 @@ sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08</code></
 </div>
 <script>
 const INFO = {
-  fe: { t: 'Cloud frontend', b: '<p>SvelteKit SPA. It sends <code>Authorization: Bearer &lt;Firebase ID token&gt;</code> to the API. It never reads Firestore or Storage directly.</p>' },
-  api: { t: 'Cloud backend API', b: '<p>Checks the Firebase ID token for people, or the signed headers for agents. Loads <code>accounts/{uid}</code>, refuses disabled accounts, then evaluates the access rules.</p>' },
-  human: { t: 'Operator', b: '<p>Logs in at <code>/login</code> with Firebase Auth (email + password, or Google SSO for the organisation domain). There is no signup.</p>' },
+  fe: { t: 'Cloud frontend', b: '<p>SvelteKit SPA. It sends <code>Authorization: Bearer &lt;ID token&gt;</code> to the API. It never reads the document store or the blob store directly.</p>' },
+  api: { t: 'Cloud backend API', b: '<p>Checks the signed ID token for people, or the signed headers for agents. Loads <code>accounts/{uid}</code>, refuses disabled accounts, then evaluates the access rules.</p>' },
+  human: { t: 'Operator', b: '<p>Logs in at <code>/login</code> with the built-in auth (email + password, or OIDC single sign-on when configured). There is no signup.</p>' },
   sa: { t: 'Site app (agent)', b: '<p>Holds an Ed25519 site key in <code>/var/lib/opm/site.key</code> (0600). Signs every request to the cloud and to other sites.</p>' },
   sd: { t: 'Site db (agent)', b: '<p>Same as site app. Each site knows the public keys of all other sites of the deployment.</p>' },
   login: { t: 'Agent GUI: login + declared actor', b: '<p>Two layers. (1) Login at <code>/_opm/login</code> with the deployment access key → cookie <code>opm_session</code>, 6 h, no sliding renewal. This IS authentication: it proves the person has the key. (2) After login, on every page load the blocking popup asks for the email of the person who works now. That only names the actor; it does not prove who they are.</p>' },

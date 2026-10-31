@@ -101,7 +101,7 @@ export function write(): string {
   const total = steps.filter((s) => s.id !== '-');
   const lines: string[] = [];
   lines.push(`# OPM hello-world e2e — results ${ts}`, '');
-  lines.push(`- API: \`${CFG.apiBase}\` · frontend: \`${CFG.frontendUrl}\` · auth emulator: \`${CFG.authEmulator || 'no (real Firebase Auth)'}\``);
+  lines.push(`- API: \`${CFG.apiBase}\` · frontend: \`${CFG.frontendUrl}\` · auth emulator: \`${CFG.authEmulator || 'no'}\``);
   lines.push(`- OPM_APPROVE_WAIT_SEC=${CFG.approveWaitSec} · UI flows: ${CFG.ui ? 'on' : 'off'} · duration ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   lines.push(`- steps: ${total.filter((s) => s.status === 'pass').length} pass · ${total.filter((s) => s.status === 'warn').length} warn · ${total.filter((s) => s.status === 'fail').length} fail · ${total.filter((s) => s.status === 'skip').length} skip`, '');
   lines.push('| step | title | result | time |', '|---|---|---|---|');

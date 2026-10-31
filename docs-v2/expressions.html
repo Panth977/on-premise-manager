@@ -72,7 +72,7 @@ expr       = primary , { ws , "|" , ws , filter } ;
 primary    = path | string | number | boolean ;
 path       = root , "." , segment , { "." , segment } ;
 root       = "var" | "secret" | "file" | "site" | "self" | "deployment" | "container" ;
-segment    = ( letter | digit ) , { letter | digit | "-" | "_" } ;   (* slugs and Firestore ids *)
+segment    = ( letter | digit ) , { letter | digit | "-" | "_" } ;   (* slugs and document ids *)
 filter     = name , [ "(" , ws , [ arg , { ws , "," , ws , arg } ] , ws , ")" ] ;
 name       = "default" | "join" | "upper" | "lower" | "trim" | "base64" | "url" | "int" | "json"
            | "sha256" | "sha512" | "mosquitto_passwd" ;   (* lexed as [a-z] { [a-z0-9_] } *)

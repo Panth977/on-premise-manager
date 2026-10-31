@@ -8,8 +8,8 @@ The setup lives under **Admin → GitHub** in the cloud console.
 
 Contract: `shared/src/github-mirror.ts` (API table `GITHUB_MIRROR_CLOUD_API`, wire format `ExportRequest` /
 `ExportResult`, queue + branch-state documents, branch names, slugs, trailers). Exporter: Go `agent/internal/export`
-(+ `agent/internal/edgecfg` for the edge). Backend: `backend/functions/src/core/{github,mirror*,slugs}.ts`,
-`routes/github-mirror.ts`. Frontend: `/app/github`.
+(+ `agent/internal/edgecfg` for the edge). Cloud: `agent/internal/cloud/core/{github,mirror*,slugs}.go`,
+`agent/internal/cloud/routes/github_mirror.go`. Frontend: `/app/github`.
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -22,7 +22,7 @@ Contract: `shared/src/github-mirror.ts` (API table `GITHUB_MIRROR_CLOUD_API`, wi
 3. In OPM: **Admin → GitHub** → owner + repository → Save → **Replace token…** (paste) → **Test connection** (all checks
    green) → switch **Mirroring** on. Enabling queues a catch-up of every branch; the table fills within minutes.
 
-The token is stored like a registry password (SPEC §21 #1 / #84): only the cloud functions read it, every read shows it
+The token is stored like a registry password (SPEC §21 #1 / #84): only the cloud reads it, every read shows it
 masked (`github_pat_•••wxyz`), **View** shows it for 60 s (audited `github.token-revealed`), **Replace…** / **Remove**
 change it. Every change on the page is in the audit log (target `githubMirror/config`).
 
@@ -173,11 +173,11 @@ recreates only the service that mounts it. 0 differences.
   cache `githubMirror/config/blobs/{sha256}`. Worker = a trigger on new items + a schedule every 5 min + inline in Sync now.
   One branch at a time (3-min lease), items in order; a failing item blocks its branch until retried (backoff 30 s → 1 h).
   401 / 403 (token) and rate limits pause the whole mirror (shown as a banner) until the reset; Sync now resumes.
-- Push = GitHub REST Git Data API from Cloud Functions (no git binary): blobs (deduplicated by git sha), one tree, one
+- Push = GitHub REST Git Data API from `opm-cloud` (no git binary): blobs (deduplicated by git sha), one tree, one
   commit, ref update (never forced, except Resync). Idempotent by the `OPM-Commit` trailer of the remote head + the branch
   state. Files > 100 MB are skipped (listed in `<dir>/.skipped.txt`, note SKIPPED_LARGE).
-- The tree is computed by `opm-export.wasm` (the Go exporter, run with node:wasi), compiled by the backend build from
-  `agent/`. Nothing else is built for the mirror: the tree needs no OPM binary.
+- The tree is computed in-process by the Go exporter (`agent/internal/export`) inside `opm-cloud`. Nothing else is built
+  for the mirror: the tree needs no OPM binary.
 - **Sync now**: catch-up of every branch (or one row), due and failed items retried at once. **Resync everything**:
   rebuild every branch from OPM history, force-update the refs (same shas when nothing changed). A machine's site branch
   then merges with `--allow-unrelated-histories` (the site README says how); avoid it once machines run Docker only.

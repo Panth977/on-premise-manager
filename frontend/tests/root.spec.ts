@@ -73,7 +73,7 @@ test.describe('services + images', () => {
     test.setTimeout(60_000);
     await login(page, 'admin', `/app/services/${SEED.svcApi}/register-image`);
     await expect(page.getByTestId('ri-version')).toHaveValue('v2');
-    await page.getByTestId('ri-ref').fill('registry.example.com/opm-test/hello-api:1.2.0');
+    await page.getByTestId('ri-ref').fill('asia-south1-docker.pkg.dev/example/opm-test/hello-api:1.2.0');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('ri-ref-parts')).toContainText('example/opm-test/hello-api');
     await expect(page.getByTestId('ri-registry')).toHaveAttribute('data-value', SEED.registryAr);
@@ -85,7 +85,7 @@ test.describe('services + images', () => {
     await page.getByTestId('ri-submit').click();
     await page.waitForURL(/\/image\/v2$/);
     await expect(page.getByTestId('page-title')).toContainText('hello-api:v2');
-    await expect(page.getByTestId('image-reference')).toHaveText('registry.example.com/opm-test/hello-api:1.2.0');
+    await expect(page.getByTestId('image-reference')).toHaveText('asia-south1-docker.pkg.dev/example/opm-test/hello-api:1.2.0');
     await expect(page.locator('header').getByTestId('status-ready')).toBeVisible({ timeout: 25_000 });
   });
 

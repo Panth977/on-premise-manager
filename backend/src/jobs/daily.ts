@@ -12,7 +12,7 @@ import { col, db, nowIso } from '../core/fire.js';
 import { blobs } from '../driver/index.js';
 import { remove, removePrefix } from '../core/storage.js';
 import { ymd } from '../core/util.js';
-import type { StoredUpload } from '../core/uploads.js';
+type StoredUpload = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- a stored uploads document
 import { auditSystem } from '../core/audit.js';
 import { cleanupStages } from '../core/stages.js';
 import { expireAgentUpgrades } from '../routes/agent-upgrade.js';

@@ -75,6 +75,7 @@ type Cloud struct {
 	requests    []string
 	vc          map[string]*vcVol // §21 #101 volume content per "<site>:<volume>" (volcontent.go)
 	br          *fakeBranch       // §21 #104 deployment branch + agent branch mirror (branch.go)
+	seal        *sealState        // §9.10 sealed browser tunnel (sealed.go)
 
 	ulidLast int64
 	ulidRand [10]byte
@@ -100,6 +101,7 @@ func Start(deploymentID string) *Cloud {
 		epoch:          1,
 		upgradeReports: map[string][]model.AgentUpgradeProgress{},
 		agentTimes:     map[string]string{},
+		seal:           newSealState(),
 	}
 	c.srv = httptest.NewUnstartedServer(c)
 	if listenAddr != "" {

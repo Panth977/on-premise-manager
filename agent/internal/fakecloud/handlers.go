@@ -83,6 +83,9 @@ func (c *Cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	c.requests = append(c.requests, r.URL.Path)
 	c.mu.Unlock()
+	if c.serveSealed(w, r, body) { // §9.10
+		return
+	}
 	if r.URL.Path == "/v1/agent/enroll" && r.Method == http.MethodPost {
 		c.enroll(w, r, body)
 		return

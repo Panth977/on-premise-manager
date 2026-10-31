@@ -11,8 +11,8 @@ import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statS
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { createCloudClient, type CloudClient } from '../../shared/dist/cloud-api.js';
-import { OpmApiError, UPLOAD_PART_SIZE, configBlobs, type Config, type ConfigInput, type SecretDefInput, type Transfer } from '../../shared/dist/index.js';
-import { FakeGithub } from '../../backend/test/fake-github.ts';
+import { OpmApiError, UPLOAD_PART_SIZE, configBlobs, type Config, type ConfigInput, type SecretDefInput, type SiteSharedFile } from '../../shared/dist/index.js';
+import { FakeGithub } from './fake-github.ts';
 import { AgentSession, HERE, ROOT, RUN, check, checks, compose, docker, freePort, log, must, opmCloud, sh, sha256Hex, sleep, step, uniq, waitFor } from './lib.ts';
 
 const API = (process.env.OPM_VM_BASE ?? 'http://127.0.0.1:8790').replace(/\/$/, '');
@@ -532,50 +532,47 @@ async function main() {
     check('backup copy of the deployment DB: integrity ok, all commits', integrity.startsWith('ok') && Number(integrity.split(/\s+/).pop()) >= after.commits.length, integrity);
   });
 
-  await step('8', 'transfers: cloud → site (multi-part 20 MiB) and site → cloud (10 MiB); 302 /_blob, tampered sig 403', ['6'], async () => {
-    // cloud → site
+  await step('8', 'shared files: cloud → site (multi-part 20 MiB) and site → cloud (10 MiB); 302 /_blob, tampered sig 403', ['6'], async () => {
+    // cloud → site: published in the console, a site gets a copy only when asked (§21 #123)
     const big = randomBytes(2 * UPLOAD_PART_SIZE + 4 * 1024 * 1024 + 12345);
     const bigSha = `sha256:${sha256Hex(big)}`;
-    const ct = await admin.createTransfer({ deploymentId: S.deploymentId, siteSlug: SITE, body: { fileName: `to-site-${RUN_ID}.bin`, sizeBytes: big.length, sha256: bigSha, note: 'vm e2e' } });
-    check(`createTransfer → upload with ${ct.upload.partCount} parts of ${ct.upload.partSize}`, ct.upload.partCount === 3 && ct.transfer.status === 'uploading', { partCount: ct.upload.partCount });
-    for (let i = 0; i < ct.upload.partCount; i++) await admin.putUploadPart({ uploadId: ct.upload.uploadId, index: String(i), body: big.subarray(i * ct.upload.partSize, Math.min(big.length, (i + 1) * ct.upload.partSize)) });
-    const done = await admin.completeUpload({ uploadId: ct.upload.uploadId });
-    check('completeUpload → transfer ready', done.transfer?.status === 'ready', done.transfer?.status);
-    const tid = ct.transfer.transferId;
-    const fetched = await waitFor('agent fetched the to-site transfer', async () => {
-      const l = await admin.listTransfers({ deploymentId: S.deploymentId, siteSlug: SITE, query: { direction: 'to-site' } });
-      const t = l.items.find((x) => x.transferId === tid);
-      return t?.fetchedAt ? t : null;
-    }, 180_000, 2000);
-    check('cloud: transfer fetchedAt set by the agent (store-and-forward)', !!fetched.fetchedAt, fetched.fetchedAt);
-    const gl = await S.gui!.api.listSiteTransfers({ siteSlug: SITE, query: { direction: 'to-site' } });
-    check('agent GUI lists the received file', gl.items.some((x: Transfer) => x.transferId === tid), gl.items.map((x: Transfer) => `${x.fileName}:${x.status}`));
-    const dl = await S.gui!.raw(`/_opm/api/sites/${SITE}/transfers/${tid}/download`);
+    const cp = await admin.publishFile({ deploymentId: S.deploymentId, body: { fileName: `to-site-${RUN_ID}.bin`, sizeBytes: big.length, sha256: bigSha, note: 'vm e2e' } });
+    check(`publishFile → upload with ${cp.upload.partCount} parts of ${cp.upload.partSize}`, cp.upload.partCount === 3 && cp.file.state === 'uploading', { partCount: cp.upload.partCount });
+    for (let i = 0; i < cp.upload.partCount; i++) await admin.putUploadPart({ uploadId: cp.upload.uploadId, index: String(i), body: big.subarray(i * cp.upload.partSize, Math.min(big.length, (i + 1) * cp.upload.partSize)) });
+    const done = await admin.completeUpload({ uploadId: cp.upload.uploadId });
+    check('completeUpload → complete', done.upload.status === 'complete', done.upload.status);
+    const fid = cp.file.fileId;
+    const cf = (await admin.listFiles({ deploymentId: S.deploymentId })).items.find((x) => x.fileId === fid);
+    check('cloud: file ready, stored in the cloud, on no site yet', cf?.state === 'ready' && cf.cloud.stored && cf.sites.length === 0, cf);
+    const listed = await waitFor('the agent lists the published file', async () => (await S.gui!.api.listSiteFiles({ siteSlug: SITE })).items.find((x: SiteSharedFile) => x.fileId === fid), 60_000, 2000);
+    check('agent GUI lists the file: no copy here, the cloud can serve it', !listed.here && listed.sources.cloud, listed);
+    await S.gui!.api.fetchToSite({ siteSlug: SITE, fileId: fid });
+    const got = await waitFor('the agent got a copy', async () => (await S.gui!.api.listSiteFiles({ siteSlug: SITE })).items.find((x: SiteSharedFile) => x.fileId === fid && x.here), 180_000, 2000);
+    check('agent GUI: the site holds a copy, no job left', got.here && !got.job, got.job);
+    const held = await waitFor('the cloud learns the site holds it', async () => (await admin.listFiles({ deploymentId: S.deploymentId })).items.find((x) => x.fileId === fid && x.sites.includes(SITE)), 60_000, 2000);
+    check('cloud: the site is listed as a holder', held.sites.includes(SITE), held.sites);
+    const dl = await S.gui!.raw(`/_opm/api/sites/${SITE}/files/${fid}/download`);
     const dlb = Buffer.from(await dl.arrayBuffer());
-    check('agent GUI download of the received file = the uploaded bytes', dl.status === 200 && sha256Hex(dlb) === bigSha.slice(7), `${dl.status} ${dlb.length}`);
+    check('agent GUI download of the copy = the uploaded bytes', dl.status === 200 && sha256Hex(dlb) === bigSha.slice(7), `${dl.status} ${dlb.length}`);
     const savePath = join(SITE_DIR, 'saved', `to-site-${RUN_ID}.bin`);
     mkdirSync(join(SITE_DIR, 'saved'), { recursive: true });
-    const sv = await errOf(S.gui!.api.saveTransfer({ siteSlug: SITE, transferId: tid, body: { path: savePath } }));
-    check('saveTransfer writes it on the server (sha256 ok)', !sv && existsSync(savePath) && sha256Hex(readFileSync(savePath)) === bigSha.slice(7), sv ? `${sv.status} ${sv.code} ${sv.message}` : statSync(savePath).size);
-    if (!sv) {
-      const saved = await waitFor('cloud sees saved-on-server', async () => (await admin.listTransfers({ deploymentId: S.deploymentId, siteSlug: SITE, query: { direction: 'to-site' } })).items.find((x) => x.transferId === tid && x.status === 'saved-on-server'), 60_000, 2000);
-      check('cloud: status saved-on-server + savedPath', saved.savedPath === savePath, saved.savedPath);
-    }
-    // site → cloud (browser upload on the agent GUI, store-and-forward)
+    const sv = await errOf(S.gui!.api.saveSiteFile({ siteSlug: SITE, fileId: fid, body: { path: savePath } }));
+    check('saveSiteFile writes it on the server (sha256 ok)', !sv && existsSync(savePath) && sha256Hex(readFileSync(savePath)) === bigSha.slice(7), sv ? `${sv.status} ${sv.code} ${sv.message}` : statSync(savePath).size);
+    // site → cloud: published in the agent GUI, the cloud asks the holder for the bytes when a person wants them
     const up = randomBytes(UPLOAD_PART_SIZE + 2 * 1024 * 1024 + 777);
     const upSha = sha256Hex(up);
     const name = `to-cloud-${RUN_ID}.bin`;
-    const sr = await S.gui!.raw(`/_opm/api/sites/${SITE}/transfers/upload?fileName=${encodeURIComponent(name)}&note=vm-e2e`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: up });
-    const sj = (await sr.json()) as Transfer;
-    check('agent GUI sendFromBrowser accepted (to-cloud)', sr.status < 300 && sj.direction === 'to-cloud', `${sr.status} ${JSON.stringify(sj).slice(0, 160)}`);
-    const tc = await waitFor('to-cloud transfer ready in the cloud', async () => {
-      const l = await admin.listTransfers({ deploymentId: S.deploymentId, siteSlug: SITE, query: { direction: 'to-cloud' } });
-      return l.items.find((x) => x.fileName === name && x.status === 'ready');
-    }, 180_000, 2000);
-    check('cloud: to-cloud transfer ready (agent uploaded in 8 MiB parts)', tc.sha256 === `sha256:${upSha}` && tc.sizeBytes === up.length, { status: tc.status, size: tc.sizeBytes });
-    const r1 = await getBytes(`${API}/v1/deployments/${S.deploymentId}/transfers/${tc.transferId}/download`, { headers: { Authorization: `Bearer ${S.adminToken}` } });
+    const sr = await S.gui!.raw(`/_opm/api/sites/${SITE}/files/upload?fileName=${encodeURIComponent(name)}&note=vm-e2e`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: up });
+    const sj = (await sr.json()) as SiteSharedFile;
+    check('agent GUI publishFromBrowser accepted (a copy here, origin the site)', sr.status < 300 && sj.here && sj.origin.kind === 'site', `${sr.status} ${JSON.stringify(sj).slice(0, 160)}`);
+    const reg = await waitFor('the file reaches the cloud listing', async () => (await admin.listFiles({ deploymentId: S.deploymentId })).items.find((x) => x.fileName === name), 60_000, 2000);
+    check('cloud: listed, bytes still only on the site', !reg.cloud.stored && reg.sites.includes(SITE), reg.cloud);
+    await admin.fetchFileToCloud({ deploymentId: S.deploymentId, fileId: reg.fileId });
+    const tc = await waitFor('the holder uploaded the file to the cloud', async () => (await admin.listFiles({ deploymentId: S.deploymentId })).items.find((x) => x.fileId === reg.fileId && x.cloud.stored), 180_000, 2000);
+    check('cloud: file stored (agent uploaded in 8 MiB parts)', tc.sha256 === `sha256:${upSha}` && tc.sizeBytes === up.length, { stored: tc.cloud.stored, size: tc.sizeBytes });
+    const r1 = await getBytes(`${API}/v1/deployments/${S.deploymentId}/files/${tc.fileId}/download`, { headers: { Authorization: `Bearer ${S.adminToken}` } });
     const loc = r1.headers.get('location') ?? '';
-    must('downloadTransfer → 302 to /_blob/…?exp=…&sig=…', r1.status === 302 && /\/_blob\/transfers\/.+\?exp=\d+&sig=[A-Za-z0-9_-]+/.test(loc), `${r1.status} ${loc.replace(/sig=[^&]+/, 'sig=…')}`);
+    must('downloadFile → 302 to /_blob/…?exp=…&sig=…', r1.status === 302 && /\/_blob\/.+\?exp=\d+&sig=[A-Za-z0-9_-]+/.test(loc), `${r1.status} ${loc.replace(/sig=[^&]+/, 'sig=…')}`);
     const url = new URL(loc, API);
     check('signed URL points at the public URL of the server', url.origin === new URL(S.publicUrl).origin, url.origin);
     const fetchUrl = `${API}${url.pathname}${url.search}`;
@@ -591,8 +588,8 @@ async function main() {
     const exp = new URL(fetchUrl);
     exp.searchParams.set('exp', String(Number(exp.searchParams.get('exp')) + 60_000));
     check('changed exp (same sig) → 403', (await getBytes(exp.toString())).status === 403);
-    const st = await waitFor('to-cloud marked downloaded', async () => (await admin.listTransfers({ deploymentId: S.deploymentId, siteSlug: SITE, query: { direction: 'to-cloud' } })).items.find((x) => x.transferId === tc.transferId && x.status === 'downloaded'), 20_000, 1000).catch(() => null);
-    check('to-cloud transfer status after the download = downloaded', !!st, st?.status ?? 'not downloaded');
+    const act = await admin.listActivities({ deploymentId: S.deploymentId, query: { type: 'file.downloaded' } });
+    check('the download is on the activity log', act.items.some((a) => (a.data as { fileId?: string }).fileId === tc.fileId), act.items.length);
   });
 
   await step('9', 'GitHub mirror against a fake GitHub on the host (outbox-triggered worker)', ['4'], async () => {

@@ -356,7 +356,7 @@ export function conformance(name: string, mk: () => Promise<{ store: DocStore; b
       it('signedReadUrl is fetchable', async (t) => {
         await blobs.put(`${P}/signed.txt`, Buffer.from('signed body'), { contentType: 'text/plain' });
         const url = await blobs.signedReadUrl(`${P}/signed.txt`, { expiresMs: 60_000, disposition: 'attachment; filename="s.txt"' });
-        if (blobs.kind === 'local') {
+        {
           const { handleBlobHttp, LocalBlobStore } = await import('../src/driver/local.js');
           const r = await handleBlobHttp({ method: 'GET', url: new URL(url).pathname + new URL(url).search, headers: {} }, blobs as InstanceType<typeof LocalBlobStore>, { allowedOrigins: [] });
           assert.equal(r.status, 200);

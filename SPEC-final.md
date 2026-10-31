@@ -908,6 +908,8 @@ names refer to `types.ts`. Status 200 unless shown. "errors" lists codes besides
 | `getAgentUpload` | GET | `/v1/agent/uploads/{uploadId}` | agent | site key (creator) | — | `Upload`  | not-found, gone | — | Upload state. |
 | `putAgentUploadPart` | PUT | `/v1/agent/uploads/{uploadId}/parts/{index}` | agent | site key (creator) | raw bytes | `UploadPartResponse`  | not-found, gone, invalid | — | Upload one part. |
 | `completeAgentUpload` | POST | `/v1/agent/uploads/{uploadId}/complete` | agent | site key (creator) | — | `CompleteUploadResponse`  | not-found, gone, invalid | transfer.sent | Join + verify; the to-cloud transfer becomes ready. |
+| `agentTunnelKey` | GET | `/v1/agent/tunnel-key` | public | — | — | `TunnelKeyResponse` | not-available | §9.10 the cloud's X25519 tunnel key, signed by the release key |
+| `agentSealed` | POST | `/v1/agent/sealed` | public (inner request signed) | — | `SealedRequest` | raw (framed AEAD) | not-available, tunnel-key-changed, undecryptable | §9.10 run a sealed agent request |
 | `relay` | POST | `/v1/agent/relay` | agent | site key of the relaying site + valid inner signature of forSite | `RelayRequest` | `RelayResponse`  | invalid | — | Run the inner signed request as forSite; sets agents/{forSite}.relayVia. |
 
 ### 6.1 Endpoint behaviour details
@@ -1962,21 +1964,62 @@ A site with no direct internet sends its heartbeat via the relay; via the tunnel
 - One active lease per DEPLOYMENT (the agents share lease state via ping: `cloudRoute = tunnel` and the lease in the overview).
   `tunnelStart` when another lease is active anywhere → 409 conflict `details.active`.
 - The lease-holder agent queues TunnelRequests for its own cloud calls AND for the cloud calls of peers that have no other
-  route: such a peer sends `POST /_opm/peer/relay { request }` to the holder, and the holder enqueues that inner request
-  UNCHANGED (its signed X-OPM-* headers, url = apiBase + inner path); the cloud sees the peer's own signature.
+  route: such a peer sends `POST /_opm/peer/relay { request }` to the holder, and the holder seals that inner request
+  UNCHANGED (its signed X-OPM-* headers); the cloud sees the peer's own signature.
 - `tunnelNext`: long-poll ≤ 25 s, returns ≤ `max` (default 4, max 4) requests not yet handed out (a handed-out request without a
   result is handed out again after its timeoutSec). Updates `lastPollAt`. Lease not active → 409 conflict.
 - The tab: `fetch(url, { method, headers, body: base64-decoded bodyB64 })`, then `tunnelResult` (status, headers, body ≤ 4 MiB
   inline as base64) or `chunked: true` + `tunnelChunk` parts (≤ 4 MiB each, index 0..n-1 in order) + `tunnelComplete
-  { parts, sha256 }`. Network error → status 0 + error text. At most 4 requests in flight per tab.
+  { parts, sha256 }`. Network error → status 0 + error text. At most 4 requests in flight per tab. What the tab fetches is
+  `GET <apiBase>/v1/agent/tunnel-key` and `POST <apiBase>/v1/agent/sealed`, nothing else.
 - What goes through the tunnel: polls, heartbeats, reports (proposal status, head, local proposals, transfer status),
-  activities, revision / proposal fetches and blob / transfer DOWNLOADS (large bodies as chunked results); these always stream to a tunnelled request, never 302 (§21 #114). NOT through the
+  activities, revision / proposal fetches and blob / transfer DOWNLOADS (large bodies as chunked results); these always stream to a tunnelled request, never 302 (§21 #114; the inner request of `sealed` carries the tab's Origin, or `null`). NOT through the
   tunnel: uploads (to-cloud transfers and upload parts; a tunnel request body is ≤ 4 MiB, a part 8 MiB) — they stay queued on
   the site and go up when a direct or relay route exists (§21 #100: "wait for a route" means the SITE's own way to the
   cloud; it never needed anyone on the receiving end).
 - Lease ends: `tunnelStop` (stopped), `tunnelRevoke` by another tab (revoked; the holder tab gets 409 on its next call),
   no poll for 30 s (expired). Activities `internet.tunnel.started|stopped|revoked|expired`.
-- Security note (shown in the GUI): payloads (incl. proposals with secret values) pass through the browser tab.
+- **End-to-end encryption (§21 #128).** Security note shown in the GUI: traffic is end-to-end encrypted between the agent and
+  the cloud; the tab, and anything on the path of the agent GUI (plain http on a LAN), carries ciphertext only.
+  - Cloud key: static X25519 in `<dataDir>/secrets/tunnel-x25519.key` (base64, 0600, created on first use). Certificate:
+    Ed25519 by the release key (`secrets/release-key.json`, or `OPM_RELEASE_PRIVATE_KEY`) over
+    `opm-tunnel-key-v1\n<base64 public key>\n<origin>\n`, origin = origin of `OPM_API_BASE` (default: the public URL). No
+    release private key → `not-available` (404) on both routes: sealed tunnelling is off for that cloud.
+  - `GET /v1/agent/tunnel-key` → `{ v: 1, kid, publicKey, origin, sig }`: public, open CORS. kid = first 16 hex of the
+    sha256 of the public key, sig = base64url.
+  - `POST /v1/agent/sealed` body `{ v: 1, kid, epk, ct }` (base64): public at the outer level, no rate limit charged. An
+    ephemeral X25519 key per request; ECDH with the cloud key; HKDF-SHA256, salt = epk || cloud public key, info
+    `opm-tunnel-v1`, 64 bytes = kReq || kResp; `ct` = AES-256-GCM (kReq, zero nonce) of the JSON of a `RelayInner`
+    `{ method, path, headers, bodyB64 }`. Unknown kid → 409 `tunnel-key-changed`; anything else undecryptable → 400
+    `undecryptable` (one answer for every cause).
+  - The inner request runs through `Dispatch` as if it had arrived directly: signature, nonce, one site rate-limit token,
+    client IP and mount of the outer request. Only routes with auth `agent` under `/v1/agent/` exist for it, without
+    `relay`; everything else answers like an unknown route. A sealed `/auth`, human, install, enroll or sealed request
+    gets 404.
+  - Response: 200 `application/octet-stream`: a random 32-byte salt, then frames `[u32be length][ciphertext]`. Frame key =
+    HKDF-SHA256 (kResp, salt, info `opm-tunnel-v1-resp`, 32 bytes): the same sealed request can reach the cloud twice
+    (replay), and the second answer must not reuse the key and nonces of the first. Nonce = 11 bytes big-endian counter ||
+    1 byte final flag; ≤ 1 MiB plaintext per frame; the last frame has final = 1 and ends the stream. Plaintext of all
+    frames = `[u32be n][n bytes JSON { status, headers }][inner body]`. The inner status and headers are in there; the
+    outer status is always 200. A long poll answers when the inner handler finishes; the tab leaving cancels it.
+  - Agent: every `tunnelCall` is sealed. The key is fetched through the tab, verified with agent.json `releasePublicKey` and the
+    origin of the agent's own `apiBase`, and stored by the agent (`tunnelKeyCert`, verified again on load). On
+    `tunnel-key-changed` it is fetched and verified again, once, then the request is sealed anew. Headers and server time
+    come from the decrypted answer only. A truncated, reordered or tampered stream, an answer of another request, or more
+    than 64 MiB of plaintext fail the call.
+  - No downgrade: with a `releasePublicKey`, a missing, 404, bad-signature or wrong-origin key means the call fails, with
+    the reason in the lease's `lastError`. There is no fallback to clear text. Without a `releasePublicKey` the agent has
+    nothing to verify with: it fails the same way and tells the operator to set it, unless agent.json has
+    `tunnelPlaintext: true`, which is logged as activity `internet.tunnel.plaintext` on every lease start.
+    `TunnelLease.encrypted` / `TunnelStateResponse.encrypted` say which it is; a lease of an older agent has no such field.
+  - NOT hidden from the tab: that a call happens, request and response sizes, and timing (so a long poll or a download can
+    be told apart by its shape). Nor can a tab be stopped from dropping or delaying calls, or replaying a request inside the
+    signature window (the inner nonce refuses it). A certificate has no expiry: after a rotation of the X25519 key an old
+    certificate still verifies, so a tab could offer it. That matters only if the old private key leaked; then rotate the
+    release key too.
+  - Peer-to-peer relay between agents stays as it is (signed, not encrypted, on the mesh): a relayed request is sealed by
+    the lease holder, which sees the peer's request in clear. A holder that is older than this feature carries it in
+    clear through the tab; the cloud cannot tell.
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -6692,6 +6735,18 @@ Pass = every check above green; results file lists timings and the activity coun
     "N unchanged · kept running" (`progress-kept-<site>`, the names in its title). Note: the scheduled snapshot (§10)
     still stops the containers whose volumes it archives.
 
+128. **The browser tunnel is end-to-end encrypted** (user: every cloud request and response passed in clear through the
+    operator's tab, also commits and proposals with secret values, and over plain http on a LAN). §9.10: the agent seals each
+    request to a cloud X25519 key certified by the release key, the cloud answers with a framed AEAD stream, the tab
+    carries ciphertext. No downgrade: without a verified key the call fails; `tunnelPlaintext` exists only for an agent with
+    no pinned key. One addition to the agreed design after the security review: the response starts with a random salt
+    that derives the frame key, because a replayed request gets a second answer under the same kResp, which with the plain
+    design would reuse key and nonces and open the first answer. An agent from before this item stays plain against a
+    current cloud (`/v1/agent/*` is unchanged). Rollout: cloud first; the cloud needs the release private key; an agent needs
+    `releasePublicKey` in agent.json before it is upgraded if it depends on the tunnel (`opm-agent upgrade` does not add
+    the key, rerunning the install script does). Tests: `internal/tunnelseal`, `routes/sealed_test.go`,
+    `agent/tunnelsealed_test.go`, `agent/tunnelreal_test.go`.
+
 ## Appendix B. Activity catalog
 
 | type | origin | written when | data |
@@ -6745,6 +6800,7 @@ Pass = every check above green; results file lists timings and the activity coun
 | secret.revealed | cloud / agent | View in RevealValue (cloud: + audit deployment.secret-revealed) | secretSlug, actor, where, siteSlug? |
 | secret.regenerated | cloud | Regenerate in RevealValue (`regenerateSecret`, §21 #84; with draft.updated + audit deployment.secret-regenerated) | secretSlug, draftVersion |
 | secret.fetched | cloud / agent | revision with secrets sent to a site | siteSlug, secretSlugs, revId |
+| internet.tunnel.plaintext | agent | tunnel | leaseId (§9.10 this lease carries cloud calls in clear) |
 | internet.tunnel.started / stopped / revoked / expired | agent / system | tunnel | leaseId, actor?, userAgent?, reqs?, bytes?, revokedBy?, previousActor?, lastPollAt? |
 | debug.downloaded | agent | bundle with debug log | sites, fromSeq, toSeq |
 | edge.reloaded / edge.reload-failed | system | Caddy load | revSeq, hosts, routes, durationMs / error |
@@ -6863,6 +6919,9 @@ export type ErrorCode =
   | 'gone' // 410
   | 'too-large' // 413
   | 'invalid' // 422
+  | 'not-available' // 404 §9.10 this cloud has no tunnel key (no release private key)
+  | 'tunnel-key-changed' // 409 §9.10 a sealed request names another key: fetch the key again
+  | 'undecryptable' // 400 §9.10 a sealed request cannot be decrypted
   | 'gate-closed' // 409 agent: approve / rollback gate is not open
   | 'locked' // 409 agent: another update holds the lock
   | 'no-internet' // 503 agent peer fetch-request
@@ -6883,6 +6942,9 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   gone: 410,
   'too-large': 413,
   invalid: 422,
+  'not-available': 404,
+  'tunnel-key-changed': 409,
+  undecryptable: 400,
   'gate-closed': 409,
   locked: 409,
   'no-internet': 503,
@@ -8178,6 +8240,7 @@ export const ACTIVITY_TYPES = [
   'secret.regenerated', //   §21 #84 (cloud: regenerateSecret; data { secretSlug, draftVersion })
   'secret.fetched',
   'internet.tunnel.started',
+  'internet.tunnel.plaintext',
   'internet.tunnel.stopped',
   'internet.tunnel.revoked',
   'internet.tunnel.expired',
@@ -8659,6 +8722,20 @@ export interface TunnelLease {
   reqs: number;
   bytes: number;
   lastError: string | null;
+  encrypted: boolean; // §9.10 every cloud call of this lease is sealed end to end
+}
+export interface TunnelKeyResponse {
+  v: 1;
+  kid: string; //       first 16 hex of the sha256 of the public key
+  publicKey: string; // base64 X25519
+  origin: string; //    origin of the cloud's public URL, part of the signed string
+  sig: string; //       base64url Ed25519 by the release key
+}
+export interface SealedRequest {
+  v: 1;
+  kid: string;
+  epk: string; // base64 ephemeral X25519 public key, one per request
+  ct: string; //  base64
 }
 export interface TunnelRequest {
   reqId: Ulid;
@@ -8777,6 +8854,8 @@ export interface AgentConfigFile {
   edgeHttpPort?: number | null;
   /** release signing public key (base64), written by the install script; `opm-agent upgrade` verifies with it */
   releasePublicKey?: string;
+  /** §9.10 only without releasePublicKey: let the browser tunnel carry cloud calls in clear (activity on every lease start) */
+  tunnelPlaintext?: boolean;
   /** cloud console origin for the agent GUI links (fallback when the cloud does not send consoleUrl) */
   consoleUrl?: string;
   /** §21 #88 docker container names: "plain" (default; the docker name = the containerSlug) | "prefixed"
@@ -10161,6 +10240,7 @@ export interface TunnelStateResponse {
   lease: TunnelLease | null; // the active lease of the deployment (any site), if any
   holderSite: Slug | null;
   pending: number; //          queued requests on this site
+  encrypted: boolean; //       §9.10 the lease (without a lease: this agent's setting) carries ciphertext only
 }
 export interface TunnelNextResponse {
   requests: TunnelRequest[];

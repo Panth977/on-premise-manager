@@ -1388,6 +1388,7 @@ add({ id: 'TunnelLease', group: 'Agent', path: 'agent SQLite table tunnel_leases
   startedAt: Ts;
   lastPollAt: Ts;
   status: 'active' | 'stopped' | 'revoked' | 'expired';
+  encrypted: boolean;          // every cloud call of this lease is sealed end to end
 }`,
   fields: [
     ['leaseId', 'string', 'auto', '—', 'never', 'ULID', ''],
@@ -1397,6 +1398,7 @@ add({ id: 'TunnelLease', group: 'Agent', path: 'agent SQLite table tunnel_leases
     ['startedAt', 'Ts', 'auto', '—', 'never', '', ''],
     ['lastPollAt', 'Ts', 'auto', '—', 'system', 'updated on every GET next', ''],
     ['status', 'enum', 'auto', '"active"', 'system', 'active | stopped | revoked | expired', 'Only ONE active lease per site.'],
+    ['encrypted', 'boolean', 'auto', '—', 'never', '', 'false: an older agent, or tunnelPlaintext without a release key.'],
   ],
   example: { leaseId: '01JB9A1B2C3D4E5F6G7H8J9K0M', actor: 'meera@ops.example', siteSlug: 'db', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Firefox/131.0', startedAt: '2026-10-07T09:12:00Z', lastPollAt: '2026-10-07T09:40:12Z', status: 'active' },
   rules: ['No poll for 30 s → status <code>expired</code>; activity <code>internet.tunnel.expired</code>.', 'Start while another lease is active → HTTP 409 <code>conflict</code> with the active lease in the body.', 'The agent uses the tunnel only after its own internet and every peer failed (route order: own → peer → browser).'],

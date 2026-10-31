@@ -168,8 +168,8 @@
   </ol><p class="small muted">See <a href="networking.html#tunnel">Networking → tunnel</a> for the security note.</p></div>
   <div class="card"><h4>Tab loop</h4><ol>
     <li><code>GET /_opm/api/tunnel/next</code> (waits ≤ 25 s, returns ≤ 4 requests).</li>
-    <li>For each request: <code>fetch(url)</code> to the cloud with the signed headers.</li>
-    <li><code>POST /_opm/api/tunnel/result</code> { reqId, status, headers, body }.</li>
+    <li>For each request: <code>fetch(url)</code> to the cloud. The request is sealed: the tab sees <code>POST /v1/agent/sealed</code> and ciphertext.</li>
+    <li><code>POST /_opm/api/tunnel/result</code> { reqId, status, headers, body }: ciphertext again, only the agent can open it.</li>
     <li>No poll for 30 s → the lease expires.</li>
   </ol></div>
 </div>
@@ -277,7 +277,7 @@
     <li>Not logged: schema introspection, the Redis key browser, refusals before execution (403 read-only, 422 confirm / blocked / invalid). Connection failures are logged (<code>ok: false</code>).</li>
     <li>History = the <code>devtools.query</code> + MQTT publish activities of the site (last 30 days, cursor = activity seq).</li></ul></div>
 </div>
-<div class="callout note"><b>agent.json switches</b><p><code>"tools": {"devTools": true}</code> (default). <code>false</code> → every dev tools route except <code>info</code> answers 403 <code>forbidden</code> with <code>details { reason, setting: "tools.devTools" }</code>; <code>info</code> answers <code>enabled: false</code>. It is one of the safe settings on the GUI <a href="agent-gui.html#agent-page">Agent page</a> (Edit settings; restart). Limits: <code>"devTools": {"statementTimeoutSec": 30, "maxRows": 1000, "bufferRows": 10000, "maxCellBytes": 65536, "maxResultBytes": 67108864, "maxResponseBytes": 10485760, "idleTimeoutSec": 600, "maxConcurrent": 8}</code> (clamped; the file is re-read when its mtime changes). Per-session rate limits: executions 120 / min, reveals 30 / min, tests 30 / min, writes 60 / min, MQTT sessions 20 / min.</p></div>
+<div class="callout note"><b>agent.json switches</b><p><code>"tunnelPlaintext": true</code>: only without <code>releasePublicKey</code>, the browser tunnel carries cloud calls in clear (see <a href="networking.html#tunnel-e2e">Networking</a>). <code>"tools": {"devTools": true}</code> (default). <code>false</code> → every dev tools route except <code>info</code> answers 403 <code>forbidden</code> with <code>details { reason, setting: "tools.devTools" }</code>; <code>info</code> answers <code>enabled: false</code>. It is one of the safe settings on the GUI <a href="agent-gui.html#agent-page">Agent page</a> (Edit settings; restart). Limits: <code>"devTools": {"statementTimeoutSec": 30, "maxRows": 1000, "bufferRows": 10000, "maxCellBytes": 65536, "maxResultBytes": 67108864, "maxResponseBytes": 10485760, "idleTimeoutSec": 600, "maxConcurrent": 8}</code> (clamped; the file is re-read when its mtime changes). Per-session rate limits: executions 120 / min, reveals 30 / min, tests 30 / min, writes 60 / min, MQTT sessions 20 / min.</p></div>
 
 <h2 id="install">Install and enroll</h2>
 <ol class="steps">
@@ -714,7 +714,7 @@ const INFO = {
   mesh: { t: 'Mesh', b: '<p>Agent ↔ agent over <code>agentPort</code> at <code>/_opm/peer/*</code>. Signed requests (Ed25519), 60 s clock window, nonce cache 5 min. Ping every 10 s; reachable = answer in the last 30 s. Carries: state snapshots, GUI data, update steps, cloud views, blob copies, relay.</p>' },
   driver: { t: 'Container driver', b: '<p>Docker Engine API. One network <code>opm_&lt;deploymentId&gt;_&lt;siteSlug&gt;</code>; container name = containerSlug (or prefixed, agent.json containerNames). Labels <code>opm.deployment</code>, <code>opm.site</code>, <code>opm.service</code>, <code>opm.rev</code>, <code>opm.spec_hash</code>. Recreates a container only when its spec hash changes.</p>' },
   edge: { t: 'Edge (embedded Caddy)', b: '<p>Caddy v2 linked as a Go library. Builds Caddy JSON from <code>SiteConfig.edge</code> and loads it with <code>caddy.Load</code> (graceful reload). Owns 80/443. Matching: host (exact &gt; wildcard &gt; *), <code>/_opm/</code> reserved, routes in order (first match), else the not-found page (404); target not ready → 503. TLS by CertMagic in <code>/var/lib/opm/certs/</code>. A failed reload keeps the old config and fails the update step → rollback.</p>' },
-  tunnel: { t: 'Browser tunnel', b: '<p>Third route for cloud calls, after own internet and peer relay. Keeps one <code>TunnelLease</code>. Queues signed <code>TunnelRequest</code>s; the tab takes them with <code>GET /_opm/api/tunnel/next</code> and returns <code>TunnelResult</code>s matched by <code>reqId</code>. Lease expires after 30 s without a poll.</p>' },
+  tunnel: { t: 'Browser tunnel', b: '<p>Third route for cloud calls, after own internet and peer relay. Keeps one <code>TunnelLease</code>. Seals each signed request end to end for the cloud (key verified with <code>releasePublicKey</code>) and queues it as a <code>TunnelRequest</code>; the tab takes them with <code>GET /_opm/api/tunnel/next</code> and returns <code>TunnelResult</code>s matched by <code>reqId</code>. Lease expires after 30 s without a poll.</p>' },
   health: { t: 'Readiness checker', b: '<p>Runs the health checks of every container (http, tcp, exec, log) and computes "completed". Used by depends and VERIFY. Also samples CPU / RAM / restarts every 30 s for uptime.</p>' },
   snap: { t: 'Snapshot manager', b: '<p>Makes snapshots (config + image refs + the declared site volumes with Back up on, one <code>.tar.zst</code> per volumeSlug; host paths are never archived), restores by volumeSlug, checks free space first, keeps retention, exports and imports <code>.opmsnap</code> files, restores for rollback.</p>' },
   pipe: { t: 'Upload pipe', b: '<p>One job: when the cloud is reachable (directly or through a relay peer), send every activity after the last acknowledged seq, in batches of 500. The cloud upserts by <code>siteSlug:seq</code> and never changes an existing record.</p>' },
@@ -814,9 +814,9 @@ sequence(document.getElementById('seqTunnel'), {
   steps: [
     { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/start', detail: 'Creates a TunnelLease (status active). If another lease is active → 409 conflict with that lease (actor, since). Activity <code>internet.tunnel.started</code>.' },
     { from: 'tab', to: 'agent', label: 'GET /_opm/api/tunnel/next', detail: 'Long-poll ≤ 25 s. Returns up to 4 TunnelRequest items. Each poll updates lastPollAt.' },
-    { from: 'agent', to: 'tab', label: '[{ reqId, method, url, headers }]', reply: true, detail: 'The agent signs each cloud request (X-OPM-Site, X-OPM-Ts, X-OPM-Sig) before it queues it.' },
-    { from: 'tab', to: 'cloud', label: 'fetch(url) with signed headers', detail: 'The cloud allows CORS on /v1/agent/* and on the Storage bucket. It checks the agent signature, not the browser.' },
-    { from: 'cloud', to: 'tab', label: 'response', reply: true, detail: 'Large bodies (> 4 MB) go back in chunks.' },
+    { from: 'agent', to: 'tab', label: '[{ reqId, method, url, headers }]', reply: true, detail: 'The agent signs each cloud request (X-OPM-Site, X-OPM-Ts, X-OPM-Sig), then seals all of it: the tab gets a request to /v1/agent/sealed with a ciphertext body. The first time it also gets GET /v1/agent/tunnel-key; the key counts only if the release key verifies it.' },
+    { from: 'tab', to: 'cloud', label: 'POST /v1/agent/sealed (ciphertext)', detail: 'The cloud allows CORS on /v1/agent/*. It decrypts and checks the agent signature inside, not the browser.' },
+    { from: 'cloud', to: 'tab', label: 'framed ciphertext', reply: true, detail: 'Large bodies (> 4 MB) go back in chunks. Status and headers are inside the encryption.' },
     { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/result', detail: 'TunnelResult matched by reqId. Large bodies: POST …/result/{reqId}/chunk, then …/complete with sha256.' },
     { from: 'tab', to: 'agent', label: 'POST /_opm/api/tunnel/stop', detail: 'Or the tab closes: no poll for 30 s → expired. Activity <code>internet.tunnel.stopped</code> / <code>expired</code>.' },
   ],

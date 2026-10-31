@@ -292,6 +292,7 @@ const ARR = (svg, d, id, cls) => svg.appendChild(svgEl('path', { d, class: 'ln '
     ['install-token.revealed', 'cloud', 'a person clicked View on an active install command (cloud Setup page); shown 60 s (also an audit entry)', 'siteSlug, tokenHash'],
     ['secret.fetched', 'cloud / agent', 'a site got secret values: proposal download from the cloud, or a peer copy during staging; never the values', 'siteSlug, secretSlugs[], revId'],
     ['internet.tunnel.started', 'agent', 'a browser tab started to give internet to the agent (/_opm/app/internet)', 'leaseId, actor, userAgent'],
+    ['internet.tunnel.plaintext', 'agent', 'this lease carries cloud calls in clear (tunnelPlaintext, no releasePublicKey)', 'leaseId'],
     ['internet.tunnel.stopped', 'agent', 'the tab stopped the tunnel', 'leaseId, actor, reqs, bytes'],
     ['internet.tunnel.revoked', 'agent', 'another tab revoked the active tunnel (after a confirm)', 'leaseId, revokedBy, previousActor'],
     ['internet.tunnel.expired', 'system', 'the tunnel tab did not poll for 30 s', 'leaseId, lastPollAt'],

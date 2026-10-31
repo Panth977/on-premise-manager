@@ -299,11 +299,30 @@ add_header Cache-Control "public, max-age=3600, must-revalidate";</pre>
     <li>Only ONE active tab (lease) per site. <code>POST /_opm/api/tunnel/start</code> while another lease is active → <b>409 conflict</b> with the actor and start time of that lease.</li>
     <li>To move to a new tab: click "Revoke the other tab" (confirm), then Start.</li>
     <li><code>GET /_opm/api/tunnel/next</code> waits ≤ 25 s and returns ≤ 4 requests. No poll for 30 s → the lease expires.</li>
+    <li>The tab fetches two URLs only: <code>GET /v1/agent/tunnel-key</code> and <code>POST /v1/agent/sealed</code>. The real request is inside.</li>
     <li>Bodies over 4 MB: chunk upload, then complete with sha256.</li>
-    <li>The cloud allows CORS from any origin on <code>/v1/agent/*</code> and on the Storage bucket. The agent signature is the authorization, not the browser.</li>
-    <li>Activities: <code>internet.tunnel.started</code> · <code>stopped</code> · <code>revoked</code> · <code>expired</code>.</li>
+    <li>The cloud allows CORS from any origin on <code>/v1/agent/*</code> and on the Storage bucket. The agent signature, inside the sealed request, is the authorization, not the browser.</li>
+    <li>Activities: <code>internet.tunnel.started</code> · <code>stopped</code> · <code>revoked</code> · <code>expired</code>, and <code>internet.tunnel.plaintext</code> for a lease in clear.</li>
   </ol></div>
-  <div class="callout warn"><b>Security note</b><p>Every payload passes through the browser, also secrets (for example a proposal with secret values). The tab is same-origin with the agent GUI, and the actor popup is required. The agent still logs <code>secret.fetched</code> for each secret read. End-to-end encryption between agent and cloud is a later step.</p></div>
+  <div class="callout note"><b>Security note</b><p>Traffic is end-to-end encrypted between the agent and the cloud. The tab, and anything on the path of the agent GUI (plain http on a LAN), carries ciphertext only: no secret, no inner path, no signature header. The actor popup is still required, and the agent still logs <code>secret.fetched</code> for each secret read.</p></div>
+</div>
+<h3 id="tunnel-e2e">End-to-end encryption</h3>
+<div class="grid g2">
+  <div class="card"><h4>How it works</h4><ol>
+    <li>The cloud has a static X25519 key (<code>secrets/tunnel-x25519.key</code>), certified by the release key over <code>opm-tunnel-key-v1\n&lt;public key&gt;\n&lt;origin&gt;\n</code>.</li>
+    <li>The agent fetches it through the tab and accepts it only if the signature verifies with agent.json <code>releasePublicKey</code> and the origin is the one of its own <code>apiBase</code>.</li>
+    <li>Each request gets an ephemeral key: ECDH, then HKDF-SHA256 gives a request key and a response key. AES-256-GCM seals <code>{ method, path, headers, bodyB64 }</code>.</li>
+    <li>The cloud decrypts and runs the request as if it had arrived directly: signature, nonce, rate limit, client IP. Only the signed <code>/v1/agent/*</code> routes exist for it.</li>
+    <li>The answer is a stream: a random salt, then frames <code>[u32be length][ciphertext]</code> of ≤ 1 MiB plaintext, numbered, the last one marked final. A truncated, reordered or changed stream fails on the agent.</li>
+  </ol></div>
+  <div class="card"><h4>What a tab cannot do, and what it still sees</h4><ul>
+    <li><b>Downgrade</b>: no. A missing, 404 or badly signed key fails the call, with the reason in the lease's last error. There is no fallback to clear text.</li>
+    <li><b>Replay a captured request</b>: the inner nonce refuses it, and the answer has its own key. <b>Replay an old answer</b>: it does not open, the ephemeral key differs.</li>
+    <li><b>Not hidden</b>: that a call happens, request and response sizes, timing. A tab can drop or delay calls.</li>
+    <li><b>An agent without <code>releasePublicKey</code></b> has nothing to verify with: its tunnel calls fail and say so. <code>"tunnelPlaintext": true</code> in agent.json carries them in clear instead, logged on every lease start. It has no effect with a release key.</li>
+    <li><b>Peer-to-peer relay between agents stays as it is</b>: signed, on the mesh. The lease holder seals a peer's request, so it sees it. An older holder carries it in clear through the tab.</li>
+    <li>A cloud without its release private key answers <code>not-available</code>: new agents get no tunnel there. Old agents keep the plain way, the agent routes did not change.</li>
+  </ul></div>
 </div>
 
 <h2 id="notfound">Not-found pages</h2>

@@ -106,7 +106,8 @@ docker compose cp opm-cloud:/data/backups/$(date +%F) ./opm-backup-$(date +%F)  
 `backup` makes a `VACUUM INTO` copy of every SQLite file (safe while the server runs), copies `blobs/`, `blobmeta/`
 and `secrets/`, and writes `BACKUP.json`. Copy the backup directory off the VM. Restore: stop the server, replace the
 data dir with the backup (`db/`, `blobs/`, `blobmeta/`, `secrets/`), start. A file-level snapshot of the whole data dir
-taken while the server is stopped is also a valid backup. `secrets/` holds the session, blob-URL and release keys: keep
+taken while the server is stopped is also a valid backup. `secrets/` holds the session, blob-URL, release and tunnel keys (`tunnel-x25519.key`, §9.10 browser tunnel; it needs the
+release private key on this host, else agents get no tunnel): keep
 backups private.
 
 ## 5. Upgrade

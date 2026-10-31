@@ -379,9 +379,10 @@ func Listen(t *doc.Map) {
 	pt.Lock()
 	if err != nil {
 		l.listening = false
-		l.err = listenMessage(err, host, port)
+		msg := listenMessage(err, host, port)
+		l.err = msg
 		pt.Unlock()
-		driver.Log.Error("port tunnel listen failed", "port", port, "tunnelId", t.Val("tunnelId"), "error", l.err)
+		driver.Log.Error("port tunnel listen failed", "port", port, "tunnelId", t.Val("tunnelId"), "error", msg)
 		return
 	}
 	if pt.listeners[port] != l { // removed meanwhile

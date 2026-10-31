@@ -538,7 +538,7 @@ func handleRemoteUpgrade(w http.ResponseWriter, r *http.Request) bool {
 			resp += "Sec-WebSocket-Protocol: " + proto + "\r\n"
 		}
 		sock.write([]byte(resp+"\r\n"), false)
-		RemoteSetBrowser(stream, func(f *doc.Map) {
+		RemoteAttachBrowser(stream, func(f *doc.Map) {
 			if sock.isDestroyed() {
 				return
 			}

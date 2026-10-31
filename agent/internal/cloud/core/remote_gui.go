@@ -575,9 +575,6 @@ func RemoteToBrowser(s *WsStream, frames []any) bool {
 	return true
 }
 
-// RemoteSetBrowser sets toBrowser of a WebSocket stream (nothing can have arrived: the agent relays after the 101).
-func RemoteSetBrowser(s *WsStream, fn func(f *doc.Map)) { RemoteAttachBrowser(s, fn) }
-
 // RemoteAttachBrowser is attachBrowser: the browser side of an event stream is ready: hand it what already arrived.
 func RemoteAttachBrowser(s *WsStream, fn func(f *doc.Map)) {
 	rg.Lock()

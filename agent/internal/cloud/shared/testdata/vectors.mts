@@ -1,4 +1,5 @@
 /** Prints inputs + TS outputs of every ported function (shared_test.go). Run with tsx from backend/. */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as V from '../../../../../shared/src/validate.ts';
 import * as IE from '../../../../../shared/src/image-edit.ts';
@@ -307,6 +308,35 @@ for (const c of migs) {
   run('migrateVolumeFileSeeds', (x, known) => VC.migrateVolumeFileSeeds(x, known ? ivFn : () => null), c, true);
   run('migrateVolumeFileSeeds', (x, known) => VC.migrateVolumeFileSeeds(x, known ? ivFn : () => null), c, false);
 }
+
+// ── the rest of validate.ts
+for (const f of [{ editor: 'binary', render: 'expressions' }, { editor: 'text' }, { editor: 'text', render: 'none' }, {}]) run('fileRenderMode', V.fileRenderMode, f);
+for (const f of [{ fileSlug: 'a', z: 1, editor: 'text', location: { kind: 'path', path: './x' } }, { editor: 'binary', render: 'x', location: 3 }, null, 'ab', 5, []]) run('normalizeFileDef', V.normalizeFileDef, f);
+for (const v of [{ mountPath: '/a.json' }, { mountPath: '/a', kind: 'file' }, { mountPath: '/a.json', kind: 'dir' }, { kind: 'x' }, null]) run('imageVolumeKind', V.imageVolumeKind, v);
+for (const c of [null, 5, 'x', [], {}, legacyContainer, roundC, { containerSlug: 'a', ports: [], volumes: [] }, { containerSlug: 'a', ports: [], volumes: [], port: 1 }, { containerSlug: 'a', ports: 3, volumes: [] }]) run('isLegacyContainer', V.isLegacyContainer, c);
+for (const c of [null, 5, 'x', [], {}, { volumes: [] }, { volumes: [], containers: [legacyContainer] }, { volumes: [], containers: [{ containerSlug: 'a', ports: [], volumes: [{ source: { kind: 'data' } }] }] }, { volumes: [], containers: [{ containerSlug: 'a', ports: [], volumes: [null, {}] }] }, { volumes: [], containers: 3 }]) run('isLegacySiteConfig', V.isLegacySiteConfig, c);
+for (const p of [null, 3, '', 'a', 'a/b', '/a', 'a//b', './a', 'a/..', 'a b', 'x'.repeat(256), '😀']) run('seedPathError', V.seedPathError, p);
+const { checkEdgeRegex } = await import('../../../../../shared/src/edge-resolve.ts');
+for (const s of [...REGEXES, '', 'x'.repeat(1025), '(?i)(', '(?i)a', '(?i)[', '\\1', '\\k<a>', '\\A', '\\z', '\\p{L}', '\\x{41}', '\\u0041', '\\cA', '\\0', '\\.', '[[:alpha:]]', '[^[:alpha:]]', '[a', '[]a]', '[^]a]', '(?=a)', '(?!a)', '(?<=a)', '(?<!a)', '(?>a)', '(?P<n>a)', '(?<n>a)', '(?:a)', '(?s)a', 'a++', 'a*+', 'a?+', 'a{1}+', '^/api/(.*)$']) run('checkEdgeRegex', checkEdgeRegex, s);
+for (const [n, v] of [['Cache-Control', 'public'], ['Cache-Control', 'no-cache'], ['cache-control', 'max-age=3'], ['Cache-Control', 'xpublic'], ['Expires', ''], ['X-Frame-Options', ''], ['Access-Control-Allow-Origin', '*'], ['Access-Control-Max-Age', '1'], ['X-A', 'public']]) run('isResponseOnlyHeader', V.isResponseOnlyHeader, n, v);
+for (const s of ['1.2.3.4', '::1', 'FE80::1', 'a:b', 'x', '1.2.3', 'g::']) run('isIpLiteral', V.isIpLiteral, s);
+for (const v of [undefined, null, 3, '', '  ', 'a', 'x'.repeat(81), '😀'.repeat(41)]) {
+  run('checkLabel', (x) => iss((is) => V.checkLabel(x, 'p', is)), v);
+  run('checkDescription', (x) => iss((is) => V.checkDescription(x, 'p', is)), v);
+  run('checkSlug', (x) => iss((is) => V.checkSlug(x, 'p', is)), v);
+}
+for (const v of [0, 1, 65535, 65536, 1.5, '1', null, undefined, 1e21]) for (const m of [1, 1024]) run('checkPort', (x, y) => iss((is) => V.checkPort(x, 'p', is, y)), v, m);
+for (const v of ['/a', '/', 'a', '/a b', '/a..b', '/a\u00a0b', '/' + 'x'.repeat(1024)]) run('isSafeMountPath', V.isSafeMountPath, v);
+run('defaultVolumeSlug', V.defaultVolumeSlug, 'c', 'v');
+run('defaultVolumeSlug', V.defaultVolumeSlug, 'c'.repeat(90), 'v'.repeat(20));
+run('newSiteVolume', V.newSiteVolume, 'v');
+for (const h of [null, 'x']) run('defaultSiteConfig', V.defaultSiteConfig, h);
+run('defaultEdge', V.defaultEdge);
+run('newEdgeHost', V.newEdgeHost, 'a');
+run('newProxyAction', V.newProxyAction, 'c', 'p');
+run('newEdgeRoute', V.newEdgeRoute, 'r', '/p', { type: 'redirect' }, 3);
+const hashHex = (s: string) => createHash('sha256').update(s).digest('hex');
+for (const t of [T1, { entries: [], dirs: [] }]) out.volumeTreeHash = [...(out.volumeTreeHash ?? []), { args: [t], out: await VC.volumeTreeHash(t, hashHex) }];
 
 // ── slugs
 for (const v of ['Hello World', 'Ünï çødé', '123 go', '', '!!!', 'a', 'x'.repeat(60), 'trail---', 'ﬁ ligature', '日本語', 'K Kelvin', 'İstanbul', 'x'.repeat(39) + '-y', '1', '-']) for (const p of ['x-', 't-', 'd-']) run('slugifyLabel', slugifyLabel, v, p);

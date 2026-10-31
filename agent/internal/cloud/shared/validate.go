@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -98,7 +99,7 @@ func (is *Issues) OK() bool { return len(is.Errors()) == 0 }
 
 func jIsInt(v any) bool {
 	f, ok := v.(float64)
-	return ok && f == float64(int64(f)) && f-f == 0
+	return ok && f == math.Trunc(f) && f-f == 0
 }
 
 // CheckLabel is checkLabel (max 0 = LIMITS.Label).

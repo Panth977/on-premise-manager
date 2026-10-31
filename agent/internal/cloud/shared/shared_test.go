@@ -215,7 +215,31 @@ var goFns = map[string]func(a []any) (any, error){
 			return nil
 		})
 	},
-	"slugifyLabel": func(a []any) (any, error) { return SlugifyLabel(a[0].(string), a[1].(string)), nil },
+	"fileRenderMode":       func(a []any) (any, error) { return FileRenderMode(a[0].(*doc.Map)), nil },
+	"normalizeFileDef":     func(a []any) (any, error) { return NormalizeFileDef(a[0]) },
+	"imageVolumeKind":      func(a []any) (any, error) { return ImageVolumeKind(a[0]) },
+	"isLegacyContainer":    func(a []any) (any, error) { return IsLegacyContainer(a[0]), nil },
+	"isLegacySiteConfig":   func(a []any) (any, error) { return IsLegacySiteConfig(a[0]) },
+	"seedPathError":        func(a []any) (any, error) { return sp(SeedPathError(a[0])), nil },
+	"checkEdgeRegex":       func(a []any) (any, error) { return sp(CheckEdgeRegex(a[0].(string))), nil },
+	"isResponseOnlyHeader": func(a []any) (any, error) { return IsResponseOnlyHeader(a[0].(string), a[1].(string)), nil },
+	"isIpLiteral":          func(a []any) (any, error) { return IsIpLiteral(a[0].(string)), nil },
+	"checkLabel":           issuesFn(func(is *Issues, a []any) error { CheckLabel(a[0], "p", is, 0); return nil }),
+	"checkDescription":     issuesFn(func(is *Issues, a []any) error { CheckDescription(a[0], "p", is); return nil }),
+	"checkSlug":            issuesFn(func(is *Issues, a []any) error { CheckSlug(a[0], "p", is); return nil }),
+	"checkPort":            issuesFn(func(is *Issues, a []any) error { CheckPort(a[0], "p", is, int(a[1].(float64))); return nil }),
+	"isSafeMountPath":      func(a []any) (any, error) { return IsSafeMountPath(a[0].(string)), nil },
+	"defaultVolumeSlug":    func(a []any) (any, error) { return DefaultVolumeSlug(a[0].(string), a[1].(string)), nil },
+	"newSiteVolume":        func(a []any) (any, error) { return NewSiteVolume(a[0]), nil },
+	"defaultSiteConfig":    func(a []any) (any, error) { return DefaultSiteConfig(a[0]), nil },
+	"defaultEdge":          func(a []any) (any, error) { return DefaultEdge(), nil },
+	"newEdgeHost":          func(a []any) (any, error) { return NewEdgeHost(a[0].(string)), nil },
+	"newProxyAction":       func(a []any) (any, error) { return NewProxyAction(a[0].(string), a[1].(string)), nil },
+	"newEdgeRoute": func(a []any) (any, error) {
+		return NewEdgeRoute(a[0].(string), a[1].(string), a[2], a[3].(float64)), nil
+	},
+	"volumeTreeHash": func(a []any) (any, error) { return VolumeTreeHash(a[0]) },
+	"slugifyLabel":   func(a []any) (any, error) { return SlugifyLabel(a[0].(string), a[1].(string)), nil },
 	"uniqueSlug": func(a []any) (any, error) {
 		taken := map[string]bool{}
 		for _, s := range strsOf(a[1]) {

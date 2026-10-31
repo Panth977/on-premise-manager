@@ -243,7 +243,8 @@ func VolumeTreeIssues(t any, forSeed bool) (out []any, err error) {
 		if s, ok := jGet(e, "sha256").(string); !ok || !jReSha.MatchString(s) {
 			issue(p, "V_FORMAT", p+": upload the content (sha256)")
 		}
-		if n, ok := jGet(e, "size").(float64); !ok || n != float64(int64(n)) || n < 0 || n > float64(L.FileMaxBytes) {
+		n, _ := jGet(e, "size").(float64)
+		if !jIsInt(jGet(e, "size")) || n < 0 || n > float64(L.FileMaxBytes) {
 			issue(p, "V_TOO_LARGE", p+": a file is 0 B – "+strconv.Itoa(L.FileMaxBytes/1048576)+" MiB")
 		} else {
 			total += n

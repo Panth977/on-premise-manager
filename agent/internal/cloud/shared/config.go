@@ -216,7 +216,7 @@ func jKey(v any) string {
 		return fmt.Sprintf("p%p", x)
 	case []any:
 		if len(x) == 0 {
-			return fmt.Sprintf("e%p", &x)
+			return "e" // no address to tell two empty arrays apart: jEq and the dupes treat them as distinct
 		}
 		return fmt.Sprintf("a%p", &x[0])
 	}
@@ -230,7 +230,12 @@ func jKey(v any) string {
 }
 
 // jEq is ===.
-func jEq(a, b any) bool { return jKey(a) == jKey(b) }
+func jEq(a, b any) bool {
+	if x, ok := a.([]any); ok && len(x) == 0 {
+		return false
+	}
+	return jKey(a) == jKey(b)
+}
 
 // jIs is `v === s` for a string.
 func jIs(v any, s string) bool {
@@ -250,7 +255,7 @@ func jDupes(items []any, key func(any) any) map[string]bool {
 	d := map[string]bool{}
 	for _, it := range items {
 		k := jKey(key(it))
-		if seen[k] {
+		if seen[k] && k != "e" {
 			d[k] = true
 		}
 		seen[k] = true

@@ -532,3 +532,6 @@ func brMissing(cfg *doc.Map) *doc.Map {
 	}
 	return doc.Obj("variables", vars, "secrets", secrets)
 }
+
+// Canonicalize is canonicalize of canonical.ts on document values.
+func Canonicalize(v any) (string, error) { return brCanonicalize(v) }

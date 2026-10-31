@@ -61,6 +61,9 @@ func jsNumber(s string) (float64, bool) {
 	return f, true
 }
 
+// JSNumber is Number(string): false for NaN.
+func JSNumber(s string) (float64, bool) { return jsNumber(s) }
+
 func origin(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" || u.Host == "" {

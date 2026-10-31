@@ -41,8 +41,8 @@ func tsx(t testing.TB, script string, args ...string) []byte {
 }
 
 func brMapOf(v any) *doc.Map { m, _ := v.(*doc.Map); return m }
-func arrOf(v any) []any    { a, _ := v.([]any); return a }
-func strOf(v any) string   { s, _ := v.(string); return s }
+func arrOf(v any) []any      { a, _ := v.([]any); return a }
+func strOf(v any) string     { s, _ := v.(string); return s }
 func slotOf(v any) Slot {
 	m := brMapOf(v)
 	return Slot{Has: doc.Truthy(m.Val("has")), V: m.Val("v")}

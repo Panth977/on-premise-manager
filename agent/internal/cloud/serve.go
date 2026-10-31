@@ -107,6 +107,11 @@ func Serve(cfg *CloudConfig) error {
 	}
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	srv := NewServer(addr, NewHandler(cfg, lp))
+	// server.ts exits at once whatever is in flight: agents always hold a long-poll, so a shutdown that waits for them
+	// runs into docker stop's 10 s and ends in SIGKILL. The signal cancels them; the rest gets 8 s.
+	base, cancelBase := context.WithCancel(context.Background())
+	defer cancelBase()
+	srv.BaseContext = func(net.Listener) context.Context { return base }
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -119,7 +124,8 @@ func Serve(cfg *CloudConfig) error {
 		s := <-sigs
 		driver.Log.Info("opm-cloud stopping", "signal", s.String())
 		time.AfterFunc(20*time.Second, func() { os.Exit(0) })
-		cx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		cancelBase()
+		cx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(cx)
 		for _, stop := range stops {

@@ -10,17 +10,20 @@ import (
 	"opm/agent/internal/cloud/shared"
 )
 
-func init() {
-	cloud.RegisterTrigger("importImage", func(e driver.DocEvent) error {
-		if e.After == nil || e.After.Map("import").Val("status") != "pending" {
-			return nil
-		}
-		if e.Before != nil && e.Before.Map("import").Val("status") == "pending" {
-			return nil
-		}
-		RunImport(e.Params["serviceSlug"], e.Params["version"])
+func init() { cloud.RegisterTrigger("importImage", onImageWritten) }
+
+var runImport = RunImport
+
+// onImageWritten is HANDLERS.importImage of app.ts.
+func onImageWritten(e driver.DocEvent) error {
+	if e.After == nil || e.After.Map("import").Val("status") != "pending" {
 		return nil
-	})
+	}
+	if e.Before != nil && e.Before.Map("import").Val("status") == "pending" {
+		return nil
+	}
+	runImport(e.Params["serviceSlug"], e.Params["version"])
+	return nil
 }
 
 // HostURL is hostUrl: the registry base URL of a reference host.

@@ -2,7 +2,11 @@ package core
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +27,7 @@ import (
 	"opm/agent/internal/cloud/driver"
 )
 
-func tsVectors(t *testing.T, stub string) *doc.Map {
+func tsVectors(t *testing.T, stub, goHash, saKey string) *doc.Map {
 	_, f, _, _ := runtime.Caller(0)
 	back := filepath.Join(filepath.Dir(f), "../../../../backend")
 	if _, err := os.Stat(filepath.Join(back, "node_modules/tsx")); err != nil {
@@ -32,14 +36,14 @@ func tsVectors(t *testing.T, stub string) *doc.Map {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
 	}
-	cmd := exec.Command("node", "--import", "tsx", "--no-warnings=ExperimentalWarning", "--disable-warning=ExperimentalWarning", filepath.Join(filepath.Dir(f), "testdata/vectors.mts"), stub, filepath.Join(t.TempDir(), "steps.json"))
+	cmd := exec.Command("node", "--import", "tsx", "--no-warnings=ExperimentalWarning", "--disable-warning=ExperimentalWarning", filepath.Join(filepath.Dir(f), "testdata/vectors.mts"), stub, filepath.Join(t.TempDir(), "steps.json"), goHash, saKey)
 	cmd.Dir = back
 	var out, e bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &e
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("vectors.mts: %v\n%s", err, e.String())
 	}
-	raw, err := os.ReadFile(cmd.Args[len(cmd.Args)-1])
+	raw, err := os.ReadFile(cmd.Args[len(cmd.Args)-3])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +145,24 @@ func stubServer() *httptest.Server {
 			js(`{}`)
 		case p == "/tokfail/token":
 			send(403, "", " no \n way ")
+		case p == "/ar/token":
+			b, _ := io.ReadAll(r.Body)
+			parts := strings.Split(string(b), "assertion=")
+			jwt := strings.Split(parts[len(parts)-1], ".")
+			claims, _ := doc.ParseMap(doc.B64Decode(jwt[1]))
+			if len(jwt) != 3 || claims.Val("iss") != "sa@x" {
+				send(400, "", "bad assertion")
+				return
+			}
+			js(`{"access_token":"AT"}`)
+		case p == "/ar/v1/projects/proj/locations/us-central1/repositories":
+			js(`{"repositories":[{"name":"projects/proj/locations/us-central1/repositories/repo","format":"DOCKER","description":"D"},{"name":"projects/proj/locations/us-central1/repositories/mvn","format":"MAVEN"},{"name":"projects/proj/locations/us-central1/repositories/empty"}]}`)
+		case p == "/ar/v1/projects/proj/locations/us-central1/repositories/repo/packages":
+			js(`{"packages":[{"name":"x/packages/img1","updateTime":"2026-01-01T00:00:00Z"},{"name":"x/packages/my%2Fimg2"}]}`)
+		case p == "/ar/v1/projects/proj/locations/us-central1/repositories/repo/packages/my%2Fimg/tags", strings.HasSuffix(r.URL.EscapedPath(), "packages/my%2Fimg/tags"):
+			js(`{"tags":[{"name":"x/tags/v1","version":"x/versions/sha256%3A` + strings.Repeat("a", 64) + `"},{"name":"x/tags/v2","version":"x/versions/nope"},{"name":"x/tags/v3"}]}`)
+		case strings.HasSuffix(r.URL.EscapedPath(), "packages/my%2Fimg/versions"):
+			js(`{"versions":[{"name":"x/versions/sha256%3A` + strings.Repeat("a", 64) + `","updateTime":"2026-02-01T00:00:00Z"},{"name":"x/versions/nope","createTime":"2026-03-01T00:00:00Z"}]}`)
 		case p == "/hub/v2/users/login":
 			b, _ := io.ReadAll(r.Body)
 			if strings.Contains(string(b), `"pw"`) {
@@ -1011,7 +1033,46 @@ func (e *env) table() map[string]func(a []any) (any, error) {
 			}
 			return doc.Obj("token", t, "projectId", p), nil
 		},
-		"runImport":  runImp,
+		"runImport":       runImp,
+		"verifyAccessKey": func(a []any) (any, error) { return errOr(VerifyAccessKey(toStr(a[0]), toStr(a[1]))) },
+		"verifyGoHash":    func(a []any) (any, error) { return true, nil },
+		"accessKeyShape": func(a []any) (any, error) {
+			k := NewAccessKey()
+			ok, err := VerifyAccessKey(k.Grouped, k.Hash)
+			return doc.Obj("plain", len(k.Plain), "grouped", len(k.Grouped), "ok", ok), err
+		},
+		"genSecrets": func(a []any) (any, error) {
+			l, err := MergeSecrets(toArr(a[0]), toArr(a[1]))
+			if err != nil {
+				return nil, err
+			}
+			out := []any{}
+			for _, x := range l {
+				s := x.(*doc.Map)
+				out = append(out, s.Shallow().Set("value", len(s.Str("value"))).Set("hex", regexp.MustCompile(`^[0-9a-f]*$`).MatchString(s.Str("value"))).Set("rotatedAt", s.Truthy("rotatedAt")))
+			}
+			return out, nil
+		},
+		"createFile3": func(a []any) (any, error) {
+			u := NewUpload(NewUploadOpts{Purpose: "file", DeploymentID: D, TransferID: "file4", SizeBytes: 12, Sha256: toStr(a[1]), CreatedBy: "u1", CreatorSite: "alpha", Target: "shared-files/D1/file4"})
+			e.ups[toStr(a[0])] = u
+			if err := store().Doc("uploads/" + u.Str("uploadId")).Create(u); err != nil {
+				return nil, err
+			}
+			return "ok", store().Doc("deployments/D1/files/file4").Create(doc.Obj("fileId", "file4", "fileName", "w.txt", "state", "ready", "publishedAt", past, "unpublishedAt", nil, "cloud", doc.Obj("stored", false, "fetch", NewFetch("u1", "beta")), "_storagePath", "p", "_uploadId", u.Str("uploadId")))
+		},
+		"readTreeHit": func(a []any) (any, error) {
+			h, err := StoreTree(a[0])
+			if err != nil {
+				return nil, err
+			}
+			return errOr(ReadTree(h))
+		},
+		"primeNormalize": func(a []any) (any, error) {
+			SetImageVolumes(nil)
+			PrimeImageVolumes()
+			return []any{ImageVolumesFresh(), NormalizeStored(toMap(a[0]), nil)}, nil
+		},
 		"fetchLayer": func(a []any) (any, error) { return void(FetchLayer(toMap(a[0]), toStr(a[1]))) },
 		"dump": func(a []any) (any, error) {
 			q, err := store().Collection(toStr(a[0])).Get()
@@ -1068,7 +1129,13 @@ func normRows(s string) string {
 func TestVectors(t *testing.T) {
 	srv := stubServer()
 	defer srv.Close()
-	v := tsVectors(t, srv.URL)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _ := x509.MarshalPKCS8PrivateKey(key)
+	saKey := doc.MarshalString(doc.Obj("client_email", "sa@x", "project_id", "proj", "token_uri", srv.URL+"/ar/token", "private_key", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))))
+	v := tsVectors(t, srv.URL, HashAccessKey("ABCD-EFGH"), saKey)
 	dir := t.TempDir()
 	p, err := driver.Open(driver.Config{DataDir: dir, PublicURL: "http://x.test"})
 	if err != nil {
@@ -1168,6 +1235,28 @@ func sortHeaders(s string) string {
 	}
 	o.Set("headers", n)
 	return doc.MarshalString(m)
+}
+
+func TestImportTrigger(t *testing.T) {
+	calls := 0
+	orig := runImport
+	runImport = func(s, v string) {
+		calls++
+		if s != "web" || v != "1" {
+			t.Fatal(s, v)
+		}
+	}
+	defer func() { runImport = orig }()
+	st := func(s string) *doc.Map { return doc.Obj("import", doc.Obj("status", s)) }
+	for _, c := range []struct {
+		before, after *doc.Map
+		want          int
+	}{{nil, st("pending"), 1}, {st("failed"), st("pending"), 1}, {st("pending"), st("pending"), 0}, {nil, st("ready"), 0}, {st("pending"), nil, 0}} {
+		calls = 0
+		if err := onImageWritten(driver.DocEvent{Params: map[string]string{"serviceSlug": "web", "version": "1"}, Before: c.before, After: c.after}); err != nil || calls != c.want {
+			t.Fatal(err, calls, c.want)
+		}
+	}
 }
 
 func trunc(s string, n int) string {

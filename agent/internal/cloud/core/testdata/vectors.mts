@@ -470,6 +470,31 @@ await step('accessHint', [hubC, 'msg'], (c, m) => browse.accessHint(c, m, noStub
 await step('accessHint', [hubA, 'msg'], (c, m) => browse.accessHint(c, m, noStub));
 await step('googleAccessToken', ['not json'], browse.googleAccessToken);
 await step('googleAccessToken', ['{}'], browse.googleAccessToken);
+// access keys, both ways (argv[4]: a hash made by the Go port)
+const keyHash = await ak.hashAccessKey('abcd-efgh');
+await step('verifyAccessKey', ['ABCDEFGH', keyHash], ak.verifyAccessKey);
+await step('verifyAccessKey', ['ABCDEFGI', keyHash], ak.verifyAccessKey);
+await step('verifyGoHash', ['abcd efgh', process.argv[4]], ak.verifyAccessKey);
+await step('accessKeyShape', [], async () => { const k = await ak.newAccessKey(); return { plain: k.plain.length, grouped: k.grouped.length, ok: await ak.verifyAccessKey(k.grouped, k.hash) }; });
+// generated secrets: the length and charset, not the value
+const genShape = async (i: any, c: any) => (deps.mergeSecrets(i, c) as any[]).map((s) => ({ ...s, value: typeof s.value === 'string' ? s.value.length : s.value, hex: /^[0-9a-f]*$/.test(s.value ?? ''), rotatedAt: !!s.rotatedAt }));
+await step('genSecrets', [[{ secretSlug: 'a', generate: { charset: 'hex', length: 8 } }], []], genShape);
+await step('genSecrets', [[{ secretSlug: 'a', generate: { charset: 'alnum', length: 12 }, generateNow: true }], [{ secretSlug: 'a', value: 'old', rotatedAt: 'R' }]], genShape);
+// a shared file whose fetch failed verification
+await step('createFile3', ['f3', 'sha256:' + hA], async (n, sha) => { upl[n] = ups.newUpload({ purpose: 'file', deploymentId: D, transferId: 'file4', sizeBytes: 12, sha256: sha, createdBy: 'u1', creatorSite: 'alpha', target: 'shared-files/D1/file4' }); await store().doc(`uploads/${upl[n].uploadId}`).create(upl[n]); await store().doc('deployments/D1/files/file4').create({ fileId: 'file4', fileName: 'w.txt', state: 'ready', publishedAt: past, unpublishedAt: null, cloud: { stored: false, fetch: files.newFetch('u1', 'beta') }, _storagePath: 'p', _uploadId: upl[n].uploadId }); return 'ok'; });
+await step('putPart', ['f3', '0', Buffer.from(payload).toString('base64')], putp);
+await step('completeUpload', ['f3', { id: null, siteSlug: 'beta' }], complete);
+await step('getDoc', ['deployments/D1/files/file4'], async (p) => (await store().doc(p).get()).data());
+// a volume tree that is stored, normalize-on-read with the primed image volumes
+await step('readTreeHit', [tree], async (t) => vc.readTree(await vc.storeTree(t)));
+await step('primeNormalize', [{ files: [], sites: [{ siteSlug: 'a', config: { containers: [{ serviceSlug: 'web', version: '1' }] } }] }], async (c) => { cfg.setImageVolumes(undefined as never); await cat.primeImageVolumes(); return [cfg.imageVolumesFresh(), cfg.normalizeStored(c)]; });
+// Artifact Registry against the stub (argv[5]: a service-account key whose token_uri is the stub)
+const arC = { url: 'https://us-central1-docker.pkg.dev', username: '_json_key', password: process.argv[5]! };
+await step('listRepositories', [arC, ''], (c, q) => browse.listRepositories(c, q, noStub));
+await step('listRepositories', [arC, 'img2'], (c, q) => browse.listRepositories(c, q, noStub));
+await step('listTags', [arC, 'proj/repo/my/img', ''], (c, r, q) => browse.listTags(c, r, q, noStub));
+await step('listTags', [arC, 'bad', ''], (c, r, q) => browse.listTags(c, r, q, noStub));
+await step('listRepositories', [{ ...arC, password: '{"client_email":"a","private_key":"nope"}' }, ''], (c, q) => browse.listRepositories(c, q, noStub));
 // import
 await seedDoc('registries/RG', { registryId: 'RG', url: `${stub}/open`, username: '', password: '', label: 'Stub' });
 const imgDoc = (ver: string, tag: string, mode: string, o: any = {}) => ({ serviceSlug: 'web', version: ver, reference: 'r', registryId: 'RG', platform: 'linux/amd64', digest: '', source: { host: registryHost(`${stub}/open`), repository: 'lib/x', tag, digest: null }, import: { status: 'pending', mode, layers: [], error: null, startedAt: null, finishedAt: null }, ...o });

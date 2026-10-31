@@ -1,0 +1,273 @@
+{
+ "passwordHash": "$argon2id$v=19$m=19456,t=2,p=1$wPqVFcl10wwvGJJAFlT3Fw$x9SOhlaRMHfXPb7wFjVNGQau9AeDS+RxIAMIYYCdYtw",
+ "sidecar": {
+  "contentType": "text/x-cross",
+  "cacheControl": "private, max-age=9",
+  "meta": {
+   "opmSha256": "abc",
+   "z": "1",
+   "a": "2"
+  },
+  "createdMs": 1793470085873,
+  "updatedMs": 1793470085873
+ },
+ "registry": {
+  "activities": "{\"scalar\":[\"_tsMs\",\"seq\",\"siteSlug\",\"actor\",\"origin\",\"uploadedVia\",\"type\"],\"array\":[\"_typeKeys\"],\"composite\":[[\"_tsMs\",\"seq\"],[\"siteSlug\",\"_tsMs\",\"seq\"],[\"actor\",\"_tsMs\",\"seq\"],[\"origin\",\"_tsMs\",\"seq\"],[\"uploadedVia\",\"_tsMs\",\"seq\"]]}",
+  "agentBranches__commits": "{\"scalar\":[\"seq\"]}",
+  "agentNonces": "{\"scalar\":[\"expiresAt\"]}",
+  "agents": "{\"scalar\":[\"upgradeRequest.expiresAt\"],\"group\":[\"upgradeRequest.expiresAt\"]}",
+  "auditLog": "{\"scalar\":[\"ts\",\"target\",\"actor\",\"actorEmail\",\"targetType\",\"outcome\",\"action\",\"requestId\",\"op\"],\"array\":[\"_actionKeys\"],\"composite\":[[\"target\",\"ts\"],[\"actor\",\"ts\"],[\"actorEmail\",\"ts\"],[\"targetType\",\"ts\"],[\"outcome\",\"ts\"]]}",
+  "authOidcCode": "{\"scalar\":[\"expiresAt\"]}",
+  "authOidcState": "{\"scalar\":[\"expiresAt\"]}",
+  "authRefresh": "{\"scalar\":[\"uid\",\"family\",\"expiresAt\"]}",
+  "authReset": "{\"scalar\":[\"uid\",\"expiresAt\"]}",
+  "commits": "{\"scalar\":[\"seq\"]}",
+  "deployment": "{\"scalar\":[\"deleted\",\"updatedAt\",\"slug\",\"agentUpgradeRun.status\"],\"array\":[\"tagSlugs\",\"managerAccountUids\"],\"composite\":[[\"deleted\",\"updatedAt\"]]}",
+  "files": "{\"scalar\":[\"state\",\"unpublishedAt\"]}",
+  "githubMirror__queue": "{\"scalar\":[\"gitBranch\",\"state\",\"createdAt\",\"op\",\"reason\"],\"composite\":[[\"gitBranch\",\"state\"]]}",
+  "icons": "{\"scalar\":[\"sha256\"]}",
+  "installTokens": "{\"scalar\":[\"tokenHash\",\"expiresAt\",\"siteSlug\"],\"group\":[\"tokenHash\",\"expiresAt\"]}",
+  "proposals": "{\"scalar\":[\"status\",\"revId\"],\"group\":[\"status\"]}",
+  "rateLimits": "{\"scalar\":[\"expireAt\",\"uid\"]}",
+  "revisions": "{\"scalar\":[\"seq\"]}",
+  "services__images": "{\"scalar\":[\"registryId\",\"createdAt\"],\"group\":[\"registryId\"]}",
+  "stages": "{\"scalar\":[\"expiresAt\"]}",
+  "templates": "{\"scalar\":[\"slug\"]}",
+  "templates__commits": "{\"scalar\":[\"seq\"]}",
+  "transfers": "{\"scalar\":[\"siteSlug\",\"direction\",\"status\",\"createdAt\",\"expiresAt\"],\"composite\":[[\"siteSlug\",\"direction\",\"createdAt\"],[\"direction\",\"status\"]],\"group\":[\"expiresAt\"]}",
+  "uploads": "{\"scalar\":[\"expiresAt\"]}",
+  "uptime": "{\"scalar\":[\"date\"],\"group\":[\"date\"]}",
+  "volumeContent": "{\"scalar\":[\"_open\",\"siteSlug\",\"versionCount\"],\"composite\":[[\"siteSlug\",\"_open\"]],\"group\":[\"versionCount\"]}",
+  "volumeContent__versions": "{\"scalar\":[\"origin\",\"seq\",\"agentSnapshotId\"]}"
+ },
+ "triggers": [
+  [
+   "importImage",
+   "written",
+   "services/{serviceSlug}/images/{version}"
+  ],
+  [
+   "mirrorTemplateCommit",
+   "created",
+   "templates/{templateId}/commits/{commitId}"
+  ],
+  [
+   "mirrorDeploymentCommit",
+   "created",
+   "deployments/{deploymentId}/commits/{commitId}"
+  ],
+  [
+   "mirrorAgentCommit",
+   "created",
+   "deployments/{deploymentId}/agentBranches/{siteSlug}/commits/{commitId}"
+  ],
+  [
+   "mirrorVolumeVersion",
+   "created",
+   "deployments/{deploymentId}/volumeContent/{key}/versions/{versionId}"
+  ],
+  [
+   "mirrorQueue",
+   "created",
+   "githubMirror/config/queue/{itemId}"
+  ]
+ ],
+ "files": {
+  "db/deployments/D1.sqlite": {
+   "#master": [
+    "index activities__11d2a9e922 activities CREATE INDEX \"activities__11d2a9e922\" ON \"activities\" (\"parent\", \"ix_seq\")",
+    "index activities__2c5ab569e1 activities CREATE INDEX \"activities__2c5ab569e1\" ON \"activities\" (\"parent\", \"ix_actor\", \"ix__tsMs\", \"ix_seq\")",
+    "index activities__2e42928da9 activities CREATE INDEX \"activities__2e42928da9\" ON \"activities\" (\"parent\", \"ix_type\")",
+    "index activities__3ab71e0630 activities CREATE INDEX \"activities__3ab71e0630\" ON \"activities\" (\"parent\", \"ix_actor\")",
+    "index activities__41f0dbfa9a activities CREATE INDEX \"activities__41f0dbfa9a\" ON \"activities\" (\"parent\", \"ix__tsMs\")",
+    "index activities__786a61eff1 activities CREATE INDEX \"activities__786a61eff1\" ON \"activities\" (\"parent\", \"ix_origin\")",
+    "index activities__78fdbcc02e activities CREATE INDEX \"activities__78fdbcc02e\" ON \"activities\" (\"parent\", \"ix_origin\", \"ix__tsMs\", \"ix_seq\")",
+    "index activities__89d05d74d7 activities CREATE INDEX \"activities__89d05d74d7\" ON \"activities\" (\"parent\", \"ix_siteSlug\")",
+    "index activities__8c30f8e40f activities CREATE INDEX \"activities__8c30f8e40f\" ON \"activities\" (\"parent\", \"id\")",
+    "index activities__99efad17b3 activities CREATE INDEX \"activities__99efad17b3\" ON \"activities\" (\"parent\", \"ix__tsMs\", \"ix_seq\")",
+    "index activities__ce2ae025e3 activities CREATE INDEX \"activities__ce2ae025e3\" ON \"activities\" (\"parent\", \"ix_uploadedVia\", \"ix__tsMs\", \"ix_seq\")",
+    "index activities__d60e7fa598 activities CREATE INDEX \"activities__d60e7fa598\" ON \"activities\" (\"parent\", \"ix_uploadedVia\")",
+    "index activities__ec800bf69c activities CREATE INDEX \"activities__ec800bf69c\" ON \"activities\" (\"parent\", \"ix_siteSlug\", \"ix__tsMs\", \"ix_seq\")",
+    "index agentBranches__commits__11d2a9e922 agentBranches__commits CREATE INDEX \"agentBranches__commits__11d2a9e922\" ON \"agentBranches__commits\" (\"parent\", \"ix_seq\")",
+    "index agentBranches__commits__8c30f8e40f agentBranches__commits CREATE INDEX \"agentBranches__commits__8c30f8e40f\" ON \"agentBranches__commits\" (\"parent\", \"id\")",
+    "index agents__058a874f5e agents CREATE INDEX \"agents__058a874f5e\" ON \"agents\" (\"parent\", \"ix_upgradeRequest_expiresAt\")",
+    "index agents__7078e4195d agents CREATE INDEX \"agents__7078e4195d\" ON \"agents\" (\"ix_upgradeRequest_expiresAt\")",
+    "index agents__8c30f8e40f agents CREATE INDEX \"agents__8c30f8e40f\" ON \"agents\" (\"parent\", \"id\")",
+    "index commits__11d2a9e922 commits CREATE INDEX \"commits__11d2a9e922\" ON \"commits\" (\"parent\", \"ix_seq\")",
+    "index commits__8c30f8e40f commits CREATE INDEX \"commits__8c30f8e40f\" ON \"commits\" (\"parent\", \"id\")",
+    "index deployment__43a5fb6347 deployment CREATE INDEX \"deployment__43a5fb6347\" ON \"deployment\" (\"parent\", \"ix_deleted\", \"ix_updatedAt\")",
+    "index deployment__450735d0bc deployment CREATE INDEX \"deployment__450735d0bc\" ON \"deployment\" (\"parent\", \"ix_updatedAt\")",
+    "index deployment__51d2055d6a deployment CREATE INDEX \"deployment__51d2055d6a\" ON \"deployment\" (\"parent\", \"ix_agentUpgradeRun_status\")",
+    "index deployment__8c30f8e40f deployment CREATE INDEX \"deployment__8c30f8e40f\" ON \"deployment\" (\"parent\", \"id\")",
+    "index deployment__dc06d242e2 deployment CREATE INDEX \"deployment__dc06d242e2\" ON \"deployment\" (\"parent\", \"ix_deleted\")",
+    "index deployment__faa0d0a2a5 deployment CREATE INDEX \"deployment__faa0d0a2a5\" ON \"deployment\" (\"parent\", \"ix_slug\")",
+    "index volumeContent__3807b6d9a4 volumeContent CREATE INDEX \"volumeContent__3807b6d9a4\" ON \"volumeContent\" (\"parent\", \"ix_siteSlug\", \"ix__open\")",
+    "index volumeContent__49eaa5c434 volumeContent CREATE INDEX \"volumeContent__49eaa5c434\" ON \"volumeContent\" (\"parent\", \"ix__open\")",
+    "index volumeContent__6f841559ed volumeContent CREATE INDEX \"volumeContent__6f841559ed\" ON \"volumeContent\" (\"ix_versionCount\")",
+    "index volumeContent__89d05d74d7 volumeContent CREATE INDEX \"volumeContent__89d05d74d7\" ON \"volumeContent\" (\"parent\", \"ix_siteSlug\")",
+    "index volumeContent__8c30f8e40f volumeContent CREATE INDEX \"volumeContent__8c30f8e40f\" ON \"volumeContent\" (\"parent\", \"id\")",
+    "index volumeContent__bc0cf24206 volumeContent CREATE INDEX \"volumeContent__bc0cf24206\" ON \"volumeContent\" (\"parent\", \"ix_versionCount\")",
+    "index volumeContent__versions__11d2a9e922 volumeContent__versions CREATE INDEX \"volumeContent__versions__11d2a9e922\" ON \"volumeContent__versions\" (\"parent\", \"ix_seq\")",
+    "index volumeContent__versions__511dfbb4e8 volumeContent__versions CREATE INDEX \"volumeContent__versions__511dfbb4e8\" ON \"volumeContent__versions\" (\"parent\", \"ix_agentSnapshotId\")",
+    "index volumeContent__versions__786a61eff1 volumeContent__versions CREATE INDEX \"volumeContent__versions__786a61eff1\" ON \"volumeContent__versions\" (\"parent\", \"ix_origin\")",
+    "index volumeContent__versions__8c30f8e40f volumeContent__versions CREATE INDEX \"volumeContent__versions__8c30f8e40f\" ON \"volumeContent__versions\" (\"parent\", \"id\")",
+    "table _outbox _outbox CREATE TABLE _outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, trigger TEXT NOT NULL, path TEXT NOT NULL, before TEXT, after TEXT, createdMs INTEGER NOT NULL, leaseUntil INTEGER)",
+    "table _schema _schema CREATE TABLE _schema (tbl TEXT PRIMARY KEY, version TEXT NOT NULL)",
+    "table activities activities CREATE TABLE \"activities\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix__tsMs\", \"ix_seq\", \"ix_siteSlug\", \"ix_actor\", \"ix_origin\", \"ix_uploadedVia\", \"ix_type\")",
+    "table agentBranches__commits agentBranches__commits CREATE TABLE \"agentBranches__commits\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_seq\")",
+    "table agents agents CREATE TABLE \"agents\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_upgradeRequest_expiresAt\")",
+    "table commits commits CREATE TABLE \"commits\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_seq\")",
+    "table deployment deployment CREATE TABLE \"deployment\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_deleted\", \"ix_updatedAt\", \"ix_slug\", \"ix_agentUpgradeRun_status\")",
+    "table volumeContent volumeContent CREATE TABLE \"volumeContent\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix__open\", \"ix_siteSlug\", \"ix_versionCount\")",
+    "table volumeContent__versions volumeContent__versions CREATE TABLE \"volumeContent__versions\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_origin\", \"ix_seq\", \"ix_agentSnapshotId\")"
+   ],
+   "_outbox": [
+    "integer1text'mirrorDeploymentCommit'text'deployments/D1/commits/c1'nullNULLtext'{\"seq\":7}'",
+    "integer2text'mirrorAgentCommit'text'deployments/D1/agentBranches/s1/commits/c2'nullNULLtext'{\"seq\":2}'",
+    "integer3text'mirrorVolumeVersion'text'deployments/D1/volumeContent/k1/versions/v1'nullNULLtext'{\"origin\":\"x\",\"seq\":1,\"agentSnapshotId\":\"y\"}'"
+   ],
+   "_schema": [
+    "text'activities'text'c5f82e0a17f82e22'",
+    "text'agentBranches__commits'text'b201b9b3af8935e5'",
+    "text'agents'text'ac70971d53c87384'",
+    "text'commits'text'b201b9b3af8935e5'",
+    "text'deployment'text'42a7836690f0c53d'",
+    "text'volumeContent'text'6008653646afcce5'",
+    "text'volumeContent__versions'text'912d1af4565fc600'"
+   ],
+   "activities": [
+    "text'deployments/D1/activities/a1'text'deployments/D1/activities'text'{\"_tsMs\":1700000000123,\"seq\":3,\"siteSlug\":\"s1\",\"actor\":\"u\",\"origin\":\"cloud\",\"uploadedVia\":null,\"type\":\"update.applied\",\"_typeKeys\":[\"update.\",\"update.applied\"]}'real1700000000123.0real3.0text's1'text'u'text'cloud'nullNULLtext'update.applied'"
+   ],
+   "agentBranches__commits": [
+    "text'deployments/D1/agentBranches/s1/commits/c2'text'deployments/D1/agentBranches/s1/commits'text'{\"seq\":2}'real2.0"
+   ],
+   "agents": [
+    "text'deployments/D1/agents/s1'text'deployments/D1/agents'text'{\"upgradeRequest\":{\"expiresAt\":\"2026-02-02\"}}'text'2026-02-02'"
+   ],
+   "commits": [
+    "text'deployments/D1/commits/c1'text'deployments/D1/commits'text'{\"seq\":7}'real7.0"
+   ],
+   "deployment": [
+    "text'deployments/D1'text'deployments'text'{\"deleted\":false,\"updatedAt\":\"2026-01-01\",\"slug\":\"d-one\",\"agentUpgradeRun\":{\"status\":\"running\"},\"tagSlugs\":[\"a\",\"b\"],\"managerAccountUids\":[]}'real0.0text'2026-01-01'text'd-one'text'running'"
+   ],
+   "volumeContent": [
+    "text'deployments/D1/volumeContent/k1'text'deployments/D1/volumeContent'text'{\"_open\":true,\"siteSlug\":\"s1\",\"versionCount\":2}'real1.0text's1'real2.0"
+   ],
+   "volumeContent__versions": [
+    "text'deployments/D1/volumeContent/k1/versions/v1'text'deployments/D1/volumeContent/k1/versions'text'{\"origin\":\"x\",\"seq\":1,\"agentSnapshotId\":\"y\"}'text'x'real1.0text'y'"
+   ]
+  },
+  "db/deployments/D2.sqlite": {
+   "#master": [
+    "index deployment__43a5fb6347 deployment CREATE INDEX \"deployment__43a5fb6347\" ON \"deployment\" (\"parent\", \"ix_deleted\", \"ix_updatedAt\")",
+    "index deployment__450735d0bc deployment CREATE INDEX \"deployment__450735d0bc\" ON \"deployment\" (\"parent\", \"ix_updatedAt\")",
+    "index deployment__51d2055d6a deployment CREATE INDEX \"deployment__51d2055d6a\" ON \"deployment\" (\"parent\", \"ix_agentUpgradeRun_status\")",
+    "index deployment__8c30f8e40f deployment CREATE INDEX \"deployment__8c30f8e40f\" ON \"deployment\" (\"parent\", \"id\")",
+    "index deployment__dc06d242e2 deployment CREATE INDEX \"deployment__dc06d242e2\" ON \"deployment\" (\"parent\", \"ix_deleted\")",
+    "index deployment__faa0d0a2a5 deployment CREATE INDEX \"deployment__faa0d0a2a5\" ON \"deployment\" (\"parent\", \"ix_slug\")",
+    "table _outbox _outbox CREATE TABLE _outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, trigger TEXT NOT NULL, path TEXT NOT NULL, before TEXT, after TEXT, createdMs INTEGER NOT NULL, leaseUntil INTEGER)",
+    "table _schema _schema CREATE TABLE _schema (tbl TEXT PRIMARY KEY, version TEXT NOT NULL)",
+    "table deployment deployment CREATE TABLE \"deployment\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_deleted\", \"ix_updatedAt\", \"ix_slug\", \"ix_agentUpgradeRun_status\")"
+   ],
+   "_schema": [
+    "text'deployment'text'42a7836690f0c53d'"
+   ]
+  },
+  "db/global.sqlite": {
+   "#master": [
+    "index accounts__8c30f8e40f accounts CREATE INDEX \"accounts__8c30f8e40f\" ON \"accounts\" (\"parent\", \"id\")",
+    "index agentNonces__468a0454c2 agentNonces CREATE INDEX \"agentNonces__468a0454c2\" ON \"agentNonces\" (\"parent\", \"ix_expiresAt\")",
+    "index agentNonces__8c30f8e40f agentNonces CREATE INDEX \"agentNonces__8c30f8e40f\" ON \"agentNonces\" (\"parent\", \"id\")",
+    "index auditLog__238757f754 auditLog CREATE INDEX \"auditLog__238757f754\" ON \"auditLog\" (\"parent\", \"ix_op\")",
+    "index auditLog__2ca5ae6f2c auditLog CREATE INDEX \"auditLog__2ca5ae6f2c\" ON \"auditLog\" (\"parent\", \"ix_targetType\")",
+    "index auditLog__3985e30c62 auditLog CREATE INDEX \"auditLog__3985e30c62\" ON \"auditLog\" (\"parent\", \"ix_outcome\", \"ix_ts\")",
+    "index auditLog__3ab71e0630 auditLog CREATE INDEX \"auditLog__3ab71e0630\" ON \"auditLog\" (\"parent\", \"ix_actor\")",
+    "index auditLog__4e68e9cf99 auditLog CREATE INDEX \"auditLog__4e68e9cf99\" ON \"auditLog\" (\"parent\", \"ix_outcome\")",
+    "index auditLog__5d897bfcdb auditLog CREATE INDEX \"auditLog__5d897bfcdb\" ON \"auditLog\" (\"parent\", \"ix_ts\")",
+    "index auditLog__684c1e4b95 auditLog CREATE INDEX \"auditLog__684c1e4b95\" ON \"auditLog\" (\"parent\", \"ix_actorEmail\")",
+    "index auditLog__7852f2821a auditLog CREATE INDEX \"auditLog__7852f2821a\" ON \"auditLog\" (\"parent\", \"ix_actorEmail\", \"ix_ts\")",
+    "index auditLog__81af1fb5c2 auditLog CREATE INDEX \"auditLog__81af1fb5c2\" ON \"auditLog\" (\"parent\", \"ix_actor\", \"ix_ts\")",
+    "index auditLog__8c30f8e40f auditLog CREATE INDEX \"auditLog__8c30f8e40f\" ON \"auditLog\" (\"parent\", \"id\")",
+    "index auditLog__9726ec4fc8 auditLog CREATE INDEX \"auditLog__9726ec4fc8\" ON \"auditLog\" (\"parent\", \"ix_target\")",
+    "index auditLog__aff783c1b2 auditLog CREATE INDEX \"auditLog__aff783c1b2\" ON \"auditLog\" (\"parent\", \"ix_targetType\", \"ix_ts\")",
+    "index auditLog__b3127e8580 auditLog CREATE INDEX \"auditLog__b3127e8580\" ON \"auditLog\" (\"parent\", \"ix_target\", \"ix_ts\")",
+    "index auditLog__dbf7df0b0f auditLog CREATE INDEX \"auditLog__dbf7df0b0f\" ON \"auditLog\" (\"parent\", \"ix_action\")",
+    "index auditLog__f213e1b198 auditLog CREATE INDEX \"auditLog__f213e1b198\" ON \"auditLog\" (\"parent\", \"ix_requestId\")",
+    "index githubMirror__queue__15bf20a095 githubMirror__queue CREATE INDEX \"githubMirror__queue__15bf20a095\" ON \"githubMirror__queue\" (\"parent\", \"ix_gitBranch\")",
+    "index githubMirror__queue__1cc743bcd5 githubMirror__queue CREATE INDEX \"githubMirror__queue__1cc743bcd5\" ON \"githubMirror__queue\" (\"parent\", \"ix_createdAt\")",
+    "index githubMirror__queue__238757f754 githubMirror__queue CREATE INDEX \"githubMirror__queue__238757f754\" ON \"githubMirror__queue\" (\"parent\", \"ix_op\")",
+    "index githubMirror__queue__288acbe741 githubMirror__queue CREATE INDEX \"githubMirror__queue__288acbe741\" ON \"githubMirror__queue\" (\"parent\", \"ix_reason\")",
+    "index githubMirror__queue__8c30f8e40f githubMirror__queue CREATE INDEX \"githubMirror__queue__8c30f8e40f\" ON \"githubMirror__queue\" (\"parent\", \"id\")",
+    "index githubMirror__queue__c364c47723 githubMirror__queue CREATE INDEX \"githubMirror__queue__c364c47723\" ON \"githubMirror__queue\" (\"parent\", \"ix_state\")",
+    "index githubMirror__queue__cd8e9daed5 githubMirror__queue CREATE INDEX \"githubMirror__queue__cd8e9daed5\" ON \"githubMirror__queue\" (\"parent\", \"ix_gitBranch\", \"ix_state\")",
+    "index plain__8c30f8e40f plain CREATE INDEX \"plain__8c30f8e40f\" ON \"plain\" (\"parent\", \"id\")",
+    "index services__images__1cc743bcd5 services__images CREATE INDEX \"services__images__1cc743bcd5\" ON \"services__images\" (\"parent\", \"ix_createdAt\")",
+    "index services__images__536233b6a6 services__images CREATE INDEX \"services__images__536233b6a6\" ON \"services__images\" (\"parent\", \"ix_registryId\")",
+    "index services__images__8c30f8e40f services__images CREATE INDEX \"services__images__8c30f8e40f\" ON \"services__images\" (\"parent\", \"id\")",
+    "index services__images__ec6b04c6bb services__images CREATE INDEX \"services__images__ec6b04c6bb\" ON \"services__images\" (\"ix_registryId\")",
+    "index templates__8c30f8e40f templates CREATE INDEX \"templates__8c30f8e40f\" ON \"templates\" (\"parent\", \"id\")",
+    "index templates__commits__11d2a9e922 templates__commits CREATE INDEX \"templates__commits__11d2a9e922\" ON \"templates__commits\" (\"parent\", \"ix_seq\")",
+    "index templates__commits__8c30f8e40f templates__commits CREATE INDEX \"templates__commits__8c30f8e40f\" ON \"templates__commits\" (\"parent\", \"id\")",
+    "index templates__faa0d0a2a5 templates CREATE INDEX \"templates__faa0d0a2a5\" ON \"templates\" (\"parent\", \"ix_slug\")",
+    "index uploads__468a0454c2 uploads CREATE INDEX \"uploads__468a0454c2\" ON \"uploads\" (\"parent\", \"ix_expiresAt\")",
+    "index uploads__8c30f8e40f uploads CREATE INDEX \"uploads__8c30f8e40f\" ON \"uploads\" (\"parent\", \"id\")",
+    "table _outbox _outbox CREATE TABLE _outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, trigger TEXT NOT NULL, path TEXT NOT NULL, before TEXT, after TEXT, createdMs INTEGER NOT NULL, leaseUntil INTEGER)",
+    "table _schema _schema CREATE TABLE _schema (tbl TEXT PRIMARY KEY, version TEXT NOT NULL)",
+    "table accounts accounts CREATE TABLE \"accounts\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL)",
+    "table agentNonces agentNonces CREATE TABLE \"agentNonces\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_expiresAt\")",
+    "table auditLog auditLog CREATE TABLE \"auditLog\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_ts\", \"ix_target\", \"ix_actor\", \"ix_actorEmail\", \"ix_targetType\", \"ix_outcome\", \"ix_action\", \"ix_requestId\", \"ix_op\")",
+    "table githubMirror__queue githubMirror__queue CREATE TABLE \"githubMirror__queue\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_gitBranch\", \"ix_state\", \"ix_createdAt\", \"ix_op\", \"ix_reason\")",
+    "table plain plain CREATE TABLE \"plain\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL)",
+    "table services__images services__images CREATE TABLE \"services__images\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_registryId\", \"ix_createdAt\")",
+    "table templates templates CREATE TABLE \"templates\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_slug\")",
+    "table templates__commits templates__commits CREATE TABLE \"templates__commits\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_seq\")",
+    "table uploads uploads CREATE TABLE \"uploads\" (id TEXT PRIMARY KEY, parent TEXT NOT NULL, value TEXT NOT NULL, \"ix_expiresAt\")"
+   ],
+   "_outbox": [
+    "integer1text'importImage'text'services/s1/images/v1'nullNULLtext'{\"registryId\":\"r1\",\"createdAt\":\"2026-01-01\",\"import\":{\"status\":\"pending\"}}'",
+    "integer2text'mirrorTemplateCommit'text'templates/T1/commits/c1'nullNULLtext'{\"seq\":1}'",
+    "integer3text'mirrorQueue'text'githubMirror/config/queue/q1'nullNULLtext'{\"gitBranch\":\"b\",\"state\":\"pending\",\"createdAt\":\"2026-01-01\",\"op\":\"x\",\"reason\":null}'",
+    "integer4text'importImage'text'services/s1/images/v1'text'{\"registryId\":\"r1\",\"createdAt\":\"2026-01-01\",\"import\":{\"status\":\"pending\"}}'text'{\"registryId\":\"r1\",\"createdAt\":\"2026-01-01\",\"import\":{\"status\":\"done\"}}'"
+   ],
+   "_schema": [
+    "text'accounts'text'44136fa355b3678a'",
+    "text'agentNonces'text'13ce6ad22f39de25'",
+    "text'auditLog'text'da3a2fc74f7cf2a8'",
+    "text'githubMirror__queue'text'53ed62ff28db7773'",
+    "text'plain'text'44136fa355b3678a'",
+    "text'services__images'text'b8877f8c3451d137'",
+    "text'templates'text'd442e1027fd66159'",
+    "text'templates__commits'text'b201b9b3af8935e5'",
+    "text'uploads'text'13ce6ad22f39de25'"
+   ],
+   "accounts": [
+    "text'accounts/U1'text'accounts'text'{\"uid\":\"U1\",\"ts\":{\"$timestamp\":{\"seconds\":1700000000,\"nanos\":123000000}},\"bytes\":{\"$bytes\":\"AAEC/w==\"},\"list\":[{\"$timestamp\":{\"seconds\":5,\"nanos\":0}},{\"$bytes\":\"\"},[1,[2,{\"k\":null}]]],\"notTs\":{\"$timestamp\":\"x\"},\"two\":{\"$bytes\":\"AA==\",\"other\":1}}'"
+   ],
+   "agentNonces": [
+    "text'agentNonces/N1'text'agentNonces'text'{\"expiresAt\":{\"$timestamp\":{\"seconds\":1800000000,\"nanos\":1000000}}}'real1800000000001.0"
+   ],
+   "auditLog": [
+    "text'auditLog/A1'text'auditLog'text'{\"ts\":\"2026-10-31T10:00:00.000Z\",\"target\":\"a/b\",\"actor\":\"U\",\"actorEmail\":null,\"targetType\":\"system\",\"outcome\":\"ok\",\"action\":\"x.y\",\"requestId\":\"r\",\"op\":\"getMe\",\"_actionKeys\":[\"x.\",\"x.y\"]}'text'2026-10-31T10:00:00.000Z'text'a/b'text'U'nullNULLtext'system'text'ok'text'x.y'text'r'text'getMe'"
+   ],
+   "githubMirror__queue": [
+    "text'githubMirror/config/queue/q1'text'githubMirror/config/queue'text'{\"gitBranch\":\"b\",\"state\":\"pending\",\"createdAt\":\"2026-01-01\",\"op\":\"x\",\"reason\":null}'text'b'text'pending'text'2026-01-01'text'x'nullNULL"
+   ],
+   "plain": [
+    "text'plain/doc'text'plain'text'{\"unregistered\":1}'"
+   ],
+   "services__images": [
+    "text'services/s1/images/v1'text'services/s1/images'text'{\"registryId\":\"r1\",\"createdAt\":\"2026-01-01\",\"import\":{\"status\":\"done\"}}'text'r1'text'2026-01-01'"
+   ],
+   "templates": [
+    "text'templates/T1'text'templates'text'{\"1\":\"one\",\"2\":\"two\",\"slug\":\"t-one\",\"b\":1,\"a\":{\"z\":9,\"y\":3,\"n\":{\"m\":1},\"q\":{\"r\":1}},\"cnt\":2,\"arr\":[{\"k\":1}]}'text't-one'",
+    "text'templates/T2'text'templates'text'{\"slug\":\"x\",\"n\":[1e+21,1.5e-7,0,0.1,9007199254740992,1e+300,-2.5,100,1000],\"s\":\"ü€😀    <>& \\\"q\\\" \\\\ \\n\\t\\r\\b\\f \\u0001 \",\"lone\":\"a\\ud83dz\",\"low\":\"\\udc00\",\"nul\":null,\"t\":true,\"f\":false,\"e\":{},\"ea\":[]}'text'x'"
+   ],
+   "templates__commits": [
+    "text'templates/T1/commits/c1'text'templates/T1/commits'text'{\"seq\":1}'real1.0"
+   ],
+   "uploads": [
+    "text'uploads/U1'text'uploads'text'{\"expiresAt\":{\"$timestamp\":{\"seconds\":1700000000,\"nanos\":999999999}}}'real1700000000999.0"
+   ]
+  }
+ }
+}

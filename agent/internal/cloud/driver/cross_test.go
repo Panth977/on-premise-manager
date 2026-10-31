@@ -2,17 +2,16 @@ package driver
 
 // Cross-compatibility with the TS driver (backend/src/driver): the same operations through both drivers must give the
 // same files, and each side must read and use what the other wrote, also at the same time. Needs node + backend deps.
+// Go-only pins of the same file format: layout_test.go.
 
 import (
 	"bytes"
-	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -46,88 +45,6 @@ func tsRun(t testing.TB, args ...string) []byte {
 		t.Fatalf("cross.ts %v: %v\n%s\n%s", args, err, out.String(), errb.String())
 	}
 	return out.Bytes()
-}
-
-func fixture(t testing.TB) (*doc.Map, []string) {
-	_, f, _, _ := runtime.Caller(0)
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(f), "testdata/fixture.json"))
-	must(t, err)
-	m, err := doc.ParseMap(raw)
-	must(t, err)
-	return m, m.Keys()
-}
-
-func goWriteAll(t *testing.T, p *Ports) {
-	fx, keys := fixture(t)
-	st := p.Store
-	for _, k := range keys {
-		s, err := doc.EncodeStored(fx.Val(k))
-		must(t, err)
-		d, err := DecodeDoc(s)
-		must(t, err)
-		must(t, st.Doc(k).Set(d))
-	}
-	// the same sequence as cross.ts write
-	must(t, st.Doc("templates/T1").Update(doc.Obj("a.y", 3, "a.n.m", 1, "label", doc.DeleteField(), "cnt", doc.Increment(2), "arr", doc.ArrayUnion("x", doc.Obj("k", 1), "x"))))
-	must(t, st.Doc("templates/T1").Set(doc.Obj("a", doc.Obj("z", 9, "q", doc.Obj("r", 1)), "arr", doc.ArrayRemove("x")), Merge))
-	must(t, st.Doc("services/s1/images/v1").Update(doc.Obj("import.status", "done")))
-	must(t, st.Doc("plain/gone").Set(doc.Obj("v", 1)))
-	must(t, st.Doc("plain/gone").Delete())
-	must(t, st.Doc("deployments/D2").Delete())
-}
-
-type tableDump map[string][]string
-
-// dumpFile: every table and index, every row (typeof of ix columns included), _schema, _outbox without times.
-func dumpFile(t *testing.T, file string) tableDump {
-	db, err := sql.Open("sqlite", file)
-	must(t, err)
-	defer db.Close()
-	out := tableDump{}
-	rows, err := db.Query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite%' ORDER BY type, name")
-	must(t, err)
-	var tables []string
-	for rows.Next() {
-		var a, b, c string
-		var s sql.NullString
-		must(t, rows.Scan(&a, &b, &c, &s))
-		out["#master"] = append(out["#master"], a+" "+b+" "+c+" "+s.String)
-		if a == "table" {
-			tables = append(tables, b)
-		}
-	}
-	rows.Close()
-	for _, tb := range tables {
-		cols := []string{}
-		r, err := db.Query("SELECT name FROM pragma_table_info(?)", tb)
-		must(t, err)
-		for r.Next() {
-			var n string
-			must(t, r.Scan(&n))
-			cols = append(cols, n)
-		}
-		r.Close()
-		sel := []string{}
-		for _, c := range cols {
-			if tb == "_outbox" && (c == "createdMs" || c == "leaseUntil") {
-				continue
-			}
-			sel = append(sel, "typeof("+q(c)+")", "quote("+q(c)+")")
-		}
-		r, err = db.Query("SELECT " + strings.Join(sel, ",") + " FROM " + q(tb) + " ORDER BY 2")
-		must(t, err)
-		for r.Next() {
-			vals := make([]any, len(sel))
-			ptr := make([]any, len(sel))
-			for i := range vals {
-				ptr[i] = &vals[i]
-			}
-			must(t, r.Scan(ptr...))
-			out[tb] = append(out[tb], fmt.Sprint(vals...))
-		}
-		r.Close()
-	}
-	return out
 }
 
 func TestRegistryMatchesTS(t *testing.T) {
@@ -187,25 +104,6 @@ func TestSameFilesAsTS(t *testing.T) {
 		d["_schema"] = keep
 	}
 	compareDumps(t, "global", a, b)
-}
-
-func compareDumps(t *testing.T, f string, a, b tableDump) {
-	t.Helper()
-	keys := map[string]bool{}
-	for k := range a {
-		keys[k] = true
-	}
-	for k := range b {
-		keys[k] = true
-	}
-	for k := range keys {
-		x, y := a[k], b[k]
-		sort.Strings(x)
-		sort.Strings(y)
-		if strings.Join(x, "\n") != strings.Join(y, "\n") {
-			t.Errorf("%s %s differ\nTS: %s\nGo: %s", f, k, strings.Join(x, "\n    "), strings.Join(y, "\n    "))
-		}
-	}
 }
 
 // TS wrote → Go reads and re-encodes byte for byte, and uses its tokens, passwords, reset links and blob URLs.

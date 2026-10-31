@@ -829,6 +829,9 @@ func jValidateFileDef(f any, base string, is *Issues) {
 
 var jAgentHomeReserved = []string{"site.key", "opm.db", "opm.db-wal", "opm.db-shm", "blobs", "snapshots", "certs", "edge", "transfers", "tunnel", "logs", "notfound", "rendered", "secrets", "vol", "files", "volumes", "shared-files"}
 
+// CheckLocation is checkLocation.
+func CheckLocation(l any, kind, path string, is *Issues) { jCheckLocation(l, kind, path, is) }
+
 func jCheckLocation(l any, kind, path string, is *Issues) {
 	if jNull(l) {
 		return

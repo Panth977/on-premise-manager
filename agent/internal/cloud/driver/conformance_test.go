@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -103,8 +105,8 @@ func TestDocuments(t *testing.T) {
 			t.Fatal("root has no parent")
 		}
 		eq(t, ref.Collection("sub").Path, "conformance/rx/docs/a/sub")
-		if len(st.Collection("conformance/rx/docs").Doc().ID()) != 20 {
-			t.Fatal("auto id")
+		if id := st.Collection("conformance/rx/docs").Doc().ID(); !regexp.MustCompile(`^[A-Za-z0-9]{20}$`).MatchString(id) {
+			t.Fatal("auto id", id)
 		}
 		must(t, ref.Set(doc.Obj("y", 2)))
 		eq(t, data(t, ref), doc.Obj("y", 2))
@@ -425,6 +427,9 @@ func TestBlobsConformance(t *testing.T) {
 	eq(t, h.Size, 16)
 	eq(t, h.ContentType, "application/x-test")
 	eq(t, h.Meta["opmSha256"], "abc")
+	if h.CreatedMs <= time.Now().UnixMilli()-600_000 {
+		t.Fatal(h.CreatedMs)
+	}
 	must(t, b.SetMeta(P+"/a.bin", map[string]*string{"extra": Ptr("1")}))
 	h, _ = b.Head(P + "/a.bin")
 	eq(t, h.Meta["extra"], "1")
@@ -457,7 +462,7 @@ func TestBlobsConformance(t *testing.T) {
 	}
 	eq(t, names, []string{"a.bin", "copy.bin", "dir/part-1", "dir/part-2", "dir/s.txt"})
 	parts, _ := b.List(P + "/dir/part-")
-	if len(parts) != 2 || parts[1].Size != 2 {
+	if len(parts) != 2 || parts[0].Path != P+"/dir/part-1" || parts[0].Size != 1 || parts[1].Path != P+"/dir/part-2" || parts[1].Size != 2 {
 		t.Fatal(parts)
 	}
 	must(t, b.DeletePrefix(P+"/dir/"))
@@ -489,7 +494,7 @@ func TestLocalBlobHTTP(t *testing.T) {
 	must(t, b.Put("files/abc", []byte(body), PutOptions{ContentType: "text/plain", CacheControl: "private, max-age=60"}))
 	url, err := b.SignedReadURL("files/abc", time.Minute, `attachment; filename="a b.txt"`)
 	must(t, err)
-	if !strings.HasPrefix(url, "http://opm.test/base/_blob/files/abc?exp=") || !strings.Contains(url, "&rd=") {
+	if !regexp.MustCompile(`^http://opm\.test/base/_blob/files/abc\?exp=\d+&sig=[A-Za-z0-9_-]+&rd=`).MatchString(url) {
 		t.Fatal(url)
 	}
 	rel := strings.TrimPrefix(url, "http://opm.test")
@@ -527,6 +532,11 @@ func TestLocalBlobHTTP(t *testing.T) {
 	eq(t, blobReq(b, strings.Replace(rel, "files/abc", "files/abd", 1), nil, "GET").Code, 403)
 	idx := strings.Index(rel, "rd=")
 	eq(t, blobReq(b, rel[:idx]+"rd=inline", nil, "GET").Code, 403)
+	otherExp := regexp.MustCompile(`exp=\d+`).ReplaceAllStringFunc(rel, func(e string) string {
+		n, _ := strconv.ParseInt(e[4:], 10, 64)
+		return "exp=" + strconv.FormatInt(n+1, 10)
+	})
+	eq(t, blobReq(b, otherExp, nil, "GET").Code, 403)
 	old, _ := b.SignedReadURL("files/abc", -time.Second, "")
 	eq(t, blobReq(b, strings.TrimPrefix(old, "http://opm.test"), nil, "GET").Code, 403)
 	eq(t, blobReq(b, rel, org, "OPTIONS").Code, 204)
@@ -551,14 +561,20 @@ func TestBlobPathsSweepStreams(t *testing.T) {
 	m, _ := doc.ParseMap(raw)
 	m.Set("createdMs", time.Now().UnixMilli()-2*86_400_000)
 	must(t, os.WriteFile(side, []byte(doc.MarshalString(m)), 0o644))
+	paths := func(l []ListedBlob) []string {
+		out := []string{}
+		for _, x := range l {
+			out = append(out, x.Path)
+		}
+		return out
+	}
 	l, _ := b.List("")
-	eq(t, len(l), 3)
-	eq(t, l[0].Path, "blobs/sha256/aa")
+	eq(t, paths(l), []string{"blobs/sha256/aa", "staging/new", "staging/old"})
 	n, err := b.Sweep([]LifecycleRule{{[]string{"staging/"}, 1}}, time.Now().UnixMilli())
 	must(t, err)
 	eq(t, n, 1)
 	l, _ = b.List("staging/")
-	eq(t, len(l), 1)
+	eq(t, paths(l), []string{"staging/new"})
 	w, err := b.WriteStream("transfers/D/t1", PutOptions{})
 	must(t, err)
 	_, _ = w.Write([]byte("partial"))

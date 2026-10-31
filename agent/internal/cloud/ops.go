@@ -22,8 +22,14 @@ const opsHelp = `usage: opm-cloud <command> [options]   (config: env OPM_* or --
   release-key                             create <dataDir>/secrets/release-key.json (agent signing key) if missing; print the public key
   upload-agent --dir D --version V [--latest]
                                           upload agent binaries (signed with the data dir's release key or OPM_RELEASE_PRIVATE_KEY)
-  upload-deps [--docker-version 28.5.2] [--agent-version V] [--agent-notes T] [--from-dir D]
-  backup --out DIR                        consistent online backup (SQLite VACUUM INTO + blobs + secrets)`
+  upload-deps [--docker-version 28.5.2] [--agent-version V] [--agent-notes T | --agent-notes-file F] [--from-dir D]
+  backup --out DIR                        consistent online backup (SQLite VACUUM INTO + blobs + secrets)
+  verify-schema [--require-branches] [--require-no-working-copy]
+                                          check every document against the data model: one line per violation, exit 1 if any.
+                                          Both requirements are on by default (=false turns one off)`
+
+// VerifySchema is core.VerifySchema (core imports this package).
+var VerifySchema func(db *driver.Store, requireBranches, requireNoWorkingCopy bool) ([]string, error)
 
 // CreateAdminWith is createAdminWith: create or reset an admin. Returns uid, email.
 func CreateAdminWith(email0, password, name string) (string, string, error) {
@@ -227,8 +233,33 @@ func RunOp(cmd string, cfg *CloudConfig, argv []string) (int, error) {
 				break
 			}
 		}
+		if f := arg("agent-notes-file"); f != "" {
+			if notes != nil {
+				fmt.Fprintln(os.Stderr, "use either --agent-notes or --agent-notes-file, not both")
+				return 2, nil
+			}
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return 1, err
+			}
+			v := string(b)
+			notes = &v
+		}
 		if _, err := UploadDeps(Blobs(), dv, av, notes, arg("from-dir"), logln); err != nil {
 			return 1, err
+		}
+		return 0, nil
+	case "verify-schema":
+		required := func(n string) bool { return arg(n) != "false" }
+		lines, err := VerifySchema(DB(), required("require-branches"), required("require-no-working-copy"))
+		if err != nil {
+			return 1, err
+		}
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		if len(lines) > 0 {
+			return 1, nil
 		}
 		return 0, nil
 	case "test-set-mirror-hooks":

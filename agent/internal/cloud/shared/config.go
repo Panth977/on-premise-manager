@@ -192,6 +192,9 @@ func jStr(v any) string {
 	return fmt.Sprint(v)
 }
 
+// JSString is String(v) of a document value (doc.Undefined = "undefined").
+func JSString(v any) string { return jStr(v) }
+
 // jJoin is a.join(sep).
 func jJoin(a []any, sep string) string {
 	s := make([]string, len(a))

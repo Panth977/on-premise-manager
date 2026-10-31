@@ -7,6 +7,7 @@
 //	opm-cloud upload-agent --dir D --version V [--latest]
 //	opm-cloud upload-deps [--docker-version 28.5.2] [--agent-version V] [--agent-notes T] [--from-dir D]
 //	opm-cloud backup --out DIR
+//	opm-cloud verify-schema [--require-branches] [--require-no-working-copy]   (both on by default)
 package main
 
 import (

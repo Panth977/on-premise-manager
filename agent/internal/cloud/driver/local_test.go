@@ -1,23 +1,29 @@
 package driver
 
-// Port of backend/test/41-local-adapter.test.ts (minus what cross_test.go covers against the real TS driver).
+// Port of backend/test/41-local-adapter.test.ts.
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,11 +47,16 @@ func TestLayout(t *testing.T) {
 	must(t, st.Doc("deployments/D1/agentBranches/s1/commits/c2").Set(doc.Obj("seq", 2)))
 	must(t, st.Doc("githubMirror/config/queue/q1").Set(doc.Obj("state", "pending")))
 	p.Close()
+	dep0, err := filepath.Glob(d + "/db/deployments/*.sqlite")
+	must(t, err)
+	eq(t, dep0, []string{d + "/db/deployments/D1.sqlite"})
 	g := rawDB(t, d+"/db/global.sqlite")
+	eq(t, userTables(t, g), []string{"githubMirror__queue", "templates"})
 	var id, parent, ix string
 	must(t, g.QueryRow("SELECT id, parent, ix_slug FROM templates").Scan(&id, &parent, &ix))
 	eq(t, []string{id, parent, ix}, []string{"templates/T1", "parent"[:0] + "templates", "t"})
 	dep := rawDB(t, d+"/db/deployments/D1.sqlite")
+	eq(t, userTables(t, dep), []string{"agentBranches__commits", "commits", "deployment"})
 	var mode string
 	must(t, dep.QueryRow("PRAGMA journal_mode").Scan(&mode))
 	eq(t, mode, "wal")
@@ -53,13 +64,116 @@ func TestLayout(t *testing.T) {
 	var upd string
 	must(t, dep.QueryRow("SELECT id, parent, ix_deleted, ix_updatedAt FROM deployment").Scan(&id, &parent, &del, &upd))
 	eq(t, []any{id, parent, del, upd}, []any{"deployments/D1", "deployments", 0, "2026-01-01"})
-	if open(t, d).Store.Doc("deployments/bad-id/x/y").Err() == nil {
-		t.Fatal("bad id")
+	if err := open(t, d).Store.Doc("deployments/bad-id/x/y").Err(); err == nil || !strings.Contains(err.Error(), "deployment id") {
+		t.Fatal("bad id", err)
+	}
+}
+
+// userTables: the document tables of a file.
+func userTables(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	r, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	must(t, err)
+	defer r.Close()
+	out := []string{}
+	for r.Next() {
+		var n string
+		must(t, r.Scan(&n))
+		if !strings.HasPrefix(n, "_") && !strings.HasPrefix(n, "sqlite") {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// startChild runs childMain in a second OS process on the same data dir.
+func startChild(t *testing.T, dir string, n int, outbox bool, paths ...string) func() {
+	t.Helper()
+	c := exec.Command(os.Args[0])
+	c.Env = append(os.Environ(), "OPM_DRIVER_CHILD=1", "OPM_CHILD_DIR="+dir, "OPM_CHILD_N="+strconv.Itoa(n), "OPM_CHILD_PATHS="+strings.Join(paths, " "))
+	if outbox {
+		c.Env = append(c.Env, "OPM_CHILD_OUTBOX=1")
+	}
+	var out bytes.Buffer
+	c.Stdout, c.Stderr = &out, &out
+	must(t, c.Start())
+	return func() {
+		t.Helper()
+		if err := c.Wait(); err != nil {
+			t.Fatalf("child: %v\n%s", err, out.String())
+		}
+	}
+}
+
+// childMain increments the counters through its own driver: n parallel workers walk all paths.
+func childMain() int {
+	cfg := Config{DataDir: os.Getenv("OPM_CHILD_DIR"), PublicURL: "http://x", Strict: yes()}
+	outbox := os.Getenv("OPM_CHILD_OUTBOX") == "1"
+	if outbox {
+		cfg.Triggers = testTriggers
+	}
+	p, err := Open(cfg)
+	if err != nil {
+		fmt.Println(err)
+		return 1
+	}
+	defer p.Close()
+	n, _ := strconv.Atoi(os.Getenv("OPM_CHILD_N"))
+	failed := atomic.Bool{}
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, path := range strings.Fields(os.Getenv("OPM_CHILD_PATHS")) {
+				err := p.Store.RunTransaction(func(tx *Tx) error {
+					ref := p.Store.Doc(path)
+					s, err := tx.Get(ref)
+					if err != nil {
+						return err
+					}
+					tx.Set(ref, doc.Obj("v", s.Data().Num("v")+1), Merge)
+					return nil
+				}, 200)
+				if err != nil {
+					fmt.Println(err)
+					failed.Store(true)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if failed.Load() {
+		return 1
+	}
+	if outbox {
+		if err := p.Store.Doc("deployments/Dx/things/fromChild").Create(doc.Obj("by", "child")); err != nil {
+			fmt.Println(err)
+			return 1
+		}
+	}
+	return 0
+}
+
+// captureFile redirects os.Stdout / os.Stderr to a file until the returned func, which gives what was written.
+func captureFile(t *testing.T, f **os.File) func() string {
+	t.Helper()
+	tmp, err := os.Create(filepath.Join(t.TempDir(), "out"))
+	must(t, err)
+	old := *f
+	*f = tmp
+	return func() string {
+		*f = old
+		tmp.Close()
+		b, err := os.ReadFile(tmp.Name())
+		must(t, err)
+		return string(b)
 	}
 }
 
 func TestParallelFilesNoLostUpdates(t *testing.T) {
-	p := open(t, t.TempDir())
+	d := t.TempDir()
+	p := open(t, d)
 	st := p.Store
 	paths := []string{"deployments/DA/counters/c", "deployments/DB/counters/c", "counters/g"}
 	inc := func(path string) {
@@ -92,6 +206,7 @@ func TestParallelFilesNoLostUpdates(t *testing.T) {
 		}
 	}
 	const N = 25
+	child := startChild(t, d, N, false, paths...)
 	var wg sync.WaitGroup
 	for i := 0; i < N; i++ {
 		for _, f := range []func(){func() { inc(paths[0]) }, func() { inc(paths[1]) }, func() { inc(paths[2]) }, cross} {
@@ -100,11 +215,15 @@ func TestParallelFilesNoLostUpdates(t *testing.T) {
 		}
 	}
 	wg.Wait()
+	child()
 	for _, x := range paths {
-		eq(t, data(t, st.Doc(x)).Val("v"), N)
+		eq(t, data(t, st.Doc(x)).Val("v"), 2*N, x)
 	}
 	eq(t, data(t, st.Doc("deployments/DA/counters/x")).Val("v"), N)
 	eq(t, data(t, st.Doc("counters/x")).Val("v"), N)
+	var ok string
+	must(t, rawDB(t, d+"/db/global.sqlite").QueryRow("PRAGMA integrity_check").Scan(&ok))
+	eq(t, ok, "ok")
 }
 
 func TestSlugUniquenessSerializable(t *testing.T) {
@@ -140,7 +259,8 @@ func TestSlugUniquenessSerializable(t *testing.T) {
 }
 
 func TestCrossFileAllOrNothing(t *testing.T) {
-	st := open(t, t.TempDir()).Store
+	d := t.TempDir()
+	st := open(t, d).Store
 	must(t, st.Doc("counters/exists").Set(doc.Obj("v", 1)))
 	err := st.RunTransaction(func(tx *Tx) error {
 		tx.Set(st.Doc("deployments/DX/counters/a"), doc.Obj("v", 1))
@@ -151,6 +271,22 @@ func TestCrossFileAllOrNothing(t *testing.T) {
 	if s, _ := st.Doc("deployments/DX/counters/a").Get(); s.Exists() {
 		t.Fatal("deployment part rolled back")
 	}
+	t.Setenv("OPM_LOCAL_TRACE_XTX", "1")
+	s2 := open(t, d).Store
+	done := captureFile(t, &os.Stdout)
+	b := s2.Batch()
+	b.Set(s2.Doc("deployments/DX/counters/a"), doc.Obj("v", 1)).Set(s2.Doc("counters/b"), doc.Obj("v", 1))
+	err = b.Commit()
+	out := done()
+	must(t, err)
+	var files any
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if m, err := doc.ParseMap([]byte(l)); err == nil && m.Str("message") == "local cross-db tx" {
+			files = m.Val("files")
+		}
+	}
+	eq(t, files, []string{"DX", "@global"}, "deployment files first, global last")
+	eq(t, data(t, st.Doc("counters/b")).Val("v"), 1)
 }
 
 func TestStrictAndFallback(t *testing.T) {
@@ -161,11 +297,11 @@ func TestStrictAndFallback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "strict") {
 		t.Fatal(err)
 	}
-	if _, err = p.Store.Collection("templates").OrderBy("label").Get(); err == nil {
-		t.Fatal("strict order")
+	if _, err = p.Store.Collection("templates").OrderBy("label").Get(); err == nil || !strings.Contains(err.Error(), "strict") {
+		t.Fatal("strict order", err)
 	}
-	if _, err = p.Store.Collection("templates").Where("tags", "array-contains", "x").Get(); err == nil {
-		t.Fatal("strict array")
+	if _, err = p.Store.Collection("templates").Where("tags", "array-contains", "x").Get(); err == nil || !strings.Contains(err.Error(), "strict") {
+		t.Fatal("strict array", err)
 	}
 	eq(t, len(ids(t, p.Store.Collection("templates").Where("slug", "==", "s"))), 1)
 	no := false
@@ -249,6 +385,7 @@ func TestDispatcher(t *testing.T) {
 		}}
 	}
 	must(t, st.Doc("deployments/Dx/things/before-start").Create(doc.Obj("v", 0)))
+	errs := captureFile(t, &os.Stderr)
 	disp := StartOutboxDispatcher(st, []DocTrigger{mk(testTriggers[0], false), mk(testTriggers[1], true)}, 3, 50*time.Millisecond)
 	defer disp.Stop()
 	for i := 0; i < 6; i++ {
@@ -256,16 +393,37 @@ func TestDispatcher(t *testing.T) {
 	}
 	must(t, st.Doc("gthings/g").Set(doc.Obj("v", 1)))
 	disp.Idle()
+	if l := errs(); !strings.Contains(l, "trigger tWritten failed") {
+		t.Fatal(l)
+	}
+	startChild(t, d, 1, true, "counters/c")()
+	fromChild := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, e := range seen {
+			if strings.HasSuffix(e.Path, "fromChild") {
+				return true
+			}
+		}
+		return false
+	}
+	for i := 0; i < 100 && !fromChild(); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	disp.Idle()
 	mu.Lock()
-	n := len(seen)
+	paths := []string{}
 	var t3 *DocEvent
 	for i := range seen {
+		paths = append(paths, seen[i].Path)
 		if strings.HasSuffix(seen[i].Path, "/t3") {
 			t3 = &seen[i]
 		}
 	}
 	mu.Unlock()
-	eq(t, n, 8)
+	sort.Strings(paths)
+	eq(t, paths, []string{"deployments/Dx/things/before-start", "deployments/Dx/things/fromChild", "deployments/Dx/things/t0", "deployments/Dx/things/t1", "deployments/Dx/things/t2", "deployments/Dx/things/t3", "deployments/Dx/things/t4", "deployments/Dx/things/t5", "gthings/g"})
+	eq(t, len(t3.Params), 2)
 	eq(t, t3.Params["d"], "Dx")
 	eq(t, t3.Params["t"], "t3")
 	if t3.Before != nil {
@@ -327,7 +485,12 @@ func TestTTLSweepAndBackup(t *testing.T) {
 	out := filepath.Join(restored, "db")
 	files, err := BackupSqlite(d, out)
 	must(t, err)
-	eq(t, len(files), 2)
+	rel := []string{}
+	for _, f := range files {
+		rel = append(rel, strings.TrimPrefix(f, out+"/"))
+	}
+	sort.Strings(rel)
+	eq(t, rel, []string{"deployments/D1.sqlite", "global.sqlite"})
 	b := open(t, restored)
 	eq(t, data(t, b.Store.Doc("deployments/D1/commits/c")).Val("seq"), 1)
 	eq(t, len(ids(t, b.Store.Collection("templates").Where("slug", "==", "a"))), 1)
@@ -335,7 +498,15 @@ func TestTTLSweepAndBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var paths []string
-	must(t, st.AllDocuments(func(p string, m *doc.Map) error { paths = append(paths, p); return nil }))
+	must(t, st.AllDocuments(func(p string, m *doc.Map) error {
+		paths = append(paths, p)
+		if p == "deployments/D1/commits/c" {
+			if _, ok := m.Val("at").(doc.Timestamp); !ok {
+				t.Error("at", m.Val("at"))
+			}
+		}
+		return nil
+	}))
 	eq(t, paths, []string{"agentNonces/b", "deployments/D1", "deployments/D1/commits/c", "rateLimits/r2", "templates/a", "zeta/z"})
 	c, err := st.CountDocuments()
 	must(t, err)
@@ -394,6 +565,9 @@ func TestAuthFlows(t *testing.T) {
 		t.Fatal(u)
 	}
 	eq(t, u.Providers, []string{"password"})
+	if _, err := http.ParseTime(u.TokensValidAfterTime); err != nil {
+		t.Fatal(u.TokensValidAfterTime, err)
+	}
 	raw := data(t, st.Doc("authUsers/"+u.UID))
 	if !strings.HasPrefix(raw.Str("passwordHash"), "$argon2id$v=19$m=19456,t=2,p=1$") || strings.Contains(doc.MarshalString(raw), "correct horse") {
 		t.Fatal(raw)
@@ -418,13 +592,20 @@ func TestAuthFlows(t *testing.T) {
 	acode(t, err, "auth/user-not-found")
 	us, _ := a.GetUsers([]string{u.UID, "nope"})
 	eq(t, len(us), 1)
+	eq(t, us[0].UID, u.UID)
 	all, _ := a.ListAllUsers()
 	eq(t, len(all), 2)
 	_, err = a.UpdateUser(fixed.UID, UpdateUserInput{Email: Ptr("bobby@example.com")})
 	must(t, err)
 	_, err = a.GetUserByEmail("bob@example.com")
 	acode(t, err, "auth/user-not-found")
+	x, err = a.GetUserByEmail("bobby@example.com")
+	must(t, err)
+	eq(t, x.UID, fixed.UID)
 	must(t, a.DeleteUser(fixed.UID))
+	if _, err = a.GetUserByEmail("bobby@example.com"); err == nil {
+		t.Fatal("deleted")
+	}
 	_, err = a.CreateUser(CreateUserInput{Email: "bobby@example.com"})
 	must(t, err)
 
@@ -447,6 +628,12 @@ func TestAuthFlows(t *testing.T) {
 	id := tk.Str("idToken")
 	_, err = a.VerifyIDToken(id[:len(id)-2]+"xx", false)
 	acode(t, err, "auth/argument-error")
+	part := strings.Split(id, ".")
+	claims, err := doc.ParseMap(base64Raw(t, part[1]))
+	must(t, err)
+	if _, err = a.VerifyIDToken(part[0]+"."+b64obj(claims.Set("uid", "other"))+"."+part[2], false); err == nil {
+		t.Fatal("forged token accepted")
+	}
 	for i := 0; i < 10; i++ {
 		e.call("POST", "/auth/login", doc.Obj("email", "alice@example.com", "password", "nope"), "10.9.9.9")
 	}
@@ -467,21 +654,34 @@ func TestAuthFlows(t *testing.T) {
 	_, err = a.VerifyIDToken(id, false)
 	must(t, err)
 	eq(t, errCode(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", tk.Str("refreshToken")))), "auth/invalid-refresh-token")
+	ru, err := a.GetUser(u.UID)
+	must(t, err)
+	if at, err := http.ParseTime(ru.TokensValidAfterTime); err != nil || time.Since(at) > 5*time.Second {
+		t.Fatal(ru.TokensValidAfterTime, err)
+	}
 
 	// refresh rotation
 	s0 := j(e.call("POST", "/auth/login", cred))
-	s1 := j(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s0.Str("refreshToken"))))
+	r1 := e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s0.Str("refreshToken")))
+	eq(t, r1.Status, 200)
+	s1 := j(r1)
 	if s1.Str("refreshToken") == "" || s1.Str("refreshToken") == s0.Str("refreshToken") {
 		t.Fatal(s1)
 	}
 	_, err = a.VerifyIDToken(s1.Str("idToken"), true)
 	must(t, err)
 	s2 := j(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s1.Str("refreshToken"))))
+	if s2.Str("refreshToken") == "" {
+		t.Fatal(s2)
+	}
 	eq(t, errCode(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s1.Str("refreshToken")))), "auth/invalid-refresh-token")
 	eq(t, errCode(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s2.Str("refreshToken")))), "auth/invalid-refresh-token")
 	s3 := j(e.call("POST", "/auth/login", cred))
 	eq(t, e.call("POST", "/auth/logout", doc.Obj("refreshToken", s3.Str("refreshToken"))).Status, 204)
 	eq(t, errCode(e.call("POST", "/auth/refresh", doc.Obj("refreshToken", s3.Str("refreshToken")))), "auth/invalid-refresh-token")
+	if contains(ids(t, st.Collection("authRefresh").Query), s2.Str("refreshToken")) {
+		t.Fatal("refresh tokens stored hashed")
+	}
 
 	// reset
 	_, err = a.GeneratePasswordResetLink("nobody@example.com")
@@ -528,6 +728,9 @@ func TestAuthFlows(t *testing.T) {
 	mu.Lock()
 	eq(t, len(mails), 1)
 	eq(t, mails[0][0], "alice@example.com")
+	if !strings.Contains(mails[0][1], "http://console.test/reset-password?token=") {
+		t.Fatal(mails[0][1])
+	}
 	mu.Unlock()
 	eq(t, e.call("GET", "/auth/nope", nil).Status, 404)
 	eq(t, e.call("OPTIONS", "/auth/login", nil).Status, 204)
@@ -574,6 +777,7 @@ func TestOIDC(t *testing.T) {
 		st := e.call("GET", "/auth/oidc/start?next=/app/deployments", nil)
 		eq(t, st.Status, 302)
 		loc, _ := url.Parse(st.Headers["Location"])
+		eq(t, loc.Scheme+"://"+loc.Host+loc.Path, srv.URL+"/authorize")
 		eq(t, loc.Query().Get("code_challenge_method"), "S256")
 		eq(t, loc.Query().Get("hd"), "corp.test")
 		nonce, challenge = loc.Query().Get("nonce"), loc.Query().Get("code_challenge")
@@ -613,7 +817,17 @@ func TestOIDC(t *testing.T) {
 	}
 }
 
+func base64Raw(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	must(t, err)
+	return b
+}
+
 func TestMain(m *testing.M) {
+	if os.Getenv("OPM_DRIVER_CHILD") == "1" {
+		os.Exit(childMain())
+	}
 	os.Unsetenv("OPM_LOCAL_STRICT")
 	os.Exit(m.Run())
 }

@@ -14,8 +14,10 @@ import (
 	"opm/agent/internal/sign"
 )
 
+// The tab protocol itself, in clear (tunnelPlaintext on an agent without a release key); sealing: tunnelsealed_test.go.
 func TestTunnelProtocol(t *testing.T) {
 	a := newTestAgent(t)
+	a.cfg.TunnelPlaintext = true
 	sid := "S1"
 	exp := time.Now().Add(time.Hour).Unix()
 	_, _ = a.db.Exec(`INSERT INTO sessions(sessionId, createdAt, expiresAt, keyVersion, ip, userAgent) VALUES(?,?,?,?,?,?)`, sid, time.Now().Unix(), exp, 1, "", "")
@@ -81,7 +83,7 @@ func TestTunnelProtocol(t *testing.T) {
 	if a.tun.active() != nil {
 		t.Fatal("lease should expire")
 	}
-	if items, _ := a.activitiesPage(0, 10, "internet.tunnel", ""); len(items) != 2 {
-		t.Fatalf("tunnel activities %d", len(items))
+	if items, _ := a.activitiesPage(0, 10, "internet.tunnel", ""); len(items) != 3 {
+		t.Fatalf("tunnel activities %d", len(items)) // started, plaintext, expired
 	}
 }

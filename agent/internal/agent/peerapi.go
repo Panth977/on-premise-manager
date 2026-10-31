@@ -168,7 +168,7 @@ func (a *Agent) peerMux() http.Handler {
 }
 
 // handlePeerRelay forwards an inner signed cloud request (§4.5): own internet → POST /v1/agent/relay; tunnel holder →
-// enqueue unchanged; else 503 no-internet.
+// seal it, signature unchanged, for the tab (§9.10); else 503 no-internet.
 func (a *Agent) handlePeerRelay(w http.ResponseWriter, r *http.Request) (any, *httpError) {
 	var req model.PeerRelayRequest
 	if e := readJSON(r, &req); e != nil {

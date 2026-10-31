@@ -27,6 +27,16 @@ type tunReq struct {
 	err      error
 	chunked  *model.TunnelResult
 	parts    int
+	sealed   bool
+}
+
+// tunQueued is what the tab gets. logMethod / logPath stay on the agent.
+type tunQueued struct {
+	method, url        string
+	headers            map[string]string
+	bodyB64            *string
+	logMethod, logPath string
+	sealed             bool
 }
 
 type tunnel struct {
@@ -36,6 +46,10 @@ type tunnel struct {
 	byID  map[string]*tunReq
 	wake  chan struct{}
 	log   []tunLogEntry
+	// §9.10 the verified cloud key; keySem: one key fetch at a time. sealErr: the lastError a sealed call left on the lease
+	key     *verifiedTunnelKey
+	keySem  chan struct{}
+	sealErr string
 }
 
 type tunLogEntry struct {
@@ -45,7 +59,9 @@ type tunLogEntry struct {
 	Step   string `json:"step"`
 }
 
-func newTunnel() *tunnel { return &tunnel{byID: map[string]*tunReq{}, wake: make(chan struct{})} }
+func newTunnel() *tunnel {
+	return &tunnel{byID: map[string]*tunReq{}, wake: make(chan struct{}), keySem: make(chan struct{}, 1)}
+}
 
 func (t *tunnel) active() *model.TunnelLease {
 	t.mu.Lock()
@@ -69,22 +85,36 @@ func (r *tunReq) finish(res *cloudResp, err error) {
 	})
 }
 
-// tunnelCall sends an (already signed) cloud request through the browser tab holding the lease (§9.10).
+// tunnelCall sends an (already signed) cloud request through the browser tab holding the lease (§9.10): sealed, so the
+// tab sees ciphertext only. In clear only on an agent without a pinned release key that asked for it (tunnelPlaintext).
 func (a *Agent) tunnelCall(ctx context.Context, inner model.RelayInner, timeout time.Duration) (*cloudResp, error) {
 	if timeout <= 0 {
 		timeout = 90 * time.Second
 	}
+	if !a.tunnelPlaintext() {
+		return a.sealedCall(ctx, inner, timeout)
+	}
+	r, err := a.tunnelSend(ctx, tunQueued{method: inner.Method, url: a.apiURL(inner.Path), headers: inner.Headers, bodyB64: inner.BodyB64, logMethod: inner.Method, logPath: pathOnly(inner.Path)}, timeout)
+	if err != nil {
+		return nil, err
+	}
+	a.adoptServerTime(r.Header)
+	return r, nil
+}
+
+// tunnelSend queues one request for the tab and waits for what the tab reports.
+func (a *Agent) tunnelSend(ctx context.Context, q tunQueued, timeout time.Duration) (*cloudResp, error) {
 	t := a.tun
 	t.mu.Lock()
 	if t.lease == nil || t.lease.Status != "active" {
 		t.mu.Unlock()
 		return nil, &netError{errors.New("no active browser tunnel")}
 	}
-	r := &tunReq{req: model.TunnelRequest{ReqID: newID(), Method: inner.Method, URL: a.apiURL(inner.Path), Headers: inner.Headers, BodyB64: inner.BodyB64,
-		CreatedAt: nowTs(), TimeoutSec: int(timeout.Seconds())}, done: make(chan struct{})}
+	r := &tunReq{req: model.TunnelRequest{ReqID: newID(), Method: q.method, URL: q.url, Headers: q.headers, BodyB64: q.bodyB64,
+		CreatedAt: nowTs(), TimeoutSec: max(1, int(timeout.Seconds()))}, sealed: q.sealed, done: make(chan struct{})}
 	t.reqs = append(t.reqs, r)
 	t.byID[r.req.ReqID] = r
-	t.log = append(t.log, tunLogEntry{ReqID: r.req.ReqID, Method: inner.Method, Path: pathOnly(inner.Path), Step: "queued"})
+	t.log = append(t.log, tunLogEntry{ReqID: r.req.ReqID, Method: q.logMethod, Path: q.logPath, Step: "queued"})
 	if len(t.log) > 50 {
 		t.log = t.log[len(t.log)-50:]
 	}
@@ -113,7 +143,6 @@ func (a *Agent) tunnelCall(ctx context.Context, inner model.RelayInner, timeout 
 		if r.result.Status == 0 {
 			return nil, &netError{errors.New("tunnel: browser fetch failed")}
 		}
-		a.adoptServerTime(r.result.Header)
 		return r.result, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -136,7 +165,10 @@ func (a *Agent) leaseHolder() (*model.TunnelLease, string) {
 
 func (a *Agent) handleTunnelState(w http.ResponseWriter, r *http.Request) (any, int, *httpError) {
 	l, holder := a.leaseHolder()
-	out := model.TunnelStateResponse{Lease: l}
+	out := model.TunnelStateResponse{Lease: l, Encrypted: !a.tunnelPlaintext()}
+	if l != nil {
+		out.Encrypted = l.Encrypted
+	}
 	if holder != "" {
 		out.HolderSite = &holder
 	}
@@ -168,13 +200,17 @@ func (a *Agent) handleTunnelStart(w http.ResponseWriter, r *http.Request) (any, 
 		ua = rc.ua
 	}
 	now := nowTs()
-	l := &model.TunnelLease{LeaseID: newID(), Actor: rc.actor, SiteSlug: a.site, UserAgent: ua, StartedAt: now, LastPollAt: now, Status: "active"}
+	plaintext := a.tunnelPlaintext()
+	l := &model.TunnelLease{LeaseID: newID(), Actor: rc.actor, SiteSlug: a.site, UserAgent: ua, StartedAt: now, LastPollAt: now, Status: "active", Encrypted: !plaintext}
 	a.tun.mu.Lock()
 	a.tun.lease = l
 	cp := *l
 	a.tun.mu.Unlock()
 	a.saveLease(&cp)
 	a.activity(rc.actorPtr(), "agent", "internet.tunnel.started", "browser internet tunnel started", actorData(rc, map[string]any{"leaseId": l.LeaseID, "actor": rc.actor, "userAgent": ua}))
+	if plaintext {
+		a.activity(rc.actorPtr(), "agent", "internet.tunnel.plaintext", "browser internet tunnel carries cloud calls in clear (tunnelPlaintext, no releasePublicKey)", actorData(rc, map[string]any{"leaseId": l.LeaseID}))
+	}
 	a.kickLoop("ping")
 	return model.TunnelLeaseResponse{Lease: cp}, 201, nil
 }
@@ -399,6 +435,10 @@ func (a *Agent) handleTunnelChunk(w http.ResponseWriter, r *http.Request) (any, 
 	idx := qInt(r, "index", -1)
 	if idx != x.parts {
 		return nil, 0, invalid(fmt.Sprintf("expected chunk index %d", x.parts), nil)
+	}
+	if x.sealed && x.parts >= maxSealedParts {
+		x.finish(nil, fmt.Errorf("tunnel: sealed response over %d bytes", maxSealedBody))
+		return nil, 0, herr(model.ErrTooLarge, "the sealed response is too large", nil)
 	}
 	b, err := io.ReadAll(io.LimitReader(r.Body, 4<<20+1))
 	if err != nil || len(b) > 4<<20 {

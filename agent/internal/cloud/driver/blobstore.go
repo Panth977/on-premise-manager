@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"opm/agent/internal/cloud/doc"
@@ -120,6 +121,7 @@ type BlobStore struct {
 	Root      string
 	metaRoot  string
 	tmp       string
+	keyMu     sync.Mutex
 	key       []byte
 }
 
@@ -531,6 +533,8 @@ func (b *BlobStore) Copy(src, dst string) error {
 }
 
 func (b *BlobStore) secret() ([]byte, error) {
+	b.keyMu.Lock()
+	defer b.keyMu.Unlock()
 	if b.key == nil {
 		k, err := LoadSecret("OPM_BLOB_SECRET", b.DataDir, "blob-hmac.key")
 		if err != nil {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
@@ -149,10 +150,13 @@ type Auth struct {
 	Store      *Store
 	dataDir    string
 	ConsoleURL string
+	keyMu      sync.Mutex
 	key        []byte
 }
 
 func (a *Auth) secret() ([]byte, error) {
+	a.keyMu.Lock()
+	defer a.keyMu.Unlock()
 	if a.key == nil {
 		k, err := LoadSecret("OPM_AUTH_SECRET", a.dataDir, "auth-jwt.key")
 		if err != nil {

@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -561,6 +562,12 @@ func (e *encoder) val(v any, where string) error {
 			data[i] = float64(c)
 		}
 		return e.val(Obj("type", "Buffer", "data", data), where)
+	case time.Time:
+		if e.m == modeAPI {
+			e.b = appendQuoted(e.b, ISO(x))
+			return nil
+		}
+		return e.val(TimestampFromMillis(x.UnixMilli()), where)
 	case *Transform:
 		return fmt.Errorf("%s: a FieldTransform cannot be stored (only at a top-level / map position of a write)", where)
 	default:

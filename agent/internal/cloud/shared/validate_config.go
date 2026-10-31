@@ -1056,7 +1056,7 @@ func (g *jGlobals) checkSeed(v any, vp string, renders *[]string, content *jCont
 			}
 			from = jJoin(names, ", ")
 		}
-		is.Err(vp+".seed", "V_VOLUME_SEED_FILE_REF", "volume "+vs+" takes its starter content from Files ("+from+") — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content; backend/scripts/migrate-h.ts converts it)")
+		is.Err(vp+".seed", "V_VOLUME_SEED_FILE_REF", "volume "+vs+" takes its starter content from Files ("+from+") — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content)")
 		return
 	}
 	var persist any

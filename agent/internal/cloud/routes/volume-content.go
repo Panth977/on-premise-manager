@@ -1,6 +1,6 @@
 package routes
 
-// Port of backend/src/routes/volume-content.ts (§21 #101 volume content + persist-to-cloud volumes). What other files need
+// §21 #101 volume content + persist-to-cloud volumes. What other files need
 // lives in core/route_volume_content.go (vcCol, storeTree, readTree, the cloud items, volumeSync, seedBlobContents).
 // createVersionBody, snapshotAncestor and excludedIssues have no caller in the TS and are not ported. Helpers of this
 // file are prefixed vc.

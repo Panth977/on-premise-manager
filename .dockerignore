@@ -8,7 +8,6 @@
 **/build-mock*
 **/.tmp
 **/.tmp-local
-backend/dist
 frontend/build
 frontend/.svelte-kit
 agent/dist

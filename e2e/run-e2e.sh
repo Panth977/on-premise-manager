@@ -24,12 +24,4 @@ docker info >/dev/null 2>&1 || { echo "docker (Colima) is not running"; exit 1; 
 [ -d node_modules ] || npm install --no-audit --no-fund
 [ -f ../shared/dist/cloud-api.js ] || (cd ../shared && npm run build)
 mkdir -p run results screenshots
-# deployed run: publish a newer agent build (agent/dist) to Storage first, so the token-gated install serves it
-if [ "${1:-}" = "--deployed" ] && [ "${OPM_E2E_UPLOAD_AGENT:-1}" = 1 ] && [ -f ../agent/dist/opm-agent-darwin-arm64 ]; then
-  if [ ! -f run/agent-uploaded ] || [ ../agent/dist/opm-agent-darwin-arm64 -nt run/agent-uploaded ]; then
-    V="0.1.0-$(date +%m%d%H%M)"
-    echo "uploading agent/dist as $V (latest)"
-    (cd ../backend && npx tsx scripts/upload-agent.ts --dir ../agent/dist --version "$V" --latest) && echo "$V" > run/agent-uploaded
-  fi
-fi
 exec npx tsx src/run.ts

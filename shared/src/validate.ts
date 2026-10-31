@@ -1470,7 +1470,7 @@ function checkSeed(v: SiteVolume, vp: string, config: Config, is: Issues, render
     return is.err(
       `${vp}.seed`,
       'V_VOLUME_SEED_FILE_REF',
-      `volume ${v.volumeSlug} takes its starter content from Files (${sd.kind === 'file' ? sd.fileSlug : sd.entries.map((e) => e.fileSlug).join(', ')}) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content; backend/scripts/migrate-h.ts converts it)`,
+      `volume ${v.volumeSlug} takes its starter content from Files (${sd.kind === 'file' ? sd.fileSlug : sd.entries.map((e) => e.fileSlug).join(', ')}) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content)`,
     );
   // §21 #117 a persist-to-cloud volume's seed is its COMMITTED content: a literal tree within the persisted limits
   const persist = v.persist && typeof v.persist === 'object' ? v.persist : null;

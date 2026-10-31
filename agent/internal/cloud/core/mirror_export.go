@@ -17,7 +17,7 @@ import (
 )
 
 // The exporter: ExportRequest assembly (never a secret value) and the run of agent/internal/export. The request and the
-// result take the same JSON path as the wasm build (agent/cmd/opm-export), so the tree is the same to the byte.
+// result take the same JSON path as agent/cmd/opm-export, so the tree is the same to the byte.
 
 // RunExporter is runExporter: ExportRequest → ExportResult, in process.
 func RunExporter(req *doc.Map) (*doc.Map, error) {

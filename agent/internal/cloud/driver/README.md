@@ -1,14 +1,13 @@
 # Storage driver (SPEC §21 #108)
 
-`localPorts({ dataDir, publicUrl, consoleUrl?, triggers?, strict?, indexes? })` → `{ store, blobs, auth, close() }`.
-Node 22 built-ins only (`node:sqlite`, `node:crypto`), plus `hash-wasm` (argon2id).
+`driver.Open(Config{DataDir, PublicURL, ConsoleURL, Triggers, Strict, Indexes})` → `Ports{Store, Blobs, Auth}`.
 
 ## Data dir
 
 ```
 <dataDir>/db/global.sqlite                every document NOT under deployments/{id}
 <dataDir>/db/deployments/<id>.sqlite      deployments/{id} itself (table "deployment") + everything under it
-<dataDir>/blobs/<object path>             objects, same paths as the GCS bucket (blobs/sha256/…, files/…, staging/…)
+<dataDir>/blobs/<object path>             objects, flat object paths (blobs/sha256/…, files/…, staging/…)
 <dataDir>/blobmeta/<object path>.json     sidecar {contentType, cacheControl, meta, createdMs, updatedMs}
 <dataDir>/tmp/                            temp files of in-flight writes (renamed into place when complete)
 <dataDir>/secrets/blob-hmac.key           32 random bytes, 0600 (or env OPM_BLOB_SECRET)
@@ -35,10 +34,10 @@ CREATE TABLE t (id TEXT PRIMARY KEY /* full document path */, parent TEXT NOT NU
 **JSON encoding.** Values are stored as plain JSON, with these special cases:
 - Timestamp is stored as `{"$timestamp":{"seconds":S,"nanos":N}}`.
 - Buffer is stored as `{"$bytes":"<base64>"}`.
-- Date becomes a Timestamp, as in Firestore.
+- Date becomes a Timestamp.
 - `undefined` properties are dropped, at any depth.
 
-**Index columns.** `registry.ts` lists the `ix_<field>` columns of each table. A dotted field such as `a.b` becomes
+**Index columns.** `registry.go` lists the `ix_<field>` columns of each table. A dotted field such as `a.b` becomes
 `ix_a_b`. Every write fills the columns from the JSON, using this encoding:
 
 | value | stored in the column as |
@@ -108,7 +107,7 @@ to log each transaction that spans more than one file (`local cross-db tx`, with
 
 Every write whose path matches a trigger pattern inserts a row into `_outbox(seq, trigger, path, before, after,
 createdMs, leaseUntil)`. The row goes into the same file, in the same SQLite transaction as the write. Patterns come
-from `TRIGGER_SPECS` (core/trigger-specs.ts). A row is written when:
+from `TriggerSpecs`. A row is written when:
 - `created`: the document did not exist before the write and exists after it;
 - `written`: the document changed in any way, including a delete. A write that leaves the document unchanged adds no
   row.
@@ -120,7 +119,7 @@ from `TRIGGER_SPECS` (core/trigger-specs.ts). A row is written when:
 - deletes the row once the handler settles. Errors are logged and dropped, like Cloud Functions with `retry: false`.
   Expired leases run again, so delivery is at-least-once.
 
-`idle()` resolves when nothing is pending or running. `sweepDocTtl(store, now)` implements the Firestore TTL policies
+`idle()` resolves when nothing is pending or running. `SweepDocTTL(store, now)` implements the Firestore TTL policies
 (`agentNonces.expiresAt`, `rateLimits.expireAt`).
 
 ## Blobs

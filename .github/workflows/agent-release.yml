@@ -1,6 +1,6 @@
 name: agent-release
 
-# Tag vX.Y.Z → opm-agent binaries (linux amd64/arm64, darwin arm64) + release.json + the GitHub-mirror helpers,
+# Tag vX.Y.Z → opm-agent binaries (linux amd64/arm64, darwin arm64) + release.json,
 # attached to the GitHub release. Upload them to your cloud with `opm-cloud upload-agent` (docs-v2/self-host.md).
 on:
   push:

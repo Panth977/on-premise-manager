@@ -34,11 +34,12 @@ func eq(t testing.TB, got, want any, msg ...any) {
 	}
 }
 
-func backend(t testing.TB) string {
+// sharedDir is shared/, the TypeScript the frontend uses: the vectors hold the Go port against it.
+func sharedDir(t testing.TB) string {
 	_, f, _, _ := runtime.Caller(0)
-	d := filepath.Join(filepath.Dir(f), "../../../backend")
+	d := filepath.Join(filepath.Dir(f), "../../../shared")
 	if _, err := os.Stat(filepath.Join(d, "node_modules/tsx")); err != nil {
-		t.Skip("backend/node_modules missing")
+		t.Skip("shared/node_modules missing (cd shared && npm ci)")
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
@@ -50,7 +51,7 @@ func tsx(t testing.TB, script string, args ...string) []byte {
 	t.Helper()
 	_, f, _, _ := runtime.Caller(0)
 	cmd := exec.Command("node", append([]string{"--import", "tsx", "--no-warnings=ExperimentalWarning", filepath.Join(filepath.Dir(f), script)}, args...)...)
-	cmd.Dir = backend(t)
+	cmd.Dir = sharedDir(t)
 	var out, e bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &e
 	if err := cmd.Run(); err != nil {
@@ -69,7 +70,7 @@ func TestGeneratedTableFresh(t *testing.T) {
 	got, err := os.ReadFile("api_gen.go")
 	must(t, err)
 	if !bytes.Equal(got, formatted) {
-		t.Fatal("api_gen.go is stale: cd backend && node --import tsx ../agent/internal/cloud/gen/gen.mts && gofmt -w ../agent/internal/cloud/api_gen.go")
+		t.Fatal("api_gen.go is stale: cd shared && node --import tsx ../agent/internal/cloud/gen/gen.mts && gofmt -w ../agent/internal/cloud/api_gen.go")
 	}
 }
 

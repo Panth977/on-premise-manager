@@ -5,7 +5,8 @@ import (
 	"regexp"
 )
 
-// installScriptTmpl is the text of routes/install-script.ts with @@OPM:<VAR>@@ placeholders (testdata/gen_install_script.mts).
+// installScriptTmpl is the install script (edit it there): POSIX sh with @@OPM:<VAR>@@ placeholders, kept sh -n / dash -n /
+// shellcheck clean (apitest 17_install_script).
 //
 //go:embed install_script.tmpl
 var installScriptTmpl string

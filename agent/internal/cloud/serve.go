@@ -14,7 +14,7 @@ import (
 	"opm/agent/internal/cloud/driver"
 )
 
-// LifecycleRules = backend/storage.lifecycle.json.
+// LifecycleRules: staging/ objects expire after a day.
 var LifecycleRules = []driver.LifecycleRule{{Prefixes: []string{"staging/"}, AgeDays: 1}}
 
 var (
@@ -26,7 +26,7 @@ var (
 
 func lookupEnv(k string) (string, bool) { return os.LookupEnv(k) }
 
-// RegisterTrigger attaches the handler of a TriggerSpecs name (app.ts TRIGGERS). Rows of triggers without a handler
+// RegisterTrigger attaches the handler of a TriggerSpecs name. Rows of triggers without a handler
 // stay in the outbox until a binary with the handler runs.
 func RegisterTrigger(name string, h func(e driver.DocEvent) error) {
 	regMu.Lock()
@@ -34,7 +34,7 @@ func RegisterTrigger(name string, h func(e driver.DocEvent) error) {
 	triggers[name] = h
 }
 
-// RegisterJob adds a scheduled job (app.ts JOBS).
+// RegisterJob adds a scheduled job.
 func RegisterJob(j driver.ScheduledJob) {
 	regMu.Lock()
 	defer regMu.Unlock()
@@ -59,7 +59,7 @@ func InstallPorts(c *CloudConfig) (*driver.Ports, error) {
 	return p, nil
 }
 
-// Serve is serve() of server.ts: API + /auth + /_blob + jobs + outbox dispatcher + static frontend, until SIGTERM / SIGINT.
+// Serve runs the cloud: API + /auth + /_blob + jobs + outbox dispatcher + static frontend, until SIGTERM / SIGINT.
 func Serve(cfg *CloudConfig) error {
 	lp, err := InstallPorts(cfg)
 	if err != nil {
@@ -107,7 +107,7 @@ func Serve(cfg *CloudConfig) error {
 	}
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	srv := NewServer(addr, NewHandler(cfg, lp))
-	// server.ts exits at once whatever is in flight: agents always hold a long-poll, so a shutdown that waits for them
+	// Agents always hold a long-poll, so a shutdown that waits for them
 	// runs into docker stop's 10 s and ends in SIGKILL. The signal cancels them; the rest gets 8 s.
 	base, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()

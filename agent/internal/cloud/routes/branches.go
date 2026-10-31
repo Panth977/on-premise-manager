@@ -1,6 +1,6 @@
 package routes
 
-// Port of backend/src/routes/branches.ts (§21 #104, #105: commits on template / deployment branches, compare, merge,
+// §21 #104, #105: commits on template / deployment branches, compare, merge,
 // revert, reset). asBranchRef, asPoint, resolveBranch, resolvePoint, createSource, originOf and agentCommit live in
 // core/route_branches.go. Helpers of this file are prefixed br.
 

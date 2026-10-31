@@ -1,4 +1,4 @@
-/** Prints inputs + TS outputs of the pure logic the Go port must match (router_test.go TestVectors). Run with tsx from backend/. */
+/** Prints inputs + TS outputs of the pure logic the Go port must match (router_test.go TestVectors). Run with tsx from shared/. */
 import { auditActionKeys, auditDiff, capAuditValue, redactSecrets } from '../../../../shared/src/audit.ts';
 import { can, canSeeDeployment, fullAdminRules, isAdmin, validateAccessRules } from '../../../../shared/src/access.ts';
 import { slugifyLabel } from '../../../../shared/src/github-mirror.ts';

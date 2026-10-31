@@ -15,11 +15,11 @@ import (
 	"opm/agent/internal/cloud/doc"
 )
 
-func backendDir(t testing.TB) string {
+func sharedDir(t testing.TB) string {
 	_, f, _, _ := runtime.Caller(0)
-	d := filepath.Join(filepath.Dir(f), "../../../../backend")
+	d := filepath.Join(filepath.Dir(f), "../../../../shared")
 	if _, err := os.Stat(filepath.Join(d, "node_modules/tsx")); err != nil {
-		t.Skip("backend/node_modules missing")
+		t.Skip("shared/node_modules missing (cd shared && npm ci)")
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
@@ -31,7 +31,7 @@ func tsx(t testing.TB, script string, args ...string) []byte {
 	t.Helper()
 	_, f, _, _ := runtime.Caller(0)
 	cmd := exec.Command("node", append([]string{"--import", "tsx", "--no-warnings=ExperimentalWarning", filepath.Join(filepath.Dir(f), script)}, args...)...)
-	cmd.Dir = backendDir(t)
+	cmd.Dir = sharedDir(t)
 	var out, e bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &e
 	if err := cmd.Run(); err != nil {

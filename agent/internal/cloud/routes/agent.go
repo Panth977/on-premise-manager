@@ -1,6 +1,6 @@
 package routes
 
-// Port of backend/src/routes/agent.ts: the signed agent endpoints (poll, heartbeat, heads, proposals, images, blobs,
+// The signed agent endpoints (poll, heartbeat, heads, proposals, images, blobs,
 // activities, transfers, uploads, relay). Helpers of this file are prefixed ag: all route files share the package.
 
 import (

@@ -1,6 +1,6 @@
 package routes
 
-// Port of the handlers of backend/src/routes/agent-branches.ts (§21 #104 agent side of branches: commit fetches and the
+// §21 #104 agent side of branches: commit fetches and the
 // agent-branch push). Its helpers live in core/route_agent_branches.go.
 
 import (

@@ -16,9 +16,9 @@ import (
 
 func tsBackend(t testing.TB) string {
 	_, f, _, _ := runtime.Caller(0)
-	d := filepath.Join(filepath.Dir(f), "../../../../backend")
+	d := filepath.Join(filepath.Dir(f), "../../../../shared")
 	if _, err := os.Stat(filepath.Join(d, "node_modules/tsx")); err != nil {
-		t.Skip("backend/node_modules missing")
+		t.Skip("shared/node_modules missing (cd shared && npm ci)")
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
@@ -26,7 +26,7 @@ func tsBackend(t testing.TB) string {
 	return d
 }
 
-// tsxRun runs a script through tsx from backend/ (router_test.go tsx).
+// tsxRun runs a script through tsx from shared/ (router_test.go tsx).
 func tsxRun(t testing.TB, script string, args ...string) []byte {
 	t.Helper()
 	_, f, _, _ := runtime.Caller(0)

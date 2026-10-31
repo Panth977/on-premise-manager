@@ -1,6 +1,6 @@
 package driver
 
-// Port of backend/test/conformance.ts (DocStore + BlobStore semantics, run on a fresh strict store).
+// DocStore + BlobStore semantics, run on a fresh strict store.
 
 import (
 	"fmt"

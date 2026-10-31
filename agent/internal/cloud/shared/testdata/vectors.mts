@@ -1,4 +1,4 @@
-/** Prints inputs + TS outputs of every ported function (shared_test.go). Run with tsx from backend/. */
+/** Prints inputs + TS outputs of every ported function (shared_test.go). Run with tsx from shared/. */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as V from '../../../../../shared/src/validate.ts';

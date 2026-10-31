@@ -1,6 +1,6 @@
 package driver
 
-// Port of backend/test/41-local-adapter.test.ts.
+// Local adapter specifics: file layout, concurrency, outbox, strict index registry, blob URLs, TTL sweep, auth, backups.
 
 import (
 	"bytes"

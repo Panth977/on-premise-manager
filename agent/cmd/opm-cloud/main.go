@@ -1,4 +1,4 @@
-// Command opm-cloud is the OPM cloud as one process for a VM: the Go replacement of backend/src/server.ts.
+// Command opm-cloud is the OPM cloud as one process for a VM.
 //
 //	opm-cloud [serve]            API (/v1) + /auth + /_blob + jobs + outbox dispatcher + static frontend
 //	opm-cloud create-admin --email E [--password P] [--name N]

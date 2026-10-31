@@ -1,4 +1,4 @@
-// Package core ports the shared modules of backend/src/core plus the helpers route files import from each other, one Go
+// Package core holds the shared modules of the cloud plus the helpers route files import from each other, one Go
 // file per TS file with the same base name (route helpers: route_<ts file>.go). Function names are the TS names with a
 // capital first letter. Documents are *doc.Map, lists []any, numbers float64; `T | null` results are nil. Importing
 // this package installs cloud.NormalizeStored, cloud.PrimeImageVolumes and the importImage trigger.

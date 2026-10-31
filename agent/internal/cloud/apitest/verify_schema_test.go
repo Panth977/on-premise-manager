@@ -577,8 +577,8 @@ func TestVerifySchema(t *testing.T) {
 		vsSome(t, v0, `branch\.uncommitted is still stored`)
 		vsSome(t, v0, `config copy differs`)
 		vsLine(t, v0, bP+": branch.uncommitted is still stored (there is no working copy since §21 #105)")
-		vsSome(t, v0, "^"+regexp.QuoteMeta(tP)+`: the config copy differs from the head commit seq \d+ \(1 item\(s\) — uncommitted changes, run migrate-j\)$`)
-		vsSome(t, v0, "^"+regexp.QuoteMeta(aP)+`: the config copy differs from the head commit seq \d+ \(2 item\(s\) — uncommitted changes, run migrate-j\)$`)
+		vsSome(t, v0, "^"+regexp.QuoteMeta(tP)+`: the config copy differs from the head commit seq \d+ \(1 item\(s\) — uncommitted changes\)$`)
+		vsSome(t, v0, "^"+regexp.QuoteMeta(aP)+`: the config copy differs from the head commit seq \d+ \(2 item\(s\) — uncommitted changes\)$`)
 		vsLine(t, v0, cP+": no head commit but a non-empty config copy (uncommitted changes)")
 		// without the option a numeric field is fine, the copy is not compared
 		vsNone(t, vsCheck(t, core.VerifyOptions{RequireBranches: true}, tP, aP, bP, cP), `uncommitted`)

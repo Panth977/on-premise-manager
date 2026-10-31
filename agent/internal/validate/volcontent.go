@@ -45,7 +45,7 @@ func checkContentSeed(v *model.SiteVolume, sd *model.VolumeSeed, vp string, is *
 				refs = append(refs, e.FileSlug)
 			}
 		}
-		is.err(vp+".seed", "V_VOLUME_SEED_FILE_REF", fmt.Sprintf("volume %s takes its starter content from Files (%s) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content; backend/scripts/migrate-h.ts converts it)", v.VolumeSlug, strings.Join(refs, ", ")))
+		is.err(vp+".seed", "V_VOLUME_SEED_FILE_REF", fmt.Sprintf("volume %s takes its starter content from Files (%s) — Files are static and read-only and are never volume content: give the volume its own content (Volume → Content)", v.VolumeSlug, strings.Join(refs, ", ")))
 		return true
 	}
 	// §21 #117 a persist-to-cloud volume's seed is its COMMITTED content: a literal tree within the persisted limits

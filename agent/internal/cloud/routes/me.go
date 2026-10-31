@@ -1,4 +1,4 @@
-// Package routes holds the ported route files of backend/src/routes: each file registers its ops by name in init().
+// Package routes holds the cloud API handlers: each file registers its ops by name in init().
 // agent/cmd/opm-cloud imports this package for the side effect.
 package routes
 

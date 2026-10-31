@@ -1,6 +1,6 @@
 /**
  * Generates ../api_gen.go from shared/src so the Go router cannot drift from CLOUD_API.
- *   cd backend && node --import tsx ../agent/internal/cloud/gen/gen.mts [--stdout]
+ *   cd shared && node --import tsx ../agent/internal/cloud/gen/gen.mts [--stdout]
  * TestGeneratedTableFresh (agent/internal/cloud) fails when the checked-in file is stale.
  */
 import { writeFileSync } from 'node:fs';

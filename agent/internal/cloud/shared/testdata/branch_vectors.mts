@@ -1,6 +1,6 @@
 /**
  * Prints { configs, calls } for branch_test.go: every call = { fn, args, out | err } of shared/src/branch.ts, diff.ts and
- * template-sync.ts. Args are { $c: i } (index into configs) or { $u: 1 } (undefined) or plain JSON. Run with tsx from backend/.
+ * template-sync.ts. Args are { $c: i } (index into configs) or { $u: 1 } (undefined) or plain JSON. Run with tsx from shared/.
  */
 import { readFileSync } from 'node:fs';
 import * as B from '../../../../../shared/src/branch.ts';

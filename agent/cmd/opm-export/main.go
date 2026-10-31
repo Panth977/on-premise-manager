@@ -1,6 +1,6 @@
 // Command opm-export is the §21 #106 exporter for the cloud: stdin = ExportRequest JSON, stdout = ExportResult JSON
-// (shared/src/github-mirror.ts). Built for GOOS=wasip1 GOARCH=wasm and run by Cloud Functions with node:wasi; also
-// builds natively (tests, scripts). Exit 1 + a message on stderr on error.
+// (shared/src/github-mirror.ts): the same export opm-cloud runs in-process, for scripts. Exit 1 + a message on stderr on
+// error.
 package main
 
 import (

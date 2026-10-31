@@ -9,7 +9,7 @@
  * per-file changes). Versions: #1 snapshot (after-apply), #2 edit (admin), #3 snapshot (auto, the site changed
  * flows.json + added lib/extra.js); a pending push of #2 (base #1) → state "conflict". Template "Node-RED (volume content)"
  * (TplNodeRedContent007) has the same site.
- * Migration (like backend/scripts/migrate-h.ts --apply): templates Northwind client (nginx) and Single (volume kinds) get own
+ * Migration: templates Northwind client (nginx) and Single (volume kinds) get own
  * content instead of their legacy Files seeds. Template "Legacy (Files as volume content)" (TplLegacySeeds000008) keeps legacy seeds (folder +
  * single file) and a File mounted inside a writable volume, for the Convert / Move-into-the-volume UI.
  * Simulation: a snapshot request is answered after ~1.5 s with a manual-cloud snapshot of the simulated live tree.

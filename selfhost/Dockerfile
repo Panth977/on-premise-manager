@@ -1,15 +1,16 @@
 # opm-cloud — the OPM cloud on a VM (SPEC §21 #108). Build from the on-premise-manager directory:
 #   docker build -f selfhost/Dockerfile -t opm-cloud .
 # Stage 1: opm-cloud (Go, static).
-FROM golang:1.26 AS go
+FROM --platform=$BUILDPLATFORM golang:1.26 AS go
+ARG TARGETOS TARGETARCH
 WORKDIR /src/agent
 COPY agent/go.mod agent/go.sum ./
 RUN go mod download
 COPY agent/ ./
-RUN mkdir -p /out && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/opm-cloud ./cmd/opm-cloud
+RUN mkdir -p /out && GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/opm-cloud ./cmd/opm-cloud
 
 # Stage 2: the frontend (static build).
-FROM node:22-bookworm AS build
+FROM --platform=$BUILDPLATFORM node:22-bookworm AS build
 WORKDIR /src
 COPY shared/package.json shared/package-lock.json shared/
 RUN cd shared && npm ci

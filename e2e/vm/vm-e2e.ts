@@ -5,6 +5,7 @@
  * Every run uses new labels (template, deployment, service, account, mirror repo), so re-runs work on the same stack.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -523,7 +524,11 @@ async function main() {
     const bj = JSON.parse(b.out.split('\n').pop()!) as { ok: boolean; out: string };
     const ls = compose(['exec', '-T', 'opm-cloud', 'sh', '-c', 'cat /data/backups/e2e/BACKUP.json && ls /data/backups/e2e/db /data/backups/e2e/db/deployments | head -20 && du -sh /data/backups/e2e']).out;
     check('opm-cloud backup --out /data/backups/e2e → BACKUP.json + db/global.sqlite + deployment file', bj.ok && ls.includes('createdAt') && ls.includes('global.sqlite') && ls.includes(`${S.deploymentId}.sqlite`), ls.split('\n').slice(-1)[0]);
-    const integrity = compose(['exec', '-T', 'opm-cloud', 'node', '-e', `const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('/data/backups/e2e/db/deployments/${S.deploymentId}.sqlite',{readOnly:true});console.log(d.prepare('PRAGMA integrity_check').get().integrity_check, d.prepare("SELECT count(*) n FROM commits").get().n)`], { allowFail: true }).out;
+    const copied = join(RUN, `backup-${S.deploymentId}.sqlite`);
+    compose(['cp', `opm-cloud:/data/backups/e2e/db/deployments/${S.deploymentId}.sqlite`, copied]);
+    const bdb = new DatabaseSync(copied, { readOnly: true });
+    const integrity = `${(bdb.prepare('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check} ${(bdb.prepare('SELECT count(*) n FROM commits').get() as { n: number }).n}`;
+    bdb.close();
     check('backup copy of the deployment DB: integrity ok, all commits', integrity.startsWith('ok') && Number(integrity.split(/\s+/).pop()) >= after.commits.length, integrity);
   });
 
@@ -604,11 +609,10 @@ async function main() {
     fake.base = `http://host.docker.internal:${port}`;
     try {
       // test hook (OPM_TEST_HOOKS=1 only): point the mirror at the fake + limit it to this run's entities. There is no
-      // HTTP route for the internal fields (patchGithubMirror strips them): written through the local adapter by a node
-      // one-off INSIDE the container (multi-process safe: same SQLite files, WAL, busy_timeout) — never from the host.
-      const script = readFileSync(join(HERE, 'set-mirror-hooks.cjs'), 'utf8');
+      // HTTP route for the internal fields (patchGithubMirror strips them): written by a one-off opm-cloud command INSIDE
+      // the container (multi-process safe: same SQLite files, WAL, busy_timeout) — never from the host.
       const hooks = { _apiBase: fake.base, _scope: [S.templateId, S.deploymentId], _stubExporter: false };
-      const hs = compose(['exec', '-T', '-e', `OPM_HOOKS=${JSON.stringify(hooks)}`, 'opm-cloud', 'node', '-'], { input: script });
+      const hs = compose(['exec', '-T', '-e', `OPM_HOOKS=${JSON.stringify(hooks)}`, 'opm-cloud', 'opm-cloud', 'test-set-mirror-hooks']);
       check('mirror test hooks written via the adapter inside the container', /hooks set/.test(hs.out), hs.out.split('\n').pop());
       const v1 = await admin.patchGithubMirror({ body: { owner: OWNER, repo: REPO, token: TOKEN, enabled: false } });
       check('patchGithubMirror: configured, token masked', v1.configured && !JSON.stringify(v1).includes(TOKEN), { token: v1.token });

@@ -231,6 +231,20 @@ func RunOp(cmd string, cfg *CloudConfig, argv []string) (int, error) {
 			return 1, err
 		}
 		return 0, nil
+	case "test-set-mirror-hooks":
+		// VM e2e only: the internal fields of githubMirror/config have no HTTP route
+		if os.Getenv("OPM_TEST_HOOKS") != "1" {
+			return usage("unknown command " + cmd), nil
+		}
+		hooks, err := doc.Parse([]byte(os.Getenv("OPM_HOOKS")))
+		if err != nil {
+			return 1, err
+		}
+		if err := DB().Collection("githubMirror").Doc("config").Set(hooks.(*doc.Map), driver.Merge); err != nil {
+			return 1, err
+		}
+		fmt.Println("hooks set")
+		return 0, nil
 	case "backup":
 		out := arg("out")
 		if out == "" {

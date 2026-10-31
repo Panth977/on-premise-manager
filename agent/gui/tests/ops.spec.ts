@@ -149,7 +149,11 @@ test('internet tunnel: start in this tab → real worker carries requests (inlin
   await shot(page, 'internet-free');
   await page.getByTestId('tunnel-start').click();
   await expect(page.getByTestId('tunnel-active')).toBeVisible();
-  await expect(page.getByTestId('tunnel-log')).toContainText('/v1/agent/blobs/', { timeout: 20_000 });
+  await expect(page.getByTestId('tunnel-security')).toContainText('end-to-end encrypted');
+  await expect(page.getByTestId('tunnel-encrypted')).toHaveText('End to end');
+  // the tab knows one route: what is inside stays between the agent and the cloud
+  await expect(page.getByTestId('tunnel-log')).toContainText('/v1/agent/sealed?mock=big', { timeout: 20_000 });
+  await expect(page.getByTestId('tunnel-log')).not.toContainText('/v1/agent/poll');
   await expect.poll(async () => Number(await page.getByTestId('tunnel-requests').innerText()), { timeout: 20_000 }).toBeGreaterThanOrEqual(4);
   await expect(page.getByTestId('tunnel-log')).toContainText('done');
   await shot(page, 'internet-active');

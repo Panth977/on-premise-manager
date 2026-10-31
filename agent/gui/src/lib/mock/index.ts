@@ -267,7 +267,7 @@ let loginFails: number[] = [];
   ] as [Snapshot, number][])
     snapshots.push({ s, createdMs: nowMs() - age * 1000, readyMs: 0 });
   if (ls('opm.mock.otherTab') === '1')
-    lease = { leaseId: D.mockUlid(nowMs() - 600_000), actor: 'mira@acme.example', siteSlug: 'db', userAgent: 'Mozilla/5.0 (Windows NT 10.0) Firefox/131.0', startedAt: D.ago(600), lastPollAt: D.ago(2), status: 'active', reqs: 214, bytes: 3_481_220, lastError: null };
+    lease = { leaseId: D.mockUlid(nowMs() - 600_000), actor: 'mira@acme.example', siteSlug: 'db', userAgent: 'Mozilla/5.0 (Windows NT 10.0) Firefox/131.0', startedAt: D.ago(600), lastPollAt: D.ago(2), status: 'active', encrypted: true, reqs: 214, bytes: 3_481_220, lastError: null };
 })();
 
 const head = (): Revision | null => revisions.find((r) => r.revId === headRevId) ?? null;
@@ -789,14 +789,10 @@ function requireActor(headers: Headers, s: MockSession): string {
 // ───────────────────────────────────────────── tunnel
 function tunnelRequest(): TunnelRequest {
   tunnelSeq++;
-  const kinds: [TunnelRequest['method'], string, string | null][] = [
-    ['GET', `/v1/agent/poll?cursor=41&wait=25`, null],
-    ['POST', `/v1/agent/heartbeat`, btoa(JSON.stringify({ siteSlug: 'db', agentVersion: '0.1.0' }))],
-    ['POST', `/v1/agent/activities`, btoa(JSON.stringify({ siteSlug: 'db', entries: [] }))],
-    ['GET', `/v1/agent/blobs/${D.fakeSha('big-layer')}`, null],
-  ];
-  const [method, path, bodyB64] = kinds[(tunnelSeq - 1) % kinds.length];
-  return { reqId: D.mockUlid(), method, url: D.MOCK_API + path, headers: { 'X-OPM-Site': `${D.DEP}/db`, 'X-OPM-Ts': String(Math.floor(nowMs() / 1000)), 'X-OPM-Nonce': 'mockNonce' + tunnelSeq, 'X-OPM-Sig': 'mockSig', ...(bodyB64 ? { 'Content-Type': 'application/json' } : {}) }, bodyB64, createdAt: D.iso(nowMs()), timeoutSec: 60 };
+  // like the agent: everything is sealed, the tab sees one route and ciphertext (§9.10)
+  const big = tunnelSeq % 4 === 0;
+  const url = `${D.MOCK_API}/v1/agent/sealed${big ? '?mock=big' : ''}`;
+  return { reqId: D.mockUlid(), method: 'POST', url, headers: { 'Content-Type': 'application/json' }, bodyB64: btoa(JSON.stringify({ v: 1, kid: '0123456789abcdef', epk: 'bW9jaw==', ct: 'bW9jaw==' })), createdAt: D.iso(nowMs()), timeoutSec: 60 };
 }
 function checkLease(leaseId: string) {
   if (lease && lease.status === 'active' && nowMs() - Date.parse(lease.lastPollAt) > 30_000 && lease.leaseId === leaseId) lease.status = 'expired';
@@ -807,13 +803,12 @@ function checkLease(leaseId: string) {
 async function cloudFetch(url: URL, init: RequestInit): Promise<Response> {
   await sleep(120 + Math.random() * 200);
   const hdr = { 'Content-Type': 'application/json', 'X-OPM-Server-Time': String(Math.floor(nowMs() / 1000)) };
-  if (url.pathname.startsWith('/v1/agent/blobs/')) {
-    const big = new Uint8Array(5 * 1024 * 1024 + 4321);
-    for (let i = 0; i < big.length; i += 4096) big[i] = i & 0xff;
-    return new Response(big, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+  const size = url.searchParams.get('mock') === 'big' ? 5 * 1024 * 1024 + 4321 : 2048;
+  if (url.pathname === '/v1/agent/sealed' && init.method === 'POST') {
+    const ct = new Uint8Array(size);
+    for (let i = 0; i < ct.length; i += 4096) ct[i] = i & 0xff;
+    return new Response(ct, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
   }
-  if (url.pathname === '/v1/agent/poll') return new Response(JSON.stringify({ fetchedAt: D.iso(nowMs()), cursor: '41', deploymentId: D.DEP, deleted: false, proposals: [] }), { status: 200, headers: hdr });
-  if (init.method === 'POST') return new Response(JSON.stringify({ ok: true, serverTime: D.iso(nowMs()) }), { status: 200, headers: hdr });
   return new Response(JSON.stringify({ error: { code: 'not-found', message: 'no such cloud endpoint (mock)' } }), { status: 404, headers: hdr });
 }
 
@@ -1581,11 +1576,11 @@ const H: Partial<Record<keyof typeof AGENT_API, Handler>> = {
   tunnelState: () => {
     if (lease && lease.status === 'active' && nowMs() - Date.parse(lease.lastPollAt) > 30_000 && leaseSession) lease.status = 'expired';
     const active = lease?.status === 'active' ? lease : null;
-    return { lease: active, holderSite: active?.siteSlug ?? null, pending: active ? 1 + (tunnelSeq % 3) : 0 };
+    return { lease: active, holderSite: active?.siteSlug ?? null, pending: active ? 1 + (tunnelSeq % 3) : 0, encrypted: active?.encrypted ?? true };
   },
   tunnelStart: (c, s, actor) => {
     if (lease?.status === 'active' && !(leaseSession === null && nowMs() - Date.parse(lease.lastPollAt) > 30_000)) throw new MockError('conflict', 'Another tab gives internet already.', { active: lease });
-    lease = { leaseId: D.mockUlid(), actor: actor!, siteSlug: D.SELF, userAgent: String((c.body as { userAgent?: string })?.userAgent ?? ''), startedAt: D.iso(nowMs()), lastPollAt: D.iso(nowMs()), status: 'active', reqs: 0, bytes: 0, lastError: null };
+    lease = { leaseId: D.mockUlid(), actor: actor!, siteSlug: D.SELF, userAgent: String((c.body as { userAgent?: string })?.userAgent ?? ''), startedAt: D.iso(nowMs()), lastPollAt: D.iso(nowMs()), status: 'active', encrypted: true, reqs: 0, bytes: 0, lastError: null };
     leaseSession = s!.sessionId;
     addActivity(D.SELF, 'internet.tunnel.started', 'Browser internet tunnel started', actor, { leaseId: lease.leaseId });
     return { lease };

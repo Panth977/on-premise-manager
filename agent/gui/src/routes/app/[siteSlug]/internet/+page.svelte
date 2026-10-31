@@ -19,6 +19,9 @@
   let revokeOpen = $state(false);
 
   const lease = $derived(ts.data?.lease ?? null);
+  const encrypted = $derived(ts.data?.encrypted !== false);
+  // the agent refuses a call (no verifiable cloud key, a tampered answer) without this tab noticing: its error comes first
+  const lastError = $derived(lease?.lastError ?? tunnel.lastError);
   const mine = $derived(tunnel.active && !!lease && lease.leaseId === tunnel.lease?.leaseId);
   const other = $derived(!!lease && !mine && lease.status === 'active');
   const noRoute = $derived((overview.data?.sites ?? []).filter((s) => s.reachable && s.cloudRoute === 'none'));
@@ -64,9 +67,13 @@
 
 <PageHead icon="globe" title="Internet from this browser" sub="When no site reaches the cloud (no direct route, no relay), this browser tab can carry the agents' cloud calls: polls, heartbeats, reports, activities and downloads. Uploads wait for a real route." />
 
-<div class="banner warn" style="margin-bottom:16px">
+<div class="banner {encrypted ? '' : 'warn'}" style="margin-bottom:16px" data-testid="tunnel-security">
   <Icon name="shield" />
-  <div class="grow">Payloads (also commits with secret values) pass through this tab. Keep it open; closing it ends the tunnel after 30 s. One tab per deployment can give internet.</div>
+  {#if encrypted}
+    <div class="grow">Traffic is end-to-end encrypted between the agent and the cloud: this tab carries ciphertext only, also for commits with secret values. Keep it open; closing it ends the tunnel after 30 s. One tab per deployment can give internet.</div>
+  {:else}
+    <div class="grow">This tunnel is not encrypted: payloads (also commits with secret values) pass through this tab in clear. Set <code>releasePublicKey</code> in agent.json and upgrade the holding agent. Keep the tab open; closing it ends the tunnel after 30 s. One tab per deployment can give internet.</div>
+  {/if}
 </div>
 
 <Load loading={ts.loading} loaded={ts.loaded} error={ts.error} retry={() => ts.load()}>
@@ -86,7 +93,8 @@
           <div><span class="muted tiny">Bytes</span><strong>{bytes(tunnel.bytes)}</strong></div>
           <div><span class="muted tiny">In flight</span><strong>{tunnel.inFlight}/4</strong></div>
           <div><span class="muted tiny">Queued on {ts.data?.holderSite ?? '—'}</span><strong>{ts.data?.pending ?? 0}</strong></div>
-          <div class="wide"><span class="muted tiny">Last error</span><strong class="small" class:bad-text={!!tunnel.lastError}>{tunnel.lastError ?? 'none'}</strong></div>
+          <div><span class="muted tiny">Encryption</span><strong class="small" data-testid="tunnel-encrypted">{encrypted ? 'End to end' : 'None'}</strong></div>
+          <div class="wide"><span class="muted tiny">Last error</span><strong class="small" class:bad-text={!!lastError} data-testid="tunnel-last-error">{lastError ?? 'none'}</strong></div>
         </div>
         <div class="muted small">Lease <code>{tunnel.lease?.leaseId}</code> · held by site <strong>{tunnel.lease?.siteSlug}</strong> · started <Time ts={tunnel.lease?.startedAt} /></div>
         <div class="table-wrap">
@@ -120,6 +128,7 @@
           <dt>Since</dt><dd><Time ts={lease.startedAt} /> · last poll <Time ts={lease.lastPollAt} /></dd>
           <dt>Browser</dt><dd class="small muted">{lease.userAgent || '—'}</dd>
           <dt>Traffic</dt><dd>{lease.reqs} requests · {bytes(lease.bytes)}</dd>
+          <dt>Encryption</dt><dd data-testid="tunnel-encrypted">{lease.encrypted ? 'End to end' : 'None'}</dd>
         </dl>
         <div><Btn variant="danger" onclick={() => (revokeOpen = true)} data-testid="tunnel-revoke">Revoke the other tab</Btn></div>
       </div>

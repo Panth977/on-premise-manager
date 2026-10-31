@@ -1,6 +1,8 @@
 /**
  * Browser internet tunnel worker (SPEC §9.10). Lives for the whole tab (not only the Internet page):
  * long-poll GET /_opm/api/tunnel/next → fetch(url) to the cloud from this browser → POST tunnel/result
+ * The agent seals every request: this worker moves ciphertext to /v1/agent/sealed and never sees what is inside, so the
+ * log rows show that one path.
  * (≤ 4 MiB inline) or chunked: result{chunked:true} → chunk 0..n-1 (≤ 4 MiB each, in order) → complete{parts, sha256}.
  * At most 4 requests in flight. 409 on any tunnel call = the lease ended (revoked by another tab / expired).
  */

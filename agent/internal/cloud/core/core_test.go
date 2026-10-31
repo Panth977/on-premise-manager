@@ -1201,6 +1201,9 @@ func TestVectors(t *testing.T) {
 		if fn == "serveObject" {
 			w = mask(sortHeaders(want))
 		}
+		if fn == "seedBlobContents" { // TS key order is the completion order of its pool
+			g, w = sortKeys(g), sortKeys(w)
+		}
 		if fn == "dump" {
 			g, w = mask(strings.TrimSuffix(strings.TrimPrefix(got, `{"out":`), "}")), mask(strings.TrimSuffix(strings.TrimPrefix(want, `{"out":`), "}"))
 			if p := toStr(s.Arr("args")[0]); strings.HasSuffix(p, "activities") || p == "auditLog" {
@@ -1217,6 +1220,22 @@ func TestVectors(t *testing.T) {
 		}
 	}
 	t.Logf("%d steps, %d mismatches", len(v.Arr("steps")), fails)
+}
+
+// sortKeys sorts the keys of {"out":{…}}.
+func sortKeys(s string) string {
+	m, err := doc.ParseMap([]byte(s))
+	if err != nil {
+		return s
+	}
+	o := m.Map("out")
+	ks := o.Keys()
+	sort.Strings(ks)
+	n := doc.New()
+	for _, k := range ks {
+		n.Set(k, o.Val(k))
+	}
+	return doc.MarshalString(n)
 }
 
 // sortHeaders puts the headers of a recorded reply in sorted order (HTTP header order does not matter here).

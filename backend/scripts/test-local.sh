@@ -2,6 +2,7 @@
 # Run the backend suite against the LOCAL adapter (§21 #108): opm-cloud (dist/opm-cloud.cjs, npm run build)
 # on a fresh temp data dir + port, the tests open the same data dir (OPM_TEST_ADAPTER=local).
 #   scripts/test-local.sh [test files…]     default: test/*.test.ts
+#   OPM_TEST_SERVER_BIN=path/to/opm-cloud   run that binary (the Go server) instead of dist/opm-cloud.cjs
 set -eu
 cd "$(dirname "$0")/.."
 PORT="${OPM_TEST_PORT:-8791}"
@@ -15,7 +16,11 @@ export OPM_FRONTEND_ORIGINS="http://localhost:5173,http://localhost:4173,http://
 # §21 #125 port tunnels listen on these (test/44)
 export TUNNEL_FREE_PORTS="${TUNNEL_FREE_PORTS:-28700-28703}"
 export OPM_OUTBOX_MIN_AGE_MS="${OPM_OUTBOX_MIN_AGE_MS:-1000}" OPM_BLOB_REDIRECT="${OPM_BLOB_REDIRECT:-0}" OPM_RELEASE_PUBLIC_KEY="$PUB" GCLOUD_PROJECT=local
-OPM_PORT="$PORT" OPM_HOST=127.0.0.1 node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve >"$LOG" 2>&1 &
+if [ -n "${OPM_TEST_SERVER_BIN:-}" ]; then
+  OPM_PORT="$PORT" OPM_HOST=127.0.0.1 "$OPM_TEST_SERVER_BIN" serve >"$LOG" 2>&1 &
+else
+  OPM_PORT="$PORT" OPM_HOST=127.0.0.1 node --no-warnings=ExperimentalWarning dist/opm-cloud.cjs serve >"$LOG" 2>&1 &
+fi
 SRV=$!
 trap 'kill $SRV 2>/dev/null || true; wait $SRV 2>/dev/null || true; [ "${OPM_KEEP_DATA:-0}" = 1 ] && echo "data kept: $DATA" || rm -rf "$DATA"' EXIT INT TERM
 for i in $(seq 1 100); do

@@ -33,6 +33,9 @@ func tsVectors(t *testing.T, stub, goHash, saKey string) *doc.Map {
 	if _, err := os.Stat(filepath.Join(back, "node_modules/tsx")); err != nil {
 		t.Skip("backend/node_modules missing")
 	}
+	if _, err := os.Stat(filepath.Join(back, "src/core/files.ts")); err != nil {
+		t.Skip("the TypeScript cloud is gone: these vectors compared Go with it during the port")
+	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("no node")
 	}

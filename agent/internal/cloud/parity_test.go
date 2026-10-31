@@ -54,6 +54,9 @@ func fire(t *testing.T, base, method, path, body string, hdr []string) shot {
 // The same requests against the real TS server and the Go handler: same status, headers (spelling apart) and body bytes.
 func TestHTTPParityWithTS(t *testing.T) {
 	be := backend(t)
+	if _, err := os.Stat(filepath.Join(be, "src/server.ts")); err != nil {
+		t.Skip("the TypeScript cloud is gone: this test compared Go with it during the port")
+	}
 	port := freePort(t)
 	tsURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	dir := t.TempDir()
